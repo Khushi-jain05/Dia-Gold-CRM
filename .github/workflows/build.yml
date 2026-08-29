@@ -1,0 +1,64 @@
+name: Build desktop apps
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: DiaGoldCRM-Windows-x64
+          - os: macos-14          # Apple Silicon
+            artifact: DiaGoldCRM-macOS-arm64
+          - os: macos-13          # Intel
+            artifact: DiaGoldCRM-macOS-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build
+        run: pyinstaller packaging/DiaGoldCRM.spec --noconfirm
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path dist/DiaGoldCRM/* -DestinationPath dist/${{ matrix.artifact }}.zip
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent DiaGoldCRM.app ${{ matrix.artifact }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
