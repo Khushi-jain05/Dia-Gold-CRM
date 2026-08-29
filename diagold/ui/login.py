@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
-    QFormLayout,
+    QFrame,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from diagold import APP_NAME, __version__
 from diagold.db.session import SessionLocal
 from diagold.services.auth import AuthError, CurrentUser, authenticate
+from diagold.ui.style import GOLD, INK
 
 
 class LoginDialog(QDialog):
@@ -22,46 +23,69 @@ class LoginDialog(QDialog):
         super().__init__(parent)
         self.current_user: CurrentUser | None = None
         self.setWindowTitle(f"{APP_NAME} — Login")
-        self.setMinimumWidth(340)
+        self.setFixedSize(400, 468)
+        self.setStyleSheet(f"QDialog {{ background: {INK}; }}")
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(36, 30, 36, 24)
+        outer.setSpacing(0)
 
-        title = QLabel(APP_NAME)
-        title.setStyleSheet("font-size: 22px; font-weight: 700;")
+        diamond = QLabel("◆")
+        diamond.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        diamond.setStyleSheet(f"color: {GOLD}; font-size: 40px;")
+        outer.addWidget(diamond)
+
+        title = QLabel("Dia Gold CRM")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle = QLabel("Jewellery Manufacturing ERP")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color: gray;")
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addSpacing(12)
+        title.setStyleSheet("color: #FFFFFF; font-size: 23px; font-weight: 800; padding-top: 6px;")
+        outer.addWidget(title)
 
-        form = QFormLayout()
+        subtitle = QLabel("JEWELLERY  MANUFACTURING  ERP")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet(f"color: {GOLD}; font-size: 10px; font-weight: 700; letter-spacing: 2px;")
+        outer.addWidget(subtitle)
+        outer.addSpacing(24)
+
+        card = QFrame()
+        card.setObjectName("Card")
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(22, 22, 22, 22)
+        cv.setSpacing(12)
+
         self.username = QLineEdit()
         self.username.setPlaceholderText("User ID")
+        self.username.setMinimumHeight(38)
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
         self.password.setPlaceholderText("Password")
-        form.addRow("User ID", self.username)
-        form.addRow("Password", self.password)
-        layout.addLayout(form)
+        self.password.setMinimumHeight(38)
+        cv.addWidget(QLabel("User ID"))
+        cv.addWidget(self.username)
+        cv.addWidget(QLabel("Password"))
+        cv.addWidget(self.password)
 
         self.btn = QPushButton("Log In")
+        self.btn.setObjectName("Primary")
+        self.btn.setMinimumHeight(40)
         self.btn.setDefault(True)
         self.btn.clicked.connect(self._attempt)
-        layout.addWidget(self.btn)
+        cv.addSpacing(4)
+        cv.addWidget(self.btn)
+        outer.addWidget(card)
 
-        hint = QLabel("First run: user <b>admin</b> / password <b>admin</b>")
+        hint = QLabel("First run — <b style='color:#fff'>admin</b> / <b style='color:#fff'>admin</b>")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint.setStyleSheet("color: gray; font-size: 11px;")
-        layout.addWidget(hint)
+        hint.setStyleSheet("color: #8A8F9C; font-size: 11px; padding-top: 12px;")
+        outer.addWidget(hint)
 
+        outer.addStretch(1)
         version = QLabel(f"v{__version__}")
-        version.setAlignment(Qt.AlignmentFlag.AlignRight)
-        version.setStyleSheet("color: gray; font-size: 10px;")
-        layout.addWidget(version)
+        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version.setStyleSheet("color: #5A5E6B; font-size: 10px;")
+        outer.addWidget(version)
 
         self.password.returnPressed.connect(self._attempt)
+        self.username.returnPressed.connect(lambda: self.password.setFocus())
 
     def _attempt(self) -> None:
         uid = self.username.text().strip()

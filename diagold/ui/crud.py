@@ -257,16 +257,26 @@ class CrudWidget(QWidget):
 
         self.setWindowTitle(spec.title)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        heading = QLabel(spec.title)
+        heading.setObjectName("H1")
+        layout.addWidget(heading)
 
         bar = QHBoxLayout()
+        bar.setSpacing(8)
         self.search = QLineEdit()
         self.search.setPlaceholderText(spec.search_hint)
+        self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.reload)
         bar.addWidget(self.search, 1)
 
-        self.btn_new = QPushButton("New")
+        self.btn_new = QPushButton("+ New")
+        self.btn_new.setObjectName("Primary")
         self.btn_edit = QPushButton("Edit")
         self.btn_delete = QPushButton("Delete")
+        self.btn_delete.setObjectName("Danger")
         self.btn_refresh = QPushButton("Refresh")
         for b in (self.btn_new, self.btn_edit, self.btn_delete, self.btn_refresh):
             bar.addWidget(b)

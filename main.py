@@ -12,12 +12,15 @@ from diagold import APP_NAME
 from diagold.db.session import init_db
 from diagold.ui.login import LoginDialog
 from diagold.ui.main_window import MainWindow
+from diagold.ui.style import APP_QSS
 
 
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("Dia Gold")
+    app.setStyle("Fusion")
+    app.setStyleSheet(APP_QSS)
 
     init_db()
 
