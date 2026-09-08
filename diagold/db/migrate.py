@@ -72,6 +72,7 @@ def sync_schema(engine: Engine) -> list[str]:
         # part-migrated by an earlier run still needs its values carried over.
         _carry_over_metal_values(conn, inspector, existing)
         _carry_over_account_types(conn, existing)
+        _carry_over_stone_lookups(conn, inspector, existing)
         changes += _drop_orphan_not_null_columns(conn, inspector, existing)
         _create_unique_indexes(conn, inspector, existing)
 
@@ -171,6 +172,39 @@ def _carry_over_account_types(conn, existing: set[str]) -> None:
             text("UPDATE accounts SET account_type = :new WHERE account_type = :old"),
             {"new": new, "old": old},
         )
+
+
+def _carry_over_stone_lookups(conn, inspector, existing: set[str]) -> None:
+    """Move v0.1 stone text values into the granular lookup masters.
+
+    The old shape stored shape / type / quality as free text on the stone row.
+    Each distinct value becomes a lookup row and the stone points at it, so no
+    classification is lost when the text columns go.
+    """
+    if "stone_info" not in existing:
+        return
+    cols = {c["name"] for c in inspector.get_columns("stone_info")}
+    moves = [
+        ("stone_type", "stone_kinds", "stone_kind_id"),
+        ("shape", "stone_shapes", "shape_id"),
+        ("quality", "stone_qualities", "quality_id"),
+    ]
+    for text_col, table, fk_col in moves:
+        if text_col not in cols or fk_col not in cols:
+            continue
+        # Create any lookup row the old text refers to but that does not exist.
+        conn.execute(text(
+            f"INSERT INTO {table} (code, name, is_active, created_at, updated_at) "
+            f"SELECT DISTINCT UPPER(REPLACE(TRIM({text_col}),' ','')), TRIM({text_col}), 1, "
+            f"CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+            f"FROM stone_info WHERE TRIM(COALESCE({text_col},'')) <> '' "
+            f"AND UPPER(REPLACE(TRIM({text_col}),' ','')) NOT IN (SELECT code FROM {table})"
+        ))
+        conn.execute(text(
+            f"UPDATE stone_info SET {fk_col} = ("
+            f"  SELECT id FROM {table} WHERE {table}.name = TRIM(stone_info.{text_col})"
+            f") WHERE {fk_col} IS NULL AND TRIM(COALESCE({text_col},'')) <> ''"
+        ))
 
 
 def _drop_orphan_not_null_columns(conn, inspector, existing: set[str]) -> list[str]:
