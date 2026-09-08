@@ -28,10 +28,12 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 
 def init_db() -> None:
     """Create all tables and run first-run seeding."""
-    from diagold.db.models import Base  # noqa: WPS433 - avoid circular import
+    from diagold.db.migrate import sync_schema  # noqa: WPS433 - avoid circular import
+    from diagold.db.models import Base
     from diagold.services.seed import seed_initial_data
 
     Base.metadata.create_all(engine)
+    sync_schema(engine)  # add columns models gained since the file was made
     with SessionLocal() as session:
         seed_initial_data(session)
         session.commit()
