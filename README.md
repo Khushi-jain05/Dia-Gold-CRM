@@ -14,7 +14,8 @@ The menu structure is taken directly from the client design workbook
 | Area | Status |
 |---|---|
 | Login (ID / Password) | ✅ Working — first run: `admin` / `admin` |
-| Master ▸ Company, Currency, Account, Metal, Findings, Parts/Mould, SKU Info, Stone Info, Manufacturing, Other | ✅ Full add / edit / delete / search |
+| Master ▸ Company, Currency, Account, Metal, Location, Parts/Mould, SKU Info, Family/Category, Colour, Stone Info, Setting Type, Manufacturing, Other | ✅ Full add / edit / delete / search |
+| Master ▸ Findings, Voucher Type | ⬜ Dropped — the client confirmed they are unused, so they are hidden from the menu |
 | Master ▸ User Right | ✅ Users + Roles + permission matrix (view / edit per module) |
 | SKU ▸ Stone SKU/Packet No, Product SKU Master | ✅ Full add / edit / delete / search |
 | SKU ▸ SKU View | ⬜ Placeholder |
@@ -47,8 +48,11 @@ First launch creates the database and seeds:
 
 - `admin` / `admin` superuser (change the password from **Tools ▸ Change Password**)
 - Base currencies (INR, USD, AED, EUR)
-- Common gold / silver / platinum purities
+- All 26 metal heads from the client's live master, each with its
+  purity/fineness and Mining Metal Ratio rows (which must total 100.00)
 - Starter stone types, manufacturing processes, and SKU categories
+- The client's 17 material-custody locations, 14 setting types,
+  2 jewellery families and 3 gold colours
 
 ### Where the data lives
 
