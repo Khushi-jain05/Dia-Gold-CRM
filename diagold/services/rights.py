@@ -39,12 +39,12 @@ MASTERS: tuple[tuple[str, str | None], ...] = (
     ("Family Category", "master.family_category"),
     ("Colour", "master.colour"),
     ("Item Size", None),               # pending Q2
-    ("Stone Group", None),             # T-06, pending Q1
+    ("Stone Group", "master.stone_group"),
     ("Stone", "master.stone_info"),
-    ("Shape", None),                   # T-06
-    ("Type", None),                    # T-06
-    ("Quality", None),                 # T-06
-    ("Size", None),                    # T-06
+    ("Shape", "master.stone_shape"),
+    ("Type", "master.stone_kind"),
+    ("Quality", "master.stone_quality"),
+    ("Size", "master.stone_size"),
     ("Setting Type", "master.setting_type"),
     ("MFG Process", "master.manufacturing"),
     ("Set Default Process", "master.default_process"),
