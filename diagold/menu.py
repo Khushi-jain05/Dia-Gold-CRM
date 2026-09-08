@@ -34,11 +34,20 @@ MENU: list[MenuGroup] = [
         ("currency", "Currency"),
         ("account", "Account"),
         ("metal", "Metal"),
-        ("findings", "Findings"),
+        ("location", "Location"),
         ("parts_mould", "Parts / Mould"),
         ("sku_info", "SKU Info"),
+        ("family_category", "Family / Category"),
+        ("colour", "Colour"),
         ("stone_info", "Stone Info"),
+        ("setting_type", "Setting Type"),
+        ("setting_labour", "Setting Labour Chart"),
         ("manufacturing", "Manufacturing"),
+        ("default_process", "Set Default Process"),
+        ("daily_metal_rate", "Daily Metal Rate"),
+        ("daily_labour_rate", "Daily Labour Rates"),
+        ("labour", "Labour"),
+        ("set_margins", "Set Margins"),
         ("other", "Other"),
     ]),
     _g("sku", "SKU", [
@@ -144,6 +153,16 @@ MENU: list[MenuGroup] = [
         ("close_all", "Close All"),
     ]),
 ]
+
+# Masters the client confirmed they do not use, so they are absent from MENU
+# above rather than shown as empty screens (D2, D3 / UX6):
+#   Findings     - "We don't use findings at all."   The model and CrudSpec are
+#                  retained so nothing is lost if the client asks for it later;
+#                  only the navigation entry is gone.
+#   Voucher Type - "That's not useful to us."  Never built in the first place.
+#                  (Account > Voucher Entry is a transaction screen, not this
+#                  master, and stays.)
+DROPPED_MASTERS: tuple[str, ...] = ("Findings", "Voucher Type")
 
 MENU_BY_KEY: dict[str, MenuGroup] = {g.key: g for g in MENU}
 
