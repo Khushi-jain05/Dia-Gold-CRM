@@ -78,8 +78,43 @@ class User(Base, PKMixin, TimestampMixin):
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    mobile_number: Mapped[str] = mapped_column(String(32), default="")  # used for SMS
+
+    # Per-user switches carried over from the legacy User Rights screen.
+    hide_costing_in_item_search: Mapped[bool] = mapped_column(Boolean, default=False)
+    disable_column_width: Mapped[bool] = mapped_column(Boolean, default=False)
+    lock_mfg_labour_allow_loss: Mapped[bool] = mapped_column(Boolean, default=False)
+    hide_sale_in_item_search: Mapped[bool] = mapped_column(Boolean, default=False)
+    disable_snap: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_sku_copy: Mapped[bool] = mapped_column(Boolean, default=False)
+    actual_loss_exceed_lock: Mapped[bool] = mapped_column(Boolean, default=False)
+    lock_item_search: Mapped[bool] = mapped_column(Boolean, default=False)
+    stock_transfer_lock: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Back-dated voucher controls, also per user.
+    days_allowed_back_dated_voucher: Mapped[int] = mapped_column(default=0)
+    apply_cutoff_date_back_dated_voucher: Mapped[bool] = mapped_column(
+        Boolean, default=False
+    )
+
     role_id: Mapped[int | None] = mapped_column(ForeignKey("roles.id"), nullable=True)
     role: Mapped[Role | None] = relationship(back_populates="users")
+    permissions: Mapped[list["UserPermission"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+    # Order matters for the User Rights screen and the export.
+    PER_USER_FLAGS: tuple[tuple[str, str], ...] = (
+        ("hide_costing_in_item_search", "Hide Costing in Item Search"),
+        ("disable_column_width", "Disable Column Width"),
+        ("lock_mfg_labour_allow_loss", "Lock Mfg Labour & Allow Loss"),
+        ("hide_sale_in_item_search", "Hide Sale in Item Search"),
+        ("disable_snap", "Disable Snap"),
+        ("allow_sku_copy", "Allow SKU Copy"),
+        ("actual_loss_exceed_lock", "Actual Loss Exceed Lock"),
+        ("lock_item_search", "Lock Item Search"),
+        ("stock_transfer_lock", "Stock Transfer Lock"),
+    )
 
     def set_password(self, raw: str) -> None:
         self.password_hash = hash_password(raw)
@@ -89,3 +124,37 @@ class User(Base, PKMixin, TimestampMixin):
 
     def __str__(self) -> str:  # pragma: no cover - display helper
         return self.username
+
+
+class UserPermission(Base, PKMixin):
+    """One (user, master) grant with the five legacy action flags.
+
+    Rights are per USER x per MASTER x per ACTION - not per role. Absence of a
+    row means no access at all (deny by default), so a newly created user can
+    see nothing until rights are granted.
+    """
+
+    __tablename__ = "user_permissions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "master_key", name="uq_user_master"),
+    )
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    master_key: Mapped[str] = mapped_column(String(64))
+
+    can_display: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_add: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_edit: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_delete: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_print: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    user: Mapped[User] = relationship(back_populates="permissions")
+
+    # The five actions, in the order the legacy screen shows them.
+    ACTIONS: tuple[tuple[str, str], ...] = (
+        ("can_display", "Display"),
+        ("can_add", "Add New"),
+        ("can_edit", "Edit"),
+        ("can_delete", "Delete"),
+        ("can_print", "Print"),
+    )
