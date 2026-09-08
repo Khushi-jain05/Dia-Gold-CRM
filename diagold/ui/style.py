@@ -149,23 +149,60 @@ QHeaderView::section {{
 }}
 QTableWidget::item {{ padding: 6px 8px; }}
 
-/* ---- Inputs ---- */
+/* ---- Inputs ----
+   min-height matters: Qt applies padding INSIDE the widget, so without a
+   minimum the contents rect gets squeezed and the text clips vertically. */
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QPlainTextEdit {{
     background: {CARD};
     border: 1px solid {BORDER};
     border-radius: 8px;
-    padding: 6px 9px;
+    padding: 5px 9px;
+    min-height: 20px;
     selection-background-color: {GOLD_SOFT};
 }}
+QPlainTextEdit {{ min-height: 54px; }}
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
+QDoubleSpinBox:disabled, QDateEdit:disabled {{ background: #F0F0F2; color: {MUTED}; }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QDateEdit:focus, QPlainTextEdit:focus {{ border: 1px solid {GOLD}; }}
-QComboBox::drop-down {{ border: none; width: 20px; subcontrol-position: center right; }}
-QComboBox::down-arrow {{
-    width: 0; height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid {MUTED};
-    margin-right: 8px;
+
+/* Leave ::drop-down and ::down-arrow entirely unstyled so Fusion draws its
+   native chevron. Overriding them (the CSS triangle trick) collapsed the arrow
+   into a stray dash, making combo boxes look like plain text fields. */
+
+/* ---- Check boxes ---- */
+QCheckBox {{ spacing: 8px; }}
+QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    background: {CARD};
+}}
+QCheckBox::indicator:hover {{ border-color: {GOLD}; }}
+QCheckBox::indicator:checked {{
+    background: {GOLD};
+    border: 1px solid {GOLD_DARK};
+}}
+QCheckBox::indicator:disabled {{ background: #F0F0F2; }}
+
+/* ---- Group boxes (child grids on a form) ---- */
+QGroupBox {{
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+    background: {CARD};
+    margin-top: 14px;
+    padding: 12px 10px 10px 10px;
+    font-weight: 700;
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 4px;
+    color: {MUTED};
+    font-size: 11px;
+    letter-spacing: 1px;
 }}
 
 /* ---- Cards ---- */
