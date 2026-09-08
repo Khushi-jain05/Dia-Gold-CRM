@@ -19,7 +19,12 @@ from diagold.db.models import (
     Role,
     SettingType,
     SkuInfo,
+    StoneGroup,
     StoneInfo,
+    StoneKind,
+    StoneQuality,
+    StoneShape,
+    StoneSize,
     User,
 )
 from diagold.services import costing
@@ -181,20 +186,64 @@ def _seed_metals(session: Session) -> None:
         ])
 
 
+def _lookup(session: Session, model, code: str, name: str, **extra):
+    """Fetch-or-create one reference row. Idempotent on code."""
+    row = session.scalar(select(model).where(model.code == code))
+    if row is None:
+        row = model(code=code, name=name, is_active=True, **extra)
+        session.add(row)
+        session.flush()
+    return row
+
+
+def _seed_stone_reference(session: Session) -> None:
+    """The granular stone masters the client works in.
+
+    Stone groups are a client decision, not a proposal: Diamond, Polki and
+    Colour Stone. Shapes, types, qualities and sizes are starting points -
+    users extend every one of these lists themselves.
+    """
+    for code, name in (("DIA", "Diamond"), ("POLKI", "Polki"), ("CS", "Colour Stone")):
+        _lookup(session, StoneGroup, code, name)
+    for code, name in (("RND", "Round"), ("OVL", "Oval"), ("EMR", "Emerald"),
+                       ("PRN", "Princess"), ("PER", "Pear"), ("MAR", "Marquise"),
+                       ("CUS", "Cushion"), ("BAG", "Baguette"), ("HRT", "Heart")):
+        _lookup(session, StoneShape, code, name)
+    for code, name in (("NAT", "Natural"), ("LAB", "Lab Grown"),
+                       ("IMI", "Imitation"), ("SYN", "Synthetic")):
+        _lookup(session, StoneKind, code, name)
+    for code, name in (("VSGH", "VS-GH"), ("VSFG", "VS-FG"), ("SI", "SI"),
+                       ("VVS", "VVS")):
+        _lookup(session, StoneQuality, code, name)
+
+
 def _seed_stones(session: Session) -> None:
-    if _empty(session, StoneInfo):
-        session.add_all([
-            StoneInfo(code="DIA-RND", name="Diamond", stone_type="Natural", shape="Round",
-                      quality="VS-GH", weight_unit="ct", hsn_code="7102"),
-            StoneInfo(code="DIA-LAB", name="Diamond", stone_type="Lab Grown", shape="Round",
-                      quality="VS-FG", weight_unit="ct", hsn_code="7104"),
-            StoneInfo(code="CZ-RND", name="Cubic Zirconia", stone_type="Imitation", shape="Round",
-                      weight_unit="pcs", hsn_code="7104"),
-            StoneInfo(code="RUBY", name="Ruby", stone_type="Natural", shape="Oval",
-                      color="Red", weight_unit="ct", hsn_code="7103"),
-            StoneInfo(code="EMER", name="Emerald", stone_type="Natural", shape="Emerald",
-                      color="Green", weight_unit="ct", hsn_code="7103"),
-        ])
+    """Reference stone rows, classified against the granular masters."""
+    _seed_stone_reference(session)
+    existing = {c for c in session.scalars(select(StoneInfo.code)).all() if c}
+
+    def ref(model, code):
+        return session.scalar(select(model).where(model.code == code))
+
+    rows = [
+        # code,      name,             group,   kind,  shape, quality, colour, unit, hsn
+        ("CZ-RND", "Cubic Zirconia", "CS",    "IMI", "RND", None,   "",      "pcs", "7104"),
+        ("DIA-RND", "Diamond",       "DIA",   "NAT", "RND", "VSGH", "",      "ct",  "7102"),
+        ("DIA-LAB", "Diamond",       "DIA",   "LAB", "RND", "VSFG", "",      "ct",  "7104"),
+        ("EMER",    "Emerald",       "CS",    "NAT", "EMR", None,   "Green", "ct",  "7103"),
+        ("RUBY",    "Ruby",          "CS",    "NAT", "OVL", None,   "Red",   "ct",  "7103"),
+    ]
+    for code, name, grp, kind, shape, qual, colour, unit, hsn in rows:
+        if code in existing:
+            continue
+        session.add(StoneInfo(
+            code=code, name=name,
+            stone_group_id=ref(StoneGroup, grp).id,
+            stone_kind_id=ref(StoneKind, kind).id,
+            shape_id=ref(StoneShape, shape).id,
+            quality_id=ref(StoneQuality, qual).id if qual else None,
+            color=colour, weight_unit=unit, hsn_code=hsn, is_active=True,
+        ))
 
 
 # The client's actual process list, read off their live system, in the order
