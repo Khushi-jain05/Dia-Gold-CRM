@@ -7,7 +7,8 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from diagold.db.models import Role, RolePermission, User
+from diagold.db.models import User
+from diagold.services.rights import RightsSet, load_rights, master_for_menu_key
 
 
 @dataclass
@@ -19,21 +20,35 @@ class CurrentUser:
     full_name: str
     is_superuser: bool
     role_name: str | None
-    _view_keys: set[str] = field(default_factory=set)
-    _edit_keys: set[str] = field(default_factory=set)
+    rights: RightsSet = field(default_factory=RightsSet)
+
+    # -- per-master authorisation ---------------------------------------
+    def master_for(self, menu_key: str) -> str | None:
+        """The rights master a screen belongs to, if it is governed by one."""
+        return master_for_menu_key(menu_key)
+
+    def _allows(self, menu_key: str, action: str) -> bool:
+        master = master_for_menu_key(menu_key)
+        if master is None:
+            # Screens outside the master module are not part of the client's
+            # rights model yet; they follow the login itself.
+            return True
+        return self.rights.allows(master, action)
 
     def can_view(self, menu_key: str) -> bool:
-        if self.is_superuser:
-            return True
-        # A grant on the group key implies access to all of its items.
-        group = menu_key.split(".", 1)[0]
-        return menu_key in self._view_keys or group in self._view_keys
+        return self._allows(menu_key, "display")
+
+    def can_add(self, menu_key: str) -> bool:
+        return self._allows(menu_key, "add")
 
     def can_edit(self, menu_key: str) -> bool:
-        if self.is_superuser:
-            return True
-        group = menu_key.split(".", 1)[0]
-        return menu_key in self._edit_keys or group in self._edit_keys
+        return self._allows(menu_key, "edit")
+
+    def can_delete(self, menu_key: str) -> bool:
+        return self._allows(menu_key, "delete")
+
+    def can_print(self, menu_key: str) -> bool:
+        return self._allows(menu_key, "print")
 
 
 class AuthError(Exception):
@@ -48,26 +63,13 @@ def authenticate(session: Session, username: str, password: str) -> CurrentUser:
     user.last_login = datetime.utcnow()
     session.commit()
 
-    view_keys: set[str] = set()
-    edit_keys: set[str] = set()
-    if user.role_id is not None:
-        perms = session.scalars(
-            select(RolePermission).where(RolePermission.role_id == user.role_id)
-        ).all()
-        for perm in perms:
-            if perm.can_view:
-                view_keys.add(perm.menu_key)
-            if perm.can_edit:
-                edit_keys.add(perm.menu_key)
-
     return CurrentUser(
         id=user.id,
         username=user.username,
         full_name=user.full_name or user.username,
         is_superuser=user.is_superuser,
         role_name=user.role.name if user.role else None,
-        _view_keys=view_keys,
-        _edit_keys=edit_keys,
+        rights=load_rights(session, user),
     )
 
 
