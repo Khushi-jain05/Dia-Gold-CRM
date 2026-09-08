@@ -37,7 +37,11 @@ def build_widget(menu_key: str, user: CurrentUser) -> QWidget:
 
     spec = SPECS.get(menu_key)
     if spec is not None:
-        return CrudWidget(spec, can_edit=user.can_edit(menu_key))
+        return CrudWidget(
+            spec,
+            can_edit=user.can_edit(menu_key),
+            rights=user.rights,
+        )
 
     return PlaceholderWidget(_item_label(menu_key), _group_label(menu_key))
 
