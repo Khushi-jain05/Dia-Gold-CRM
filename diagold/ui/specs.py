@@ -29,7 +29,12 @@ from diagold.db.models import (
     SettingLabourRate,
     SettingType,
     SkuInfo,
+    StoneGroup,
     StoneInfo,
+    StoneKind,
+    StoneQuality,
+    StoneShape,
+    StoneSize,
     StonePacket,
     User,
 )
@@ -38,7 +43,7 @@ from diagold.ui.crud import ChildSpec, CrudSpec, Field
 
 _metal_label = lambda m: f"{m.code} - {m.name}".strip(" -")
 _account_label = lambda a: f"{a.code} - {a.name}"
-_stone_label = lambda s: f"{s.code} - {s.name} {s.shape}".strip()
+_stone_label = lambda s: f"{s.code} - {s.name}".strip(" -")
 _skuinfo_label = lambda s: f"{s.code} - {s.category}"
 
 
@@ -239,30 +244,6 @@ _register(CrudSpec(
               choices=["Per Gram", "Per Piece", "Percentage", "Fixed"], default="Per Gram"),
         Field("making_charge", "Making Charge", type="float"),
         Field("description", "Description", type="text", in_list=False),
-        Field("is_active", "Active", type="bool", default=True),
-    ],
-))
-
-_register(CrudSpec(
-    key="master.stone_info",
-    title="Stone Info",
-    model=StoneInfo,
-    order_by="name",
-    fields=[
-        Field("code", "Code", required=True),
-        Field("name", "Stone", required=True),
-        Field("stone_type", "Type", type="choice",
-              choices=["Natural", "Lab Grown", "Imitation", "Synthetic"], default="Natural"),
-        Field("shape", "Shape", type="choice",
-              choices=["Round", "Princess", "Oval", "Pear", "Marquise", "Emerald",
-                       "Cushion", "Baguette", "Heart", "Other"], default="Round"),
-        Field("quality", "Quality / Clarity"),
-        Field("color", "Colour"),
-        Field("size_mm", "Size (mm)"),
-        Field("sieve", "Sieve", in_list=False),
-        Field("weight_unit", "Weight Unit", type="choice", choices=["ct", "pcs"], default="ct"),
-        Field("rate_per_unit", "Rate / unit", type="float"),
-        Field("hsn_code", "HSN Code", in_list=False),
         Field("is_active", "Active", type="bool", default=True),
     ],
 ))
@@ -711,5 +692,70 @@ _register(CrudSpec(
                       Field("remark", "Remark"),
                   ],
               )),
+    ],
+))
+
+# --- Stone reference masters (T-06) -------------------------------------
+_simple_lookup = lambda o: o.name
+
+for _key, _title, _model, _hint in (
+    ("master.stone_group", "Stone Groups", StoneGroup, "Search by code or name…"),
+    ("master.stone_shape", "Shapes", StoneShape, "Search by code or name…"),
+    ("master.stone_kind", "Types", StoneKind, "Search by code or name…"),
+    ("master.stone_quality", "Qualities", StoneQuality, "Search by code or name…"),
+):
+    _register(CrudSpec(
+        key=_key, title=_title, model=_model, order_by="name", search_hint=_hint,
+        fields=[
+            Field("code", "Code", required=True),
+            Field("name", "Name", required=True),
+            Field("is_active", "Active", type="bool", default=True),
+        ],
+    ))
+
+_register(CrudSpec(
+    key="master.stone_size",
+    title="Sizes",
+    model=StoneSize,
+    order_by="name",
+    search_hint="Search by code or name…",
+    fields=[
+        Field("code", "Code", required=True),
+        Field("name", "Size", required=True,
+              help_text="Open-ended — add new sizes as they come into use."),
+        Field("size_mm", "Size (mm)", type="float", decimals=4),
+        Field("is_active", "Active", type="bool", default=True),
+    ],
+))
+
+_register(CrudSpec(
+    key="master.stone_info",
+    title="Stone Info",
+    model=StoneInfo,
+    order_by="code",
+    search_hint="Search by code, stone, colour…",
+    fields=[
+        Field("code", "Code", required=True,
+              help_text="Indexed and searchable — staff filter by it."),
+        Field("name", "Stone", required=True),
+        Field("stone_group_id", "Stone Group", type="fk", fk_model=StoneGroup,
+              fk_label=_simple_lookup),
+        Field("stone_kind_id", "Type", type="fk", fk_model=StoneKind,
+              fk_label=_simple_lookup),
+        Field("shape_id", "Shape", type="fk", fk_model=StoneShape,
+              fk_label=_simple_lookup),
+        Field("quality_id", "Quality", type="fk", fk_model=StoneQuality,
+              fk_label=_simple_lookup),
+        Field("weight_unit", "Weight Unit", type="choice",
+              choices=list(StoneInfo.WEIGHT_UNITS), default="ct",
+              help_text="Travels with the stone into costing — carats for "
+                        "diamond, pieces for CZ."),
+        Field("is_active", "Active", type="bool", default=True),
+        Field("size_id", "Size", type="fk", fk_model=StoneSize,
+              fk_label=_simple_lookup, in_list=False),
+        Field("color", "Colour", in_list=False),
+        Field("sieve", "Sieve", in_list=False),
+        Field("rate_per_unit", "Rate / unit", type="float", in_list=False),
+        Field("hsn_code", "HSN Code", in_list=False),
     ],
 ))
