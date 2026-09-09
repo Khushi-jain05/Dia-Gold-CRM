@@ -264,3 +264,122 @@ def tag_and_customer_price(cost: Any, tag_margin_percent: Any,
         customer_discount_percent=_dec(customer_discount_percent),
         customer_price=round_to(customer, round_off),
     )
+
+
+# ---------------------------------------------------------------------------
+# SKU costing (T-23)
+# ---------------------------------------------------------------------------
+# These formulas were recovered from the client's live SKU ER-1337 and
+# reconcile to the paisa on every figure. They were never narrated on the
+# call - they come from the screen, which makes them the most reliable thing
+# in the requirements.
+#
+#   line_amount   = weight_cts x SALE price      (not cost)
+#   stone_amount  = sum(line_amount)
+#   metal_rate    = pure_rate x fineness/1000
+#   metal_amount  = net_wt x metal_rate          (net, never gross)
+#   default_price = (stone_amount + metal_amount) x multiplier
+#
+# The multiplier defaults to 1.5 - the client's "cost + 50%" - and is a
+# parameter, never a literal.
+DEFAULT_PRICE_MULTIPLIER = Decimal("1.5")
+
+
+def stone_line_amount(weight_cts: Any, sale_price: Any) -> Decimal:
+    """One stone line's value. Uses the SALE price, verified on six of six rows.
+
+    Cost price is stored too but is not what the amount is computed from - and
+    in the client's real data sale is sometimes below cost, so no relationship
+    between the two is assumed.
+    """
+    return (_dec(weight_cts) * _dec(sale_price)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+
+def stone_amount(lines: Iterable[Any]) -> Decimal:
+    """Sum of the stone lines. Accepts ORM rows, dicts or (weight, price) pairs."""
+    total = Decimal("0")
+    for line in lines:
+        if isinstance(line, dict):
+            total += stone_line_amount(line.get("weight_cts"), line.get("sale_price"))
+        elif isinstance(line, (tuple, list)):
+            total += stone_line_amount(line[0], line[1])
+        else:
+            total += stone_line_amount(
+                getattr(line, "weight_cts", 0), getattr(line, "sale_price", 0)
+            )
+    return total
+
+
+def sku_metal_rate(pure_rate_per_gram: Any, metal: Any) -> Decimal:
+    """The per-gram rate for this metal head: pure rate scaled by its fineness.
+
+    Fineness is read from the Metal master via :func:`purity_fraction`, so a
+    head recorded as 600 gives 0.600 and 15,264.00 becomes 9,158.40. No purity
+    constant appears here.
+    """
+    return (_dec(pure_rate_per_gram) * purity_fraction(metal)).quantize(
+        Decimal("0.0001"), rounding=ROUND_HALF_UP
+    )
+
+
+def sku_metal_amount(net_weight: Any, metal_rate: Any) -> Decimal:
+    """Metal value of the piece. NET weight - gross is carried but not used."""
+    return (_dec(net_weight) * _dec(metal_rate)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+
+def sku_default_price(stone_amt: Any, metal_amt: Any,
+                      multiplier: Any = None) -> Decimal:
+    """(stone + metal) x multiplier. The multiplier is configuration, not code."""
+    mult = DEFAULT_PRICE_MULTIPLIER if multiplier is None else _dec(multiplier)
+    return ((_dec(stone_amt) + _dec(metal_amt)) * mult).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+
+@dataclass
+class SkuCosting:
+    """Every derived money figure for one SKU, with its inputs."""
+
+    stone_amount: Decimal
+    metal_rate: Decimal
+    metal_amount: Decimal
+    labour_amount: Decimal
+    finding_labour: Decimal
+    setting_amount: Decimal
+    total_rs: Decimal
+    default_price: Decimal
+    multiplier: Decimal
+
+
+def cost_sku(*, stone_lines: Iterable[Any], net_weight: Any, metal: Any,
+             pure_rate_per_gram: Any, labour_amount: Any = 0,
+             finding_labour: Any = 0, setting_amount: Any = 0,
+             multiplier: Any = None) -> SkuCosting:
+    """Price one SKU from its stone lines, its weight and the day's metal rate.
+
+    NOTE on the labour components: Labour Amount, Finding Labour and Setting
+    Amount were all blank on the one SKU whose arithmetic could be verified, so
+    their contribution to TOTAL RS is an assumption - they are treated as
+    additive. Flagged to the client as an open question; do not treat the
+    TOTAL RS line as verified the way the other four are.
+    """
+    stones = stone_amount(stone_lines)
+    rate = sku_metal_rate(pure_rate_per_gram, metal)
+    metal_amt = sku_metal_amount(net_weight, rate)
+    labour = _dec(labour_amount) + _dec(finding_labour) + _dec(setting_amount)
+    mult = DEFAULT_PRICE_MULTIPLIER if multiplier is None else _dec(multiplier)
+    return SkuCosting(
+        stone_amount=stones,
+        metal_rate=rate,
+        metal_amount=metal_amt,
+        labour_amount=_dec(labour_amount),
+        finding_labour=_dec(finding_labour),
+        setting_amount=_dec(setting_amount),
+        total_rs=(stones + labour).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        default_price=sku_default_price(stones, metal_amt, mult),
+        multiplier=mult,
+    )
