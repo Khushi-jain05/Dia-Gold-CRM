@@ -37,6 +37,7 @@ MENU: list[MenuGroup] = [
         ("location", "Location"),
         ("parts_mould", "Parts / Mould"),
         ("sku_info", "SKU Info"),
+        ("item", "Item"),
         ("family_category", "Family / Category"),
         ("colour", "Colour"),
         ("stone_group", "Stone Group"),
@@ -56,7 +57,8 @@ MENU: list[MenuGroup] = [
         ("other", "Other"),
     ]),
     _g("sku", "SKU", [
-        ("stone_packet", "Stone SKU / Packet No"),
+        ("stone_sku", "Stone SKU"),
+        ("stone_packet", "Packet No"),
         ("product_sku_master", "Product SKU Master"),
         ("sku_view", "SKU View"),
     ]),

@@ -35,7 +35,9 @@ MASTERS: tuple[tuple[str, str | None], ...] = (
     ("Account", "master.account"),
     ("Metal", "master.metal"),
     ("Parts/Mould", "master.parts_mould"),
-    ("Item", "sku.product_sku_master"),
+    ("Item", "master.item"),
+    ("Product SKU", "sku.product_sku_master"),
+    ("Stone SKU", "sku.stone_sku"),
     ("Family Category", "master.family_category"),
     ("Colour", "master.colour"),
     ("Item Size", None),               # pending Q2
