@@ -68,6 +68,9 @@ class Field:
     decimals: int = 2
     help_text: str = ""
     child: "ChildSpec | None" = None  # only for type="child"
+    # Derived values: shown, never typed. The legacy screen distinguishes
+    # computed money from entered money by colour; this keeps that.
+    readonly: bool = False
 
 
 @dataclass
@@ -105,6 +108,9 @@ class CrudSpec:
     # Some records are never deleted, only deactivated, so that historic
     # references keep resolving (users, for example).
     deletable: bool = True
+    # Recomputes derived fields from the typed values and the child rows,
+    # just before the write. Mutates `values` in place.
+    before_save: Callable[[dict, dict[str, list[dict]], Any], None] | None = None
 
 
 class ChildTableEditor(QWidget):
@@ -307,6 +313,9 @@ class FormDialog(QDialog):
             if f.type == "child":
                 continue  # rendered full-width below the form
             editor = self._build_editor(f)
+            if f.readonly:
+                editor.setEnabled(False)
+                editor.setToolTip("Calculated — not entered by hand.")
             self.editors[f.name] = editor
             label = f.label + (" *" if f.required else "")
             form.addRow(label, editor)
@@ -540,6 +549,14 @@ class FormDialog(QDialog):
             error = self.spec.validate(values, children)
             if error:
                 QMessageBox.warning(self, "Cannot save", error)
+                return
+
+        # Derived fields are recalculated here, never typed.
+        if self.spec.before_save is not None:
+            try:
+                self.spec.before_save(values, children, self.session)
+            except Exception as exc:  # noqa: BLE001 - surface, do not crash
+                QMessageBox.critical(self, "Could not calculate", str(exc))
                 return
 
         try:
