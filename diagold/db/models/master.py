@@ -276,8 +276,12 @@ class StoneInfo(Base, PKMixin, TimestampMixin):
     code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(80))  # Diamond, Ruby, CZ...
 
-    stone_group_id: Mapped[int | None] = mapped_column(
-        ForeignKey("stone_groups.id"), nullable=True
+    # Mandatory. Every stone is exactly one of Diamond / Polki / Colour Stone -
+    # the group decides which band of the client's statement its value lands in
+    # and drives filtering everywhere. Enforced here AND by a database trigger
+    # (see diagold.db.migrate) so a direct write cannot bypass it.
+    stone_group_id: Mapped[int] = mapped_column(
+        ForeignKey("stone_groups.id"), index=True
     )
     stone_kind_id: Mapped[int | None] = mapped_column(
         ForeignKey("stone_kinds.id"), nullable=True
