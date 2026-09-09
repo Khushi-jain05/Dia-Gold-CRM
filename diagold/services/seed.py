@@ -20,7 +20,10 @@ from diagold.db.models import (
     SettingType,
     SkuInfo,
     StoneGroup,
+    Item,
     StoneInfo,
+    StoneSku,
+    StoneSkuRange,
     StoneKind,
     StoneQuality,
     StoneShape,
@@ -48,7 +51,17 @@ def seed_initial_data(session: Session) -> None:
     _seed_setting_types(session)
     _seed_families(session)
     _seed_colours(session)
+    _seed_items(session)
     session.flush()
+    # Every stone must carry a group before anything downstream can price
+    # or report on it.
+    unassigned = assign_stone_groups(session)
+    session.flush()
+    _seed_stone_skus(session)
+    session.flush()
+    if unassigned:
+        print(f'[seed] {len(unassigned)} stone(s) have no group: '
+              + ', '.join(sorted(unassigned)))
 
 
 def _seed_roles_and_admin(session: Session) -> None:
@@ -400,3 +413,137 @@ def _seed_colours(session: Session) -> None:
                                 ("W", "White", False)]:
         if code not in existing:
             session.add(Colour(code=code, name=name, is_default=default, is_active=True))
+
+
+# ==========================================================================
+# S.K.U. module seed (8 September session)
+# ==========================================================================
+# The client's item list, spellings preserved exactly - staff search on these
+# strings, so "Bracelete" and "CHAIN PENDENT" stay as they are.
+_ITEMS: list[str] = [
+    "BANGLE", "Bracelete", "BRIDAL NECKLACE", "BROOCH", "CHAIN PENDENT",
+    "CHANDBALI", "CHOKER", "CUFFLINKS", "DANGLERS", "EARRING", "GENTS RING",
+    "JHUMKI", "LINES NECKLACE", "LONG NECKLACE", "NECK EARRING", "NECKLACE",
+    "NECKLACE SET", "PENDANT", "RING", "ROUND NECKLACE", "SAMPLE", "STUDS",
+    "WATCH",
+]
+
+# Stones and their groups, read off the client's system. The group is a
+# classification on top of the existing stone list - stones are never renamed
+# or collapsed to fit it.
+_STONE_GROUPS: dict[str, tuple[str, ...]] = {
+    "CS": ("MORGANITE MANI", "EMERALD PEAR", "EMERALD BEADS", "FRESHWATER",
+           "SOUTH SEA", "NAVRATAN", "GREEN SYNTHETIC", "LABGROWN RUBY", "KYANITE",
+           "MOP STONE", "MOON STONE", "MALACHITE", "LOLITE", "LAAKH",
+           "KUNDAN MEENA", "CORAL DROP", "CITRINE",
+           # Plain names carried by rows this app seeded earlier.
+           "CUBIC ZIRCONIA", "EMERALD", "RUBY"),
+    "POLKI": ("POLKI", "POLKI NAKLI", "POLKI REPAIR", "KILWAS (.80)",
+              "KILWAS (1.20)", "KILWAS (1.50)", "LB (.70)", "LB (1.5)"),
+    "DIA": ("DIA. MIX", "DIA.4", "DIA. PEAR", "DIA. MARQUISE", "DIA. NAKLI",
+            "DIA.SQUARE", "DIA.ROSE CUT ROUND", "DIA.ROSE CUT FANCY",
+            "DIA. BAGG TAPPER", "LABGROWN"),
+}
+
+# EMERALD PEAR and POLKI price grids, read off the Range/Size Info grid.
+# (range label, price per carat, size)
+_EMERALD_PEAR_RANGES = [
+    ("a", "2000", "3*4"), ("b", "2300", "4*5"), ("c", "2300", "5*3"),
+    ("d", "3000", "6*4"), ("e", "3250", "7*5"), ("f", "4000", "6*8"),
+    ("G", "4500", "7*9"), ("H", "5000", "8*10"), ("J", "5500", "4*6"),
+]
+_POLKI_RANGES = [
+    ("U", "7500", ""), ("V", "32000", "K1"), ("W", "36000", "K1.5"),
+    ("X", "40000", "K2"), ("y", "42000", "50-55"), ("z", "48000", "55-60"),
+    ("23", "8100", "12-14"), ("24", "50000", ""), ("3", "35000", ""),
+]
+
+
+def _seed_items(session: Session) -> None:
+    """The 23 product categories. Code doubles as the SKU-code prefix."""
+    existing = {c for c in session.scalars(select(Item.code)).all() if c}
+    taken: set[str] = set()
+    for name in _ITEMS:
+        code = _derive_code(name, taken, maxlen=16).lower()
+        if code in existing:
+            continue
+        session.add(Item(name=name, code=code, unit="Pcs", pcs=1, is_active=True))
+
+
+def assign_stone_groups(session: Session) -> list[str]:
+    """Give every stone its group. Returns the names that could not be assigned.
+
+    Nothing is guessed: a stone whose name is not in the client's lists is
+    reported rather than dropped into a group at random.
+    """
+    groups = {g.code: g for g in session.scalars(select(StoneGroup))}
+    by_name: dict[str, str] = {}
+    for group_code, names in _STONE_GROUPS.items():
+        for n in names:
+            by_name[n.upper()] = group_code
+
+    unassigned: list[str] = []
+    valid_ids = {g.id for g in groups.values()}
+    for stone in session.scalars(select(StoneInfo)):
+        # 0 means an older migration stamped a placeholder into the column;
+        # treat anything that is not a real group as unassigned.
+        if stone.stone_group_id in valid_ids:
+            continue
+        code = by_name.get((stone.name or "").upper())
+        if code is None:
+            # Fall back to the prefix conventions the client's data uses.
+            upper = (stone.name or "").upper()
+            if upper.startswith("DIA") or "LABGROWN DIA" in upper:
+                code = "DIA"
+            elif upper.startswith(("POLKI", "KILWAS", "LB ")):
+                code = "POLKI"
+        if code is None or code not in groups:
+            unassigned.append(stone.name)
+            continue
+        stone.stone_group_id = groups[code].id
+    return unassigned
+
+
+def _seed_stone_skus(session: Session) -> None:
+    """The priced stone catalogue, with the two grids read off the screen."""
+    existing = {c for c in session.scalars(select(StoneSku.code)).all() if c}
+
+    def size_row(label: str):
+        if not label:
+            return None
+        row = session.scalar(select(StoneSize).where(StoneSize.name == label))
+        if row is None:
+            row = StoneSize(code=_derive_code(label, set(), maxlen=16),
+                            name=label, is_active=True)
+            session.add(row)
+            session.flush()
+        return row
+
+    def stone_row(name: str, group_code: str):
+        row = session.scalar(select(StoneInfo).where(StoneInfo.name == name))
+        if row is None:
+            group = session.scalar(select(StoneGroup).where(StoneGroup.code == group_code))
+            row = StoneInfo(code=_derive_code(name, set(), maxlen=16), name=name,
+                            stone_group_id=group.id, weight_unit="ct", is_active=True)
+            session.add(row)
+            session.flush()
+        return row
+
+    for sku_code, stone_name, group_code, ranges in (
+        ("EMERALD PEAR", "EMERALD PEAR", "CS", _EMERALD_PEAR_RANGES),
+        ("POLKI", "POLKI", "POLKI", _POLKI_RANGES),
+    ):
+        if sku_code in existing:
+            continue
+        stone = stone_row(stone_name, group_code)
+        sku = StoneSku(code=sku_code, stone_id=stone.id, is_active=True)
+        session.add(sku)
+        session.flush()
+        for label, price, size_name in ranges:
+            size = size_row(size_name)
+            # Cost equals sale on the Stone SKU master in every row observed.
+            session.add(StoneSkuRange(
+                stone_sku_id=sku.id, range_label=label,
+                cost_price=Decimal(price), sale_price=Decimal(price),
+                per="Cts", size_id=size.id if size else None,
+            ))
