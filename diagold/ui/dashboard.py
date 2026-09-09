@@ -22,7 +22,7 @@ from diagold.db.models import (
     Metal,
     ProductSku,
     StoneInfo,
-    StonePacket,
+    StoneSku,
     User,
 )
 from diagold.db.session import SessionLocal
@@ -74,7 +74,7 @@ class DashboardWidget(QWidget):
         with SessionLocal() as s:
             stats = [
                 ("Product SKUs", _count(s, ProductSku), "sku.product_sku_master"),
-                ("Stone Packets", _count(s, StonePacket), "sku.stone_packet"),
+                ("Stone SKUs", _count(s, StoneSku), "sku.stone_sku"),
                 ("Accounts", _count(s, Account), "master.account"),
                 ("Metals", _count(s, Metal), "master.metal"),
                 ("Stone Types", _count(s, StoneInfo), "master.stone_info"),
@@ -99,7 +99,7 @@ class DashboardWidget(QWidget):
         for text, key, primary in [
             ("+ New Product SKU", "sku.product_sku_master", True),
             ("+ New Account", "master.account", False),
-            ("+ New Stone Packet", "sku.stone_packet", False),
+            ("+ New Stone SKU", "sku.stone_sku", False),
             ("Manage Users && Rights", "master.user_right", False),
         ]:
             b = QPushButton(text)

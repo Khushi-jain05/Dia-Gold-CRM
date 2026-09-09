@@ -48,8 +48,14 @@ class Item(Base, PKMixin, TimestampMixin):
     # Stored, never acted on - a previous vendor's marketplace app is the only
     # known reason it exists (Q19 / C-10).
     shopify_code: Mapped[str] = mapped_column(String(64), default="")
+    # The jewellery family this item belongs to. A Product SKU picks this up
+    # automatically when its Item is chosen - the karat stays hand-typed.
+    family_id: Mapped[int | None] = mapped_column(
+        ForeignKey("family_categories.id"), nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    family: Mapped[FamilyCategory | None] = relationship()
     price_ranges: Mapped[list["ItemPriceRange"]] = relationship(
         back_populates="item", cascade="all, delete-orphan", lazy="selectin"
     )

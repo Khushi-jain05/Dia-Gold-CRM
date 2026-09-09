@@ -222,4 +222,8 @@ QScrollBar::handle:vertical {{ background: #C7CAD3; border-radius: 5px; min-heig
 QScrollBar::handle:vertical:hover {{ background: {GOLD}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 QMessageBox, QDialog {{ background: {CANVAS}; }}
+
+QScrollArea#FormScroll {{ background: {CANVAS}; border: none; }}
+QScrollArea#FormScroll > QWidget > QWidget {{ background: {CANVAS}; }}
+QWidget#FormBody {{ background: {CANVAS}; }}
 """

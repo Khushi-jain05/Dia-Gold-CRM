@@ -462,12 +462,28 @@ _POLKI_RANGES = [
 def _seed_items(session: Session) -> None:
     """The 23 product categories. Code doubles as the SKU-code prefix."""
     existing = {c for c in session.scalars(select(Item.code)).all() if c}
+    # The session runs with autoflush off, so families added moments ago are
+    # still pending and a query would not see them.
+    session.flush()
+    default_family = session.scalar(
+        select(FamilyCategory).where(FamilyCategory.code == "DIAJEW")
+    )
     taken: set[str] = set()
     for name in _ITEMS:
         code = _derive_code(name, taken, maxlen=16).lower()
         if code in existing:
             continue
-        session.add(Item(name=name, code=code, unit="Pcs", pcs=1, is_active=True))
+        # Default every item to the client's main family; they reassign as
+        # needed. Family flows from here onto each SKU.
+        session.add(Item(name=name, code=code, unit="Pcs", pcs=1,
+                         family_id=default_family.id if default_family else None,
+                         is_active=True))
+
+    # Items created before this column existed carry no family; give them the
+    # default so the SKU screen has something to pick up.
+    if default_family is not None:
+        for item in session.scalars(select(Item).where(Item.family_id.is_(None))):
+            item.family_id = default_family.id
 
 
 def assign_stone_groups(session: Session) -> list[str]:

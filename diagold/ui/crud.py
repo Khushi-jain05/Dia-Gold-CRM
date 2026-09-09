@@ -71,6 +71,11 @@ class Field:
     # Derived values: shown, never typed. The legacy screen distinguishes
     # computed money from entered money by colour; this keeps that.
     readonly: bool = False
+    # Fires whenever this field's editor changes, as (dialog, new_value) -
+    # new_value is the fk id for "fk" fields, else the raw text/choice. Lets a
+    # spec keep a couple of related fields in sync (e.g. auto-filling Family
+    # once an Item is picked) without any bespoke screen code.
+    on_change: Callable[["FormDialog", Any], None] | None = None
 
 
 @dataclass
@@ -293,12 +298,21 @@ class FormDialog(QDialog):
         )
         self.setMinimumWidth(460)
 
+        # On Windows with the OS dark theme on, a plain QWidget's stylesheet
+        # background can fail to actually paint, letting the dark OS palette
+        # show through and swallowing dark form-label text. Forcing this
+        # attribute keeps the dialog the same light card colour regardless of
+        # the user's Windows theme.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         # A long master (Metal has 18 fields plus two child grids) can easily
         # exceed the screen, so the body scrolls and the buttons stay put.
         body = QWidget()
+        body.setObjectName("FormBody")
+        body.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(18, 16, 18, 8)
         body_layout.setSpacing(10)
@@ -316,6 +330,8 @@ class FormDialog(QDialog):
             if f.readonly:
                 editor.setEnabled(False)
                 editor.setToolTip("Calculated — not entered by hand.")
+            if f.on_change is not None:
+                self._wire_on_change(f, editor)
             self.editors[f.name] = editor
             label = f.label + (" *" if f.required else "")
             form.addRow(label, editor)
@@ -346,10 +362,13 @@ class FormDialog(QDialog):
         body_layout.addStretch(1)
 
         scroll = QScrollArea()
+        scroll.setObjectName("FormScroll")
+        scroll.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         scroll.setWidget(body)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(
@@ -412,6 +431,20 @@ class FormDialog(QDialog):
                 w.addItem(text, obj_id)
             return w
         return QLineEdit()
+
+    def _wire_on_change(self, f: Field, editor: QWidget) -> None:
+        """Connect an editor's change signal to its Field.on_change callback."""
+        callback = f.on_change
+        if f.type == "fk":
+            editor.currentIndexChanged.connect(
+                lambda _=None, e=editor: callback(self, e.currentData())
+            )
+        elif f.type == "choice":
+            editor.currentTextChanged.connect(lambda text: callback(self, text))
+        elif f.type == "bool":
+            editor.toggled.connect(lambda checked: callback(self, checked))
+        else:
+            editor.textChanged.connect(lambda text: callback(self, text))
 
     def _fk_options(self, f: Field) -> list[tuple[Any, str]]:
         if f.name in self._fk_cache:

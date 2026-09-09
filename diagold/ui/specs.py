@@ -760,6 +760,9 @@ _register(CrudSpec(
         Field("virtual_design_code", "Virtual Design Code",
               help_text="Prefix for design / CAD codes."),
         Field("mould_code", "Mould Code", help_text="Prefix for rubber-mould codes."),
+        Field("family_id", "Family", type="fk", fk_model=FamilyCategory,
+              fk_label=_family_label,
+              help_text="A SKU with this item picks this family up automatically."),
         Field("unit", "Unit", type="choice", choices=["Pcs", "Gms", "Cts", "Set"],
               default="Pcs"),
         Field("pcs", "Pcs", type="int", default=1),
@@ -854,6 +857,26 @@ def _stone_grid_summary(rows: list[dict]) -> str:
     return f"TOTAL   {pcs} pcs   ·   {cts:.3f} cts   ·   {amt}"
 
 
+def _fill_family_from_item(dialog, item_id) -> None:
+    """Pick the Family up from the Item master when an Item is chosen.
+
+    The client's rule: Family comes from the master automatically, while the
+    metal karat is typed by hand every time. Only fills a blank Family, so a
+    deliberate override is never stomped on.
+    """
+    family_editor = dialog.editors.get("family_id")
+    if family_editor is None or family_editor.currentData() is not None:
+        return
+    if not item_id:
+        return
+    item = dialog.session.get(Item, item_id)
+    if item is None or not item.family_id:
+        return
+    idx = family_editor.findData(item.family_id)
+    if idx >= 0:
+        family_editor.setCurrentIndex(idx)
+
+
 def _price_product_sku(values: dict, children: dict, session) -> None:
     """Recompute the derived money panel from the stone grid and the metal head.
 
@@ -900,6 +923,7 @@ _register(CrudSpec(
               help_text='e.g. "ER-1337", "625 CHOKAR", "BANG-597".'),
         Field("description", "Description"),
         Field("item_id", "Item", type="fk", fk_model=Item, fk_label=_item_label,
+              on_change=_fill_family_from_item,
               help_text="Classifies the SKU. Family fills in from the master; "
                         "the metal karat is typed by hand."),
         Field("family_id", "Family", type="fk", fk_model=FamilyCategory,
