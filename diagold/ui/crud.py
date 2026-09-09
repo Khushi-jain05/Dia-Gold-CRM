@@ -68,10 +68,13 @@ class Field:
     decimals: int = 2
     help_text: str = ""
     child: "ChildSpec | None" = None  # only for type="child"
+    # Derived values: shown, never typed. The legacy screen distinguishes
+    # computed money from entered money by colour; this keeps that.
+    readonly: bool = False
     # Fires whenever this field's editor changes, as (dialog, new_value) -
     # new_value is the fk id for "fk" fields, else the raw text/choice. Lets a
-    # spec keep a couple of related fields in sync (e.g. auto-filling Shape /
-    # Quality once a base Stone is picked) without any bespoke screen code.
+    # spec keep a couple of related fields in sync (e.g. auto-filling Family
+    # once an Item is picked) without any bespoke screen code.
     on_change: Callable[["FormDialog", Any], None] | None = None
 
 
@@ -110,6 +113,9 @@ class CrudSpec:
     # Some records are never deleted, only deactivated, so that historic
     # references keep resolving (users, for example).
     deletable: bool = True
+    # Recomputes derived fields from the typed values and the child rows,
+    # just before the write. Mutates `values` in place.
+    before_save: Callable[[dict, dict[str, list[dict]], Any], None] | None = None
 
 
 class ChildTableEditor(QWidget):
@@ -291,6 +297,7 @@ class FormDialog(QDialog):
             f"{'Edit' if instance else 'New'} {spec.title.rstrip('s')}"
         )
         self.setMinimumWidth(460)
+
         # On Windows with the OS dark theme on, a plain QWidget's stylesheet
         # background can fail to actually paint, letting the dark OS palette
         # show through and swallowing dark form-label text. Forcing this
@@ -320,9 +327,12 @@ class FormDialog(QDialog):
             if f.type == "child":
                 continue  # rendered full-width below the form
             editor = self._build_editor(f)
-            self.editors[f.name] = editor
+            if f.readonly:
+                editor.setEnabled(False)
+                editor.setToolTip("Calculated — not entered by hand.")
             if f.on_change is not None:
                 self._wire_on_change(f, editor)
+            self.editors[f.name] = editor
             label = f.label + (" *" if f.required else "")
             form.addRow(label, editor)
             if f.help_text:
@@ -354,11 +364,11 @@ class FormDialog(QDialog):
         scroll = QScrollArea()
         scroll.setObjectName("FormScroll")
         scroll.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        scroll.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         scroll.setWidget(body)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(
@@ -422,15 +432,6 @@ class FormDialog(QDialog):
             return w
         return QLineEdit()
 
-    def _fk_options(self, f: Field) -> list[tuple[Any, str]]:
-        if f.name in self._fk_cache:
-            return self._fk_cache[f.name]
-        rows = self.session.scalars(select(f.fk_model)).all()
-        label = f.fk_label or (lambda o: str(o))
-        opts = sorted(((r.id, label(r)) for r in rows), key=lambda t: t[1].lower())
-        self._fk_cache[f.name] = opts
-        return opts
-
     def _wire_on_change(self, f: Field, editor: QWidget) -> None:
         """Connect an editor's change signal to its Field.on_change callback."""
         callback = f.on_change
@@ -444,6 +445,15 @@ class FormDialog(QDialog):
             editor.toggled.connect(lambda checked: callback(self, checked))
         else:
             editor.textChanged.connect(lambda text: callback(self, text))
+
+    def _fk_options(self, f: Field) -> list[tuple[Any, str]]:
+        if f.name in self._fk_cache:
+            return self._fk_cache[f.name]
+        rows = self.session.scalars(select(f.fk_model)).all()
+        label = f.fk_label or (lambda o: str(o))
+        opts = sorted(((r.id, label(r)) for r in rows), key=lambda t: t[1].lower())
+        self._fk_cache[f.name] = opts
+        return opts
 
     # -- value <-> editor ---------------------------------------------------
     def _load_values(self) -> None:
@@ -572,6 +582,14 @@ class FormDialog(QDialog):
             error = self.spec.validate(values, children)
             if error:
                 QMessageBox.warning(self, "Cannot save", error)
+                return
+
+        # Derived fields are recalculated here, never typed.
+        if self.spec.before_save is not None:
+            try:
+                self.spec.before_save(values, children, self.session)
+            except Exception as exc:  # noqa: BLE001 - surface, do not crash
+                QMessageBox.critical(self, "Could not calculate", str(exc))
                 return
 
         try:

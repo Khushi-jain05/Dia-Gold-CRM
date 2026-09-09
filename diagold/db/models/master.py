@@ -264,23 +264,57 @@ class SkuInfo(Base, PKMixin, TimestampMixin):
 
 
 class StoneInfo(Base, PKMixin, TimestampMixin):
+    """One stone, classified against the granular reference masters.
+
+    A stone belongs to a Stone Group; its shape, kind, quality and size are
+    their own lookup masters rather than free text, so the client can extend
+    each list independently.
+    """
+
     __tablename__ = "stone_info"
 
-    code: Mapped[str] = mapped_column(String(24), unique=True)
+    code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(80))  # Diamond, Ruby, CZ...
-    stone_type: Mapped[str] = mapped_column(String(24), default="Natural")  # Natural/Lab/Imitation
-    shape: Mapped[str] = mapped_column(String(32), default="Round")
-    quality: Mapped[str] = mapped_column(String(32), default="")  # VS-GH, SI, etc.
+
+    # Mandatory. Every stone is exactly one of Diamond / Polki / Colour Stone -
+    # the group decides which band of the client's statement its value lands in
+    # and drives filtering everywhere. Enforced here AND by a database trigger
+    # (see diagold.db.migrate) so a direct write cannot bypass it.
+    stone_group_id: Mapped[int] = mapped_column(
+        ForeignKey("stone_groups.id"), index=True
+    )
+    stone_kind_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stone_kinds.id"), nullable=True
+    )
+    shape_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stone_shapes.id"), nullable=True
+    )
+    quality_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stone_qualities.id"), nullable=True
+    )
+    size_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stone_sizes.id"), nullable=True
+    )
+
     color: Mapped[str] = mapped_column(String(32), default="")
-    size_mm: Mapped[str] = mapped_column(String(24), default="")
     sieve: Mapped[str] = mapped_column(String(24), default="")
-    weight_unit: Mapped[str] = mapped_column(String(8), default="ct")  # ct / pcs
+    # The unit travels with the stone into costing: carats for diamond and
+    # emerald, pieces for CZ.
+    weight_unit: Mapped[str] = mapped_column(String(8), default="ct")
     rate_per_unit: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     hsn_code: Mapped[str] = mapped_column(String(16), default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    WEIGHT_UNITS = ("ct", "pcs", "gm")
+
+    stone_group: Mapped["StoneGroup | None"] = relationship()
+    stone_kind: Mapped["StoneKind | None"] = relationship()
+    shape: Mapped["StoneShape | None"] = relationship()
+    quality: Mapped["StoneQuality | None"] = relationship()
+    size: Mapped["StoneSize | None"] = relationship()
+
     def __str__(self) -> str:  # pragma: no cover
-        return f"{self.code} - {self.name} {self.shape}".strip()
+        return f"{self.code} - {self.name}"
 
 
 class ManufacturingProcess(Base, PKMixin, TimestampMixin):
@@ -648,3 +682,79 @@ class SettingWork(Base, PKMixin, TimestampMixin):
     remark: Mapped[str] = mapped_column(String(160), default="")
 
     karigar: Mapped["Account | None"] = relationship()
+
+
+# ---------------------------------------------------------------------------
+# Stone reference data (T-06)
+# ---------------------------------------------------------------------------
+# The legacy system splits this across nine masters and the client walked
+# through them one by one, so the granular model is reproduced here rather
+# than flattened. Setting Type and the Setting Labour Chart (with its SKU
+# override) are the remaining two, defined above.
+#
+# NOTE: still awaiting the client's formal sign-off on this structure (Q1 /
+# C-03). The design follows what they demonstrated on the call.
+class StoneGroup(Base, PKMixin, TimestampMixin):
+    """Diamond, Polki, Colour Stone - decided by the client, not proposed."""
+
+    __tablename__ = "stone_groups"
+
+    code: Mapped[str] = mapped_column(String(24), unique=True)
+    name: Mapped[str] = mapped_column(String(64))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    def __str__(self) -> str:  # pragma: no cover
+        return self.name
+
+
+class StoneShape(Base, PKMixin, TimestampMixin):
+    """Round, Oval, Emerald cut..."""
+
+    __tablename__ = "stone_shapes"
+
+    code: Mapped[str] = mapped_column(String(24), unique=True)
+    name: Mapped[str] = mapped_column(String(64))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    def __str__(self) -> str:  # pragma: no cover
+        return self.name
+
+
+class StoneKind(Base, PKMixin, TimestampMixin):
+    """The legacy "Type" master - Natural, Lab Grown, Imitation."""
+
+    __tablename__ = "stone_kinds"
+
+    code: Mapped[str] = mapped_column(String(24), unique=True)
+    name: Mapped[str] = mapped_column(String(64))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    def __str__(self) -> str:  # pragma: no cover
+        return self.name
+
+
+class StoneQuality(Base, PKMixin, TimestampMixin):
+    """Clarity / quality grades - VS-GH, VS-FG..."""
+
+    __tablename__ = "stone_qualities"
+
+    code: Mapped[str] = mapped_column(String(24), unique=True)
+    name: Mapped[str] = mapped_column(String(64))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    def __str__(self) -> str:  # pragma: no cover
+        return self.name
+
+
+class StoneSize(Base, PKMixin, TimestampMixin):
+    """Sizes are open-ended - users add them as new ones come into use."""
+
+    __tablename__ = "stone_sizes"
+
+    code: Mapped[str] = mapped_column(String(24), unique=True)
+    name: Mapped[str] = mapped_column(String(64))
+    size_mm: Mapped[float] = mapped_column(Numeric(10, 4), default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    def __str__(self) -> str:  # pragma: no cover
+        return self.name

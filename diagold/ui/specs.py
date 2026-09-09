@@ -1,10 +1,13 @@
 """Declarative CRUD specs for the Master and SKU screens."""
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import date
+from decimal import Decimal
 
 from diagold.db.models import (
     Account,
+    Item,
+    ItemPriceRange,
     Colour,
     Company,
     Currency,
@@ -27,32 +30,30 @@ from diagold.db.models import (
     MouldModification,
     ProcessCheckpoint,
     ProductSku,
+    ProductSkuStone,
     Role,
     SettingLabourRate,
     SettingType,
     SkuInfo,
+    StoneGroup,
     StoneInfo,
+    StoneKind,
+    StoneQuality,
+    StoneShape,
+    StoneSize,
+    StonePacket,
     StoneSku,
+    StoneSkuRange,
+    StoneSkuVendor,
     User,
 )
-from diagold.services import costing
+from diagold.services import costing, rates
 from diagold.ui.crud import ChildSpec, CrudSpec, Field
 
 _metal_label = lambda m: f"{m.code} - {m.name}".strip(" -")
 _account_label = lambda a: f"{a.code} - {a.name}"
+_stone_label = lambda s: f"{s.code} - {s.name}".strip(" -")
 _skuinfo_label = lambda s: f"{s.code} - {s.category}"
-
-
-def _stone_sku_autofill(dialog, value) -> None:
-    """Mirror the Stone SKU code into the Stone field as it's typed - matches
-    the client's legacy screen, where Stone defaults to the same text as
-    Stone SKU but can still be edited by hand. Never overwrites something the
-    user has already typed into Stone themselves.
-    """
-    stone_editor = dialog.editors.get("stone")
-    if stone_editor is None or stone_editor.text().strip():
-        return
-    stone_editor.setText(value if isinstance(value, str) else "")
 
 
 SPECS: dict[str, CrudSpec] = {}
@@ -257,30 +258,6 @@ _register(CrudSpec(
 ))
 
 _register(CrudSpec(
-    key="master.stone_info",
-    title="Stone Info",
-    model=StoneInfo,
-    order_by="name",
-    fields=[
-        Field("code", "Code", required=True),
-        Field("name", "Stone", required=True),
-        Field("stone_type", "Type", type="choice",
-              choices=["Natural", "Lab Grown", "Imitation", "Synthetic"], default="Natural"),
-        Field("shape", "Shape", type="choice",
-              choices=["Round", "Princess", "Oval", "Pear", "Marquise", "Emerald",
-                       "Cushion", "Baguette", "Heart", "Other"], default="Round"),
-        Field("quality", "Quality / Clarity"),
-        Field("color", "Colour"),
-        Field("size_mm", "Size (mm)"),
-        Field("sieve", "Sieve", in_list=False),
-        Field("weight_unit", "Weight Unit", type="choice", choices=["ct", "pcs"], default="ct"),
-        Field("rate_per_unit", "Rate / unit", type="float"),
-        Field("hsn_code", "HSN Code", in_list=False),
-        Field("is_active", "Active", type="bool", default=True),
-    ],
-))
-
-_register(CrudSpec(
     key="master.other",
     title="Other Settings",
     model=OtherSetting,
@@ -322,69 +299,30 @@ _register(CrudSpec(
 
 # --- SKU module --------------------------------------------------------
 _register(CrudSpec(
-    key="sku.stone_sku",
-    title="Stone SKUs",
-    model=StoneSku,
-    order_by="sku_code",
-    search_hint="Search by Stone SKU, shape, quality, colour…",
+    key="sku.stone_packet",
+    title="Stone Packets",
+    model=StonePacket,
+    order_by="packet_no",
+    search_hint="Search by packet no, lot no, status…",
     fields=[
-        Field("sku_code", "Stone Sku", required=True,
-              on_change=_stone_sku_autofill),
-        Field("mrp", "MRP", in_list=False),
-        Field("description", "Description", in_list=False),
-        Field("stone", "Stone",
-              help_text="Defaults to the Stone Sku text - type over it if the "
-                         "stone name should differ."),
-        Field("shape", "Shape"),
-        Field("stone_type", "Type"),
-        Field("quality", "Quality"),
-        Field("color", "Color"),
-        Field("shelf_no", "Shelf No.", in_list=False),
-        Field("rfid", "RFID#", in_list=False),
-        Field("range_label", "Range", in_list=False),
-        Field("cost_price", "Cost Price", type="float", in_list=False),
-        Field("sale_price", "Sale Price", type="float", in_list=False),
-        Field("per", "Per", in_list=False),
-        Field("size", "Size", in_list=False),
-        Field("wt_per_pcs", "Wt/Pcs", type="float", decimals=4, in_list=False),
-        Field("min_wt", "Min.Wt", type="float", decimals=4, in_list=False),
-        Field("is_active", "Active", type="bool", default=True, in_list=False),
+        Field("packet_no", "Packet No", required=True),
+        Field("stone_id", "Stone", type="fk", fk_model=StoneInfo, fk_label=_stone_label),
+        Field("lot_no", "Lot No"),
+        Field("supplier_id", "Supplier", type="fk", fk_model=Account,
+              fk_label=_account_label),
+        Field("received_date", "Received Date", type="date"),
+        Field("pieces", "Pieces", type="int"),
+        Field("weight_ct", "Weight (ct)", type="float", decimals=4),
+        Field("rate_per_ct", "Rate / ct", type="float"),
+        Field("amount", "Amount", type="float"),
+        Field("location", "Location", in_list=False),
+        Field("status", "Status", type="choice",
+              choices=["In Stock", "Partly Used", "Consumed", "Returned"], default="In Stock"),
+        Field("remarks", "Remarks", type="text", in_list=False),
     ],
 ))
 
-_register(CrudSpec(
-    key="sku.product_sku_master",
-    title="Product SKUs",
-    model=ProductSku,
-    order_by="sku_code",
-    search_hint="Search by SKU code, name, collection…",
-    fields=[
-        Field("sku_code", "SKU Code", required=True),
-        Field("name", "Name"),
-        Field("category_id", "Category", type="fk", fk_model=SkuInfo,
-              fk_label=_skuinfo_label),
-        Field("metal_id", "Metal", type="fk", fk_model=Metal, fk_label=_metal_label),
-        Field("collection", "Collection"),
-        Field("gender", "Gender", type="choice",
-              choices=["Unisex", "Ladies", "Gents", "Kids"], default="Unisex"),
-        Field("size", "Size", in_list=False),
-        Field("gross_weight", "Gross Wt", type="float", decimals=4),
-        Field("net_weight", "Net Wt", type="float", decimals=4),
-        Field("metal_weight", "Metal Wt", type="float", decimals=4, in_list=False),
-        Field("stone_weight_ct", "Stone Wt (ct)", type="float", decimals=4, in_list=False),
-        Field("stone_pieces", "Stone Pcs", type="int", in_list=False),
-        Field("making_charge_type", "MC Type", type="choice",
-              choices=["Per Gram", "Per Piece", "Percentage", "Fixed"],
-              default="Per Gram", in_list=False),
-        Field("making_charge", "Making Charge", type="float", in_list=False),
-        Field("wastage_pct", "Wastage %", type="float", in_list=False),
-        Field("hsn_code", "HSN Code", in_list=False),
-        Field("image_path", "Image Path", in_list=False),
-        Field("description", "Description", type="text", in_list=False),
-        Field("status", "Status", type="choice",
-              choices=["Active", "Inactive", "Discontinued"], default="Active"),
-    ],
-))
+
 
 # --- Location (T-04) ----------------------------------------------------
 _register(CrudSpec(
@@ -729,6 +667,365 @@ _register(CrudSpec(
                       Field("modified_on", "Date", type="date"),
                       Field("weight", "Weight", type="float", decimals=4),
                       Field("remark", "Remark"),
+                  ],
+              )),
+    ],
+))
+
+# --- Stone reference masters (T-06) -------------------------------------
+_simple_lookup = lambda o: o.name
+
+for _key, _title, _model, _hint in (
+    ("master.stone_group", "Stone Groups", StoneGroup, "Search by code or name…"),
+    ("master.stone_shape", "Shapes", StoneShape, "Search by code or name…"),
+    ("master.stone_kind", "Types", StoneKind, "Search by code or name…"),
+    ("master.stone_quality", "Qualities", StoneQuality, "Search by code or name…"),
+):
+    _register(CrudSpec(
+        key=_key, title=_title, model=_model, order_by="name", search_hint=_hint,
+        fields=[
+            Field("code", "Code", required=True),
+            Field("name", "Name", required=True),
+            Field("is_active", "Active", type="bool", default=True),
+        ],
+    ))
+
+_register(CrudSpec(
+    key="master.stone_size",
+    title="Sizes",
+    model=StoneSize,
+    order_by="name",
+    search_hint="Search by code or name…",
+    fields=[
+        Field("code", "Code", required=True),
+        Field("name", "Size", required=True,
+              help_text="Open-ended — add new sizes as they come into use."),
+        Field("size_mm", "Size (mm)", type="float", decimals=4),
+        Field("is_active", "Active", type="bool", default=True),
+    ],
+))
+
+_register(CrudSpec(
+    key="master.stone_info",
+    title="Stone Info",
+    model=StoneInfo,
+    order_by="code",
+    search_hint="Search by code, stone, colour…",
+    fields=[
+        Field("code", "Code", required=True,
+              help_text="Indexed and searchable — staff filter by it."),
+        Field("name", "Stone", required=True),
+        Field("stone_group_id", "Stone Group", type="fk", fk_model=StoneGroup,
+              fk_label=_simple_lookup),
+        Field("stone_kind_id", "Type", type="fk", fk_model=StoneKind,
+              fk_label=_simple_lookup),
+        Field("shape_id", "Shape", type="fk", fk_model=StoneShape,
+              fk_label=_simple_lookup),
+        Field("quality_id", "Quality", type="fk", fk_model=StoneQuality,
+              fk_label=_simple_lookup),
+        Field("weight_unit", "Weight Unit", type="choice",
+              choices=list(StoneInfo.WEIGHT_UNITS), default="ct",
+              help_text="Travels with the stone into costing — carats for "
+                        "diamond, pieces for CZ."),
+        Field("is_active", "Active", type="bool", default=True),
+        Field("size_id", "Size", type="fk", fk_model=StoneSize,
+              fk_label=_simple_lookup, in_list=False),
+        Field("color", "Colour", in_list=False),
+        Field("sieve", "Sieve", in_list=False),
+        Field("rate_per_unit", "Rate / unit", type="float", in_list=False),
+        Field("hsn_code", "HSN Code", in_list=False),
+    ],
+))
+
+# ==========================================================================
+# S.K.U. module (8 September session)
+# ==========================================================================
+_item_label = lambda i: f"{i.code} - {i.name}"
+_family_label = lambda f: f.name
+_size_label = lambda s: s.name
+_stonesku_label = lambda s: s.code
+
+
+# --- Item master (T-24) -------------------------------------------------
+_register(CrudSpec(
+    key="master.item",
+    title="Items",
+    model=Item,
+    order_by="name",
+    search_hint="Search by item name or code…",
+    fields=[
+        Field("name", "Item Name", required=True),
+        Field("code", "Code", required=True,
+              help_text="Used as the prefix for SKU codes."),
+        Field("virtual_design_code", "Virtual Design Code",
+              help_text="Prefix for design / CAD codes."),
+        Field("mould_code", "Mould Code", help_text="Prefix for rubber-mould codes."),
+        Field("family_id", "Family", type="fk", fk_model=FamilyCategory,
+              fk_label=_family_label,
+              help_text="A SKU with this item picks this family up automatically."),
+        Field("unit", "Unit", type="choice", choices=["Pcs", "Gms", "Cts", "Set"],
+              default="Pcs"),
+        Field("pcs", "Pcs", type="int", default=1),
+        Field("is_active", "Active", type="bool", default=True),
+        Field("number", "Number", type="int", in_list=False),
+        Field("shopify_code", "Shopify Code", in_list=False,
+              help_text="Stored only — no storefront integration is built on it."),
+        Field("price_ranges", "Sales Price Range (M.I.S.)", type="child", in_list=False,
+              child=ChildSpec(
+                  model=ItemPriceRange, fk_attr="item_id", order_by="srno", height=110,
+                  row_template={"srno": 1, "price_from": 0, "price_to": 0},
+                  fields=[
+                      Field("srno", "S.No", type="int"),
+                      Field("price_from", "Price From", type="float"),
+                      Field("price_to", "Price To", type="float"),
+                  ],
+              )),
+    ],
+))
+
+
+# --- Stone SKU catalogue (T-20) -----------------------------------------
+def _range_summary(rows: list[dict]) -> str:
+    if not rows:
+        return "No sizes priced yet — add a row per size this stone comes in."
+    return f"{len(rows)} size(s) priced"
+
+
+_register(CrudSpec(
+    key="sku.stone_sku",
+    title="Stone SKUs",
+    model=StoneSku,
+    order_by="code",
+    search_hint="Search by stone SKU, description, colour…",
+    fields=[
+        Field("code", "Stone SKU", required=True,
+              help_text='The record key, e.g. "EMERALD PEAR", "KILWAS (1.20)".'),
+        Field("stone_id", "Stone", type="fk", fk_model=StoneInfo, required=True,
+              fk_label=_stone_label),
+        Field("description", "Description"),
+        Field("shape_id", "Shape", type="fk", fk_model=StoneShape,
+              fk_label=_simple_lookup),
+        Field("kind_id", "Type", type="fk", fk_model=StoneKind, fk_label=_simple_lookup),
+        Field("quality_id", "Quality", type="fk", fk_model=StoneQuality,
+              fk_label=_simple_lookup),
+        Field("colour", "Colour"),
+        Field("is_active", "Active", type="bool", default=True),
+
+        Field("is_mrp", "MRP", type="bool", in_list=False),
+        Field("shelf_no", "Shelf No.", in_list=False),
+        Field("rfid", "RFID #", in_list=False),
+        Field("add_in_netwt", "Add In NetWt", type="bool", in_list=False,
+              help_text="Whether this stone's weight counts toward the piece's net weight."),
+
+        Field("ranges", "Range / Size Info", type="child", in_list=False,
+              help_text="Prices are per size, per carat — this grid is the input "
+                        "to all stone costing. Cost and Sale are both stored as "
+                        "entered; neither is derived from the other.",
+              child=ChildSpec(
+                  model=StoneSkuRange, fk_attr="stone_sku_id", order_by="id",
+                  height=180, summary=_range_summary,
+                  row_template={"range_label": "", "cost_price": 0, "sale_price": 0,
+                                "per": "Cts", "wt_per_pcs": 0, "min_wt": 0},
+                  fields=[
+                      Field("range_label", "Range"),
+                      Field("cost_price", "Cost Price", type="float", decimals=4),
+                      Field("sale_price", "Sale Price", type="float", decimals=4),
+                      Field("per", "Per", type="choice",
+                            choices=list(StoneSkuRange.PER_UNITS)),
+                      Field("size_id", "Size", type="fk", fk_model=StoneSize,
+                            fk_label=_size_label),
+                      Field("wt_per_pcs", "Wt/Pcs", type="float", decimals=4),
+                      Field("min_wt", "Min.Wt", type="float", decimals=4),
+                  ],
+              )),
+        Field("vendors", "Vendor List", type="child", in_list=False,
+              child=ChildSpec(
+                  model=StoneSkuVendor, fk_attr="stone_sku_id", order_by="id", height=90,
+                  fields=[Field("account_id", "Vendor", type="fk", fk_model=Account,
+                                fk_label=_account_label)],
+              )),
+    ],
+))
+
+
+# --- Product SKU Master (T-22) ------------------------------------------
+def _stone_grid_summary(rows: list[dict]) -> str:
+    """Pinned totals - staff read the totals, not the lines (UX11)."""
+    pcs = sum(int(r.get("pieces") or 0) for r in rows)
+    cts = sum(costing._dec(r.get("weight_cts")) for r in rows)
+    amt = costing.stone_amount(rows)
+    return f"TOTAL   {pcs} pcs   ·   {cts:.3f} cts   ·   {amt}"
+
+
+def _fill_family_from_item(dialog, item_id) -> None:
+    """Pick the Family up from the Item master when an Item is chosen.
+
+    The client's rule: Family comes from the master automatically, while the
+    metal karat is typed by hand every time. Only fills a blank Family, so a
+    deliberate override is never stomped on.
+    """
+    family_editor = dialog.editors.get("family_id")
+    if family_editor is None or family_editor.currentData() is not None:
+        return
+    if not item_id:
+        return
+    item = dialog.session.get(Item, item_id)
+    if item is None or not item.family_id:
+        return
+    idx = family_editor.findData(item.family_id)
+    if idx >= 0:
+        family_editor.setCurrentIndex(idx)
+
+
+def _price_product_sku(values: dict, children: dict, session) -> None:
+    """Recompute the derived money panel from the stone grid and the metal head.
+
+    Runs on every save so the stored figures always match the lines that
+    produced them. Manual Price % is left alone - it is a separate override.
+    """
+    metal = session.get(Metal, values.get("metal_id")) if values.get("metal_id") else None
+    rate_info = None
+    if metal is not None:
+        rate_info = rates.rate_for(session, metal.id, date.today())
+    pure_rate = rate_info.rate if rate_info else Decimal("0")
+
+    result = costing.cost_sku(
+        stone_lines=children.get("stones", []),
+        net_weight=values.get("net_weight") or 0,
+        metal=metal,
+        pure_rate_per_gram=pure_rate,
+        labour_amount=values.get("labour_amount") or 0,
+        finding_labour=values.get("finding_labour") or 0,
+        setting_amount=values.get("setting_amount") or 0,
+    )
+    values["stone_amount"] = result.stone_amount
+    values["metal_rate"] = result.metal_rate
+    values["metal_amount"] = result.metal_amount
+    values["total_rs"] = result.total_rs
+    values["default_price"] = result.default_price
+
+    # Each stone line stores its own amount, computed from the SALE price.
+    for row in children.get("stones", []):
+        row["amount"] = costing.stone_line_amount(
+            row.get("weight_cts"), row.get("sale_price")
+        )
+
+
+_register(CrudSpec(
+    key="sku.product_sku_master",
+    title="Product SKUs",
+    model=ProductSku,
+    order_by="sku_code",
+    search_hint="Search by SKU, description, design no, style…",
+    before_save=_price_product_sku,
+    fields=[
+        Field("sku_code", "SKU", required=True,
+              help_text='e.g. "ER-1337", "625 CHOKAR", "BANG-597".'),
+        Field("description", "Description"),
+        Field("item_id", "Item", type="fk", fk_model=Item, fk_label=_item_label,
+              on_change=_fill_family_from_item,
+              help_text="Classifies the SKU. Family fills in from the master; "
+                        "the metal karat is typed by hand."),
+        Field("family_id", "Family", type="fk", fk_model=FamilyCategory,
+              fk_label=_family_label),
+        Field("metal_id", "Metal", type="fk", fk_model=Metal, fk_label=_metal_label),
+        Field("gross_weight", "Gross Wt", type="float", decimals=4),
+        Field("net_weight", "Net Wt", type="float", decimals=4,
+              help_text="Metal is costed on net weight, not gross."),
+        Field("is_active", "Active", type="bool", default=True),
+
+        # -- money: derived, shown but never typed ----------------------
+        Field("stone_amount", "Stone Amount", type="float", readonly=True, in_list=False),
+        Field("metal_rate", "Mt Rate", type="float", decimals=4, readonly=True,
+              in_list=False),
+        Field("metal_amount", "Metal Amount", type="float", readonly=True, in_list=False),
+        Field("total_rs", "TOTAL RS", type="float", readonly=True, in_list=False),
+        Field("default_price", "Default Price RS", type="float", readonly=True,
+              in_list=False,
+              help_text="(Stone + Metal) × the margin multiplier. Recalculated on save."),
+        # -- money: typed ------------------------------------------------
+        Field("labour_amount", "Labour Amount", type="float", in_list=False),
+        Field("finding_labour", "Finding Labour", type="float", in_list=False),
+        Field("setting_amount", "Setting Amount", type="float", in_list=False),
+        Field("manual_price_pct", "Manual Price %", type="float", decimals=4,
+              in_list=False,
+              help_text="A separate override. Stored alongside the derived price — "
+                        "neither overwrites the other."),
+        Field("extra_amount", "Extra Amt", type="float", in_list=False),
+
+        # -- identity / classification ------------------------------------
+        Field("remark", "Remark", in_list=False),
+        Field("category", "Category", in_list=False),
+        Field("category2", "Category 2", in_list=False),
+        Field("pattern", "Pattern", in_list=False),
+        Field("pattern2", "Pattern 2", in_list=False),
+        Field("s_item", "S-Item", in_list=False),
+        Field("style", "Style", in_list=False),
+        Field("item_pcs", "Item Pcs", type="int", default=1, in_list=False),
+
+        # -- physical -------------------------------------------------------
+        Field("mt_plt_col", "Mt/Plt. Col", in_list=False),
+        Field("enamal_col", "Enamal Col", in_list=False),
+        Field("jewelry_size", "Jewelry Size", in_list=False),
+        Field("chain_type", "Chain Type", in_list=False),
+        Field("length", "L", in_list=False),
+        Field("design_no", "Design No", in_list=False),
+        Field("mt_loss_pct", "Mt Loss %", type="float", decimals=4, in_list=False),
+        Field("tolerance_pct", "Tolerance %", type="float", decimals=4, in_list=False),
+        Field("tolerance_g", "Tolerance G", type="bool", in_list=False),
+        Field("avg_loss_pct", "Avg Loss %", type="float", decimals=4, in_list=False),
+        Field("stamp", "Stamp", in_list=False),
+        Field("snap", "Snap", in_list=False),
+        Field("inscription", "Inscription", in_list=False),
+        Field("jwl_type", "Jwl. Type", in_list=False),
+
+        # -- flags ------------------------------------------------------------
+        Field("is_rubber", "Rubber", type="bool", in_list=False),
+        Field("is_master", "Master", type="bool", in_list=False),
+        Field("is_cad", "CAD", type="bool", in_list=False),
+        Field("is_cpx", "CPX", type="bool", in_list=False),
+        Field("is_sizable", "Sizable", type="bool", in_list=False),
+        Field("upc", "UPC", in_list=False),
+        Field("link_cert", "Link Cert", in_list=False),
+
+        # -- references (meaning not yet explained) -----------------------
+        Field("master_sku", "MasterSKU", in_list=False),
+        Field("sku_ref", "SKU Ref.", in_list=False),
+        Field("hu_id", "HU Id", in_list=False),
+        Field("min_pcs", "MIN.Pcs", type="int", in_list=False),
+        Field("box_qty", "Box Qty", type="int", in_list=False),
+
+        # -- images (T-25) --------------------------------------------------
+        Field("image_finished", "Finished Image", in_list=False,
+              help_text="Path to the photograph of the manufactured piece."),
+        Field("image_design", "Design Image", in_list=False),
+        Field("image_cad", "CAD Image", in_list=False),
+        Field("image_cert", "Cert Image", in_list=False),
+        Field("cad_stl_file", "CAD / STL File", in_list=False,
+              help_text="The 3D file attachment — separate from the CAD image."),
+
+        # -- stone bill of material ------------------------------------------
+        Field("stones", "Stone Info", type="child", in_list=False,
+              help_text="Amounts compute from the SALE price. Several rows per SKU "
+                        "is normal.",
+              child=ChildSpec(
+                  model=ProductSkuStone, fk_attr="product_id", order_by="id",
+                  height=200, summary=_stone_grid_summary,
+                  row_template={"pieces": 0, "weight_cts": 0, "cost_price": 0,
+                                "sale_price": 0, "per": "Cts"},
+                  fields=[
+                      Field("stone_sku_id", "SSKU", type="fk", fk_model=StoneSku,
+                            fk_label=_stonesku_label),
+                      Field("description", "Description"),
+                      Field("size_id", "Size", type="fk", fk_model=StoneSize,
+                            fk_label=_size_label),
+                      Field("pieces", "Pcs", type="int"),
+                      Field("weight_cts", "Weight", type="float", decimals=4),
+                      Field("brk_wt_pct", "Brk Wt%", type="float", decimals=4),
+                      Field("cost_price", "Cost Price", type="float", decimals=4),
+                      Field("sale_price", "Sale Price", type="float", decimals=4),
+                      Field("per", "Per", type="choice",
+                            choices=list(StoneSkuRange.PER_UNITS)),
                   ],
               )),
     ],

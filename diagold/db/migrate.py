@@ -43,6 +43,11 @@ def _column_ddl_type(column) -> str:
 
 
 def _default_literal(column) -> str | None:
+    # A foreign key must never be given an invented value: stamping 0 on
+    # existing rows produces a dangling reference that looks populated. Leave
+    # it NULL so unassigned rows are visibly unassigned.
+    if column.foreign_keys:
+        return None
     default = column.default
     if default is None or not getattr(default, "is_scalar", False):
         # Give NOT NULL columns something to land on for existing rows.
@@ -74,6 +79,7 @@ def sync_schema(engine: Engine) -> list[str]:
         _carry_over_account_types(conn, existing)
         changes += _drop_orphan_not_null_columns(conn, inspector, existing)
         _create_unique_indexes(conn, inspector, existing)
+        _enforce_stone_group(conn, inspector, existing)
 
     return changes
 
@@ -223,3 +229,29 @@ def _create_unique_indexes(conn, inspector, existing: set[str]) -> None:
                 ))
             except Exception:  # noqa: BLE001 - duplicates already in the file
                 pass
+
+
+def _enforce_stone_group(conn, inspector, existing: set[str]) -> None:
+    """Refuse a stone with no group, at the database level.
+
+    The model already declares the column NOT NULL, which covers databases
+    created from scratch. SQLite cannot tighten an existing nullable column
+    without rebuilding the table, so a trigger enforces the same rule on files
+    that predate it - and it holds against a direct write, not only the form.
+    """
+    if "stone_info" not in existing:
+        return
+    cols = {c["name"] for c in inspector.get_columns("stone_info")}
+    if "stone_group_id" not in cols:
+        return
+    for event in ("INSERT", "UPDATE"):
+        name = f"trg_stone_group_required_{event.lower()}"
+        conn.execute(text(f'DROP TRIGGER IF EXISTS "{name}"'))
+        conn.execute(text(
+            f'CREATE TRIGGER "{name}" BEFORE {event} ON stone_info '
+            f"FOR EACH ROW WHEN NEW.stone_group_id IS NULL OR NOT EXISTS "
+            f"(SELECT 1 FROM stone_groups WHERE id = NEW.stone_group_id) "
+            f"BEGIN SELECT RAISE(ABORT, "
+            f"'A stone must belong to a stone group (Diamond, Polki or Colour Stone).'); "
+            f"END"
+        ))
