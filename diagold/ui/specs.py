@@ -1122,6 +1122,8 @@ _register(CrudSpec(
                       Field("description", "Description"),
                       Field("size_id", "Size", type="fk", fk_model=StoneSize,
                             fk_label=_size_label, on_change=_fill_stone_price),
+                      Field("wt_per_pcs", "Wt/Pcs", type="float", decimals=4),
+                      Field("min_wt", "MinWt", type="float", decimals=4),
                       Field("pieces", "Pcs", type="int"),
                       Field("weight_cts", "Weight", type="float", decimals=4),
                       Field("brk_wt_pct", "Brk Wt%", type="float", decimals=4),
