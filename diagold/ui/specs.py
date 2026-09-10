@@ -819,9 +819,12 @@ _register(CrudSpec(
     fields=[
         Field("sku_code", "Stone Sku", required=True,
               on_change=_stone_sku_autofill),
-        Field("mrp", "MRP", in_list=False),
+        Field("mrp", "MRP", in_list=False,
+              help_text="Kept as free text: the requirements read this as a "
+                        "Yes/No flag, but amounts are being typed into it. "
+                        "Awaiting the client before it is constrained."),
         Field("description", "Description", in_list=False),
-        Field("stone", "Stone", in_list=False,
+        Field("stone", "Stone", required=True, in_list=False,
               help_text="Defaults to the Stone Sku text - type over it if the "
                         "stone name should differ."),
         Field("shape", "Shape", in_list=False),
