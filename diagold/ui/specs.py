@@ -298,6 +298,8 @@ _register(CrudSpec(
 ))
 
 # --- SKU module --------------------------------------------------------
+# Kept but off the menu - see DROPPED_SKU_SCREENS in diagold/menu.py. The
+# spec stays so the screen returns intact if the client explains Packet No.
 _register(CrudSpec(
     key="sku.stone_packet",
     title="Stone Packets",

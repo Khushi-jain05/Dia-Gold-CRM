@@ -58,9 +58,7 @@ MENU: list[MenuGroup] = [
     ]),
     _g("sku", "SKU", [
         ("stone_sku", "Stone SKU"),
-        ("stone_packet", "Packet No"),
         ("product_sku_master", "Product SKU Master"),
-        ("sku_view", "SKU View"),
     ]),
     _g("quotation", "Quotation", [
         ("quotation", "Quotation"),
@@ -170,6 +168,17 @@ MENU: list[MenuGroup] = [
 #                  (Account > Voucher Entry is a transaction screen, not this
 #                  master, and stays.)
 DROPPED_MASTERS: tuple[str, ...] = ("Findings", "Voucher Type")
+
+# The S.K.U. menu carries exactly the two screens the client asked for next:
+# Stone SKU and Product SKU Master (R31). The other two are absent because:
+#   Packet No - the legacy menu entry is a single "Stone SKU/Packet No", and no
+#               packet concept ever appeared on the shared screen. The separate
+#               screen was a v0.1 invention. The model and its spec are kept so
+#               it can come straight back if the client explains it (Q26).
+#   SKU View  - opened on the call but never explained; a read-only analysis
+#               layout with no agreed behaviour to build (see the 8 September
+#               session, "opened but not walked through").
+DROPPED_SKU_SCREENS: tuple[str, ...] = ("Packet No", "SKU View")
 
 MENU_BY_KEY: dict[str, MenuGroup] = {g.key: g for g in MENU}
 
