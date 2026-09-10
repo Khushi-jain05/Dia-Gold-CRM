@@ -12,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -21,8 +22,10 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -79,6 +82,21 @@ class Field:
 
 
 @dataclass
+class Shortcut:
+    """One keyboard shortcut, shown on the screen and actually bound.
+
+    The client works this screen by reflex, so the shortcuts are listed where
+    they can be seen rather than hidden in a menu.
+    """
+
+    keys: str                       # "Ctrl+S"
+    label: str                      # "Stone Info"
+    target: str | None = None       # field to jump to, if it exists yet
+    action: str = ""                # "image_attach" | "image_remove" | "details"
+    note: str = ""                  # shown when the panel it opens is not built
+
+
+@dataclass
 class ChildSpec:
     """A grid of rows belonging to the record being edited.
 
@@ -116,6 +134,110 @@ class CrudSpec:
     # Recomputes derived fields from the typed values and the child rows,
     # just before the write. Mutates `values` in place.
     before_save: Callable[[dict, dict[str, list[dict]], Any], None] | None = None
+    # Keyboard shortcuts to bind and display on the form.
+    shortcuts: list[Shortcut] = field(default_factory=list)
+
+
+class ImageSlot(QWidget):
+    """One image on a record: a thumbnail, an Attach and a Clear.
+
+    Holds a path, not the bytes - images live on disk with only a reference on
+    the record. An empty slot renders as a placeholder, never as a broken
+    image, because most records will carry only the finished photograph for a
+    long time.
+    """
+
+    FORMATS = "Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp *.tif *.tiff)"
+    THUMB = 104
+
+    def __init__(self, label: str, parent=None):
+        super().__init__(parent)
+        self._path = ""
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(4)
+
+        self.thumb = QLabel()
+        self.thumb.setObjectName("ImageSlot")
+        self.thumb.setFixedSize(self.THUMB, self.THUMB)
+        self.thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thumb.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.thumb.mousePressEvent = lambda _e: self.show_full_size()
+        outer.addWidget(self.thumb)
+
+        caption = QLabel(label)
+        caption.setObjectName("Muted")
+        caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        outer.addWidget(caption)
+
+        bar = QHBoxLayout()
+        bar.setSpacing(4)
+        self.btn_attach = QPushButton("Attach")
+        self.btn_clear = QPushButton("Clear")
+        for b in (self.btn_attach, self.btn_clear):
+            b.setFixedHeight(24)
+            bar.addWidget(b)
+        self.btn_attach.clicked.connect(self.attach)
+        self.btn_clear.clicked.connect(self.clear)
+        outer.addLayout(bar)
+
+        self._render()
+
+    # -- value -----------------------------------------------------------
+    def path(self) -> str:
+        return self._path
+
+    def set_path(self, value: str | None) -> None:
+        self._path = (value or "").strip()
+        self._render()
+
+    def _render(self) -> None:
+        if self._path:
+            pix = QPixmap(self._path)
+            if not pix.isNull():
+                self.thumb.setPixmap(pix.scaled(
+                    self.THUMB, self.THUMB,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation))
+                self.thumb.setToolTip(self._path)
+                self.btn_clear.setEnabled(True)
+                return
+            # A path that no longer resolves is reported, never shown broken.
+            self.thumb.setPixmap(QPixmap())
+            self.thumb.setText("file\nmissing")
+            self.thumb.setToolTip(f"Not found:\n{self._path}")
+            self.btn_clear.setEnabled(True)
+            return
+        self.thumb.setPixmap(QPixmap())
+        self.thumb.setText("—")
+        self.thumb.setToolTip("No image. Ctrl+I to attach.")
+        self.btn_clear.setEnabled(False)
+
+    # -- actions ----------------------------------------------------------
+    def attach(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Choose an image", "", self.FORMATS)
+        if path:
+            self.set_path(path)
+
+    def clear(self) -> None:
+        self.set_path("")
+
+    def show_full_size(self) -> None:
+        if not self._path:
+            return
+        pix = QPixmap(self._path)
+        if pix.isNull():
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(self._path)
+        lay = QVBoxLayout(dlg)
+        label = QLabel()
+        label.setPixmap(pix.scaled(900, 700, Qt.AspectRatioMode.KeepAspectRatio,
+                                   Qt.TransformationMode.SmoothTransformation))
+        lay.addWidget(label)
+        dlg.exec()
 
 
 class ChildTableEditor(QWidget):
@@ -167,8 +289,52 @@ class ChildTableEditor(QWidget):
         self.table.insertRow(r)
         self.table.setRowHeight(r, ROW_HEIGHT)
         for c, f in enumerate(self.spec.fields):
-            self.table.setCellWidget(r, c, self._cell(f, values.get(f.name)))
+            widget = self._cell(f, values.get(f.name))
+            if f.on_change is not None:
+                self._wire_cell_change(f, widget, r)
+            self.table.setCellWidget(r, c, widget)
         self._refresh_summary()
+
+    def _wire_cell_change(self, f: Field, widget: QWidget, row: int) -> None:
+        """Let a grid cell react to its own change, e.g. to fill sibling cells."""
+        callback = f.on_change
+        if f.type == "fk":
+            widget.currentIndexChanged.connect(
+                lambda _=None, w=widget, r=row: callback(self, r, w.currentData())
+            )
+        elif f.type == "choice":
+            widget.currentTextChanged.connect(lambda t, r=row: callback(self, r, t))
+        elif f.type in ("float", "int"):
+            widget.valueChanged.connect(lambda v, r=row: callback(self, r, v))
+        else:
+            widget.textChanged.connect(lambda t, r=row: callback(self, r, t))
+
+    def cell_value(self, row: int, name: str) -> Any:
+        """Read one cell of a row by field name."""
+        for c, f in enumerate(self.spec.fields):
+            if f.name == name:
+                return self._cell_value(row, c, f)
+        return None
+
+    def set_cell_value(self, row: int, name: str, value: Any) -> None:
+        """Write one cell of a row by field name."""
+        for c, f in enumerate(self.spec.fields):
+            if f.name != name:
+                continue
+            w = self.table.cellWidget(row, c)
+            if w is None:
+                return
+            if f.type in ("float", "int"):
+                w.setValue(float(value or 0))
+            elif f.type == "choice":
+                w.setCurrentText("" if value is None else str(value))
+            elif f.type == "fk":
+                idx = w.findData(value)
+                if idx >= 0:
+                    w.setCurrentIndex(idx)
+            else:
+                w.setText("" if value is None else str(value))
+            return
 
     def _cell(self, f: Field, value: Any) -> QWidget:
         if f.type == "float":
@@ -324,8 +490,8 @@ class FormDialog(QDialog):
         form.setVerticalSpacing(8)
 
         for f in spec.fields:
-            if f.type == "child":
-                continue  # rendered full-width below the form
+            if f.type in ("child", "image"):
+                continue  # rendered in their own blocks below
             editor = self._build_editor(f)
             if f.readonly:
                 editor.setEnabled(False)
@@ -343,6 +509,21 @@ class FormDialog(QDialog):
 
         body_layout.addLayout(form)
 
+        # Images sit together in a row of slots, above the child grids.
+        self.image_slots: dict[str, ImageSlot] = {}
+        image_fields = [f for f in spec.fields if f.type == "image"]
+        if image_fields:
+            box = QGroupBox("Images")
+            grid = QGridLayout(box)
+            grid.setSpacing(10)
+            for col, f in enumerate(image_fields):
+                slot = ImageSlot(f.label)
+                self.image_slots[f.name] = slot
+                grid.addWidget(slot, 0, col)
+            grid.setColumnStretch(len(image_fields), 1)
+            body_layout.addWidget(box)
+            self.setMinimumWidth(760)
+
         for f in spec.fields:
             if f.type != "child" or f.child is None:
                 continue
@@ -358,6 +539,9 @@ class FormDialog(QDialog):
             box_layout.addWidget(editor)
             body_layout.addWidget(box)
             self.setMinimumWidth(660)
+
+        if spec.shortcuts:
+            self._build_shortcut_panel(body_layout)
 
         body_layout.addStretch(1)
 
@@ -381,6 +565,57 @@ class FormDialog(QDialog):
 
         self._load_values()
         self._fit_to_screen(body)
+
+    def _build_shortcut_panel(self, body_layout) -> None:
+        """List the shortcuts on the screen and bind every one of them."""
+        box = QGroupBox("Keyboard")
+        grid = QGridLayout(box)
+        grid.setSpacing(6)
+        per_row = 4
+        for i, sc in enumerate(self.spec.shortcuts):
+            chip = QLabel(f"<b>{sc.keys}</b>&nbsp; {sc.label}")
+            chip.setObjectName("Muted")
+            if sc.note:
+                chip.setToolTip(sc.note)
+            grid.addWidget(chip, i // per_row, i % per_row)
+            QShortcut(QKeySequence(sc.keys), self,
+                      activated=lambda s=sc: self._run_shortcut(s))
+        body_layout.addWidget(box)
+
+    def _focused_image_slot(self) -> "ImageSlot | None":
+        """The image slot with focus, else the first one."""
+        widget = QApplication.focusWidget()
+        while widget is not None:
+            if isinstance(widget, ImageSlot):
+                return widget
+            widget = widget.parentWidget()
+        return next(iter(self.image_slots.values()), None)
+
+    def _run_shortcut(self, sc: "Shortcut") -> None:
+        if sc.action == "image_attach":
+            slot = self._focused_image_slot()
+            if slot is not None:
+                slot.attach()
+            return
+        if sc.action == "image_remove":
+            slot = self._focused_image_slot()
+            if slot is not None:
+                slot.clear()
+            return
+        if sc.target:
+            widget = self.editors.get(sc.target)
+            if widget is None and sc.target in self.child_editors:
+                widget = self.child_editors[sc.target]
+            if widget is not None:
+                widget.setFocus(Qt.FocusReason.ShortcutFocusReason)
+                scroll = self.findChild(QScrollArea)
+                if scroll is not None:
+                    scroll.ensureWidgetVisible(widget, 0, 60)
+                return
+        # The panel this opens belongs to a module that is not built yet.
+        QMessageBox.information(
+            self, sc.label,
+            sc.note or f"{sc.label} is not part of this build yet.")
 
     def _fit_to_screen(self, body: QWidget) -> None:
         """Size to the content, but never taller than the available screen."""
@@ -460,6 +695,10 @@ class FormDialog(QDialog):
         for f in self.spec.fields:
             if f.type == "child":
                 self._load_child(f)
+                continue
+            if f.type == "image":
+                self.image_slots[f.name].set_path(
+                    getattr(self.instance, f.name, "") if self.instance else "")
                 continue
             editor = self.editors[f.name]
             if f.type == "password":
@@ -552,6 +791,9 @@ class FormDialog(QDialog):
         secrets: dict[str, str] = {}
         for f in self.spec.fields:
             if f.type == "child":
+                continue
+            if f.type == "image":
+                values[f.name] = self.image_slots[f.name].path()
                 continue
             val = self._editor_value(f)
             if f.type == "password":

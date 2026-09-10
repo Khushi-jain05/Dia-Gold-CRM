@@ -213,6 +213,10 @@ class ProductSku(Base, PKMixin, TimestampMixin):
     __tablename__ = "product_skus"
 
     sku_code: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    # The figure the legacy screen prints under the SKU (6200 on ER-1337). It is
+    # not derivable from any other figure on the record and was never explained,
+    # so it is stored and shown, never computed (see C-14).
+    tag_price: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     description: Mapped[str] = mapped_column(String(200), default="")
     remark: Mapped[str] = mapped_column(String(200), default="")
     category: Mapped[str] = mapped_column(String(64), default="")
@@ -229,6 +233,10 @@ class ProductSku(Base, PKMixin, TimestampMixin):
     )
     style: Mapped[str] = mapped_column(String(64), default="")
     metal_id: Mapped[int | None] = mapped_column(ForeignKey("metals.id"), nullable=True)
+    # Copied from the chosen metal head so the screen shows it beside the metal,
+    # exactly as the legacy form does. The costing always reads the master, not
+    # this copy.
+    metal_fineness: Mapped[float] = mapped_column(Numeric(12, 4), default=0)
     item_pcs: Mapped[int] = mapped_column(default=1)
 
     # -- physical --------------------------------------------------------
@@ -257,6 +265,10 @@ class ProductSku(Base, PKMixin, TimestampMixin):
     is_sizable: Mapped[bool] = mapped_column(Boolean, default=False)
     upc: Mapped[str] = mapped_column(String(48), default="")
     link_cert: Mapped[str] = mapped_column(String(48), default="")
+    # The "MC%= 0.00 LC%= 0.00" readout. Zero on every record seen and never
+    # explained, so both are carried but nothing is derived from them (C-14).
+    mc_pct: Mapped[float] = mapped_column(Numeric(9, 4), default=0)
+    lc_pct: Mapped[float] = mapped_column(Numeric(9, 4), default=0)
 
     # -- references (purpose not yet explained - Q22) ---------------------
     master_sku: Mapped[str] = mapped_column(String(40), default="")

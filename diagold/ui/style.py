@@ -205,6 +205,14 @@ QGroupBox::title {{
     letter-spacing: 1px;
 }}
 
+QLabel#ImageSlot {{
+    background: #FAFAFB;
+    border: 1px dashed {BORDER};
+    border-radius: 8px;
+    color: {MUTED};
+}}
+QLabel#ImageSlot:hover {{ border-color: {GOLD}; }}
+
 /* ---- Cards ---- */
 QFrame#Card {{
     background: {CARD};

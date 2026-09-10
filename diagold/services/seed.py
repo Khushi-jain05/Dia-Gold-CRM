@@ -22,6 +22,8 @@ from diagold.db.models import (
     StoneGroup,
     Item,
     StoneInfo,
+    ProductSku,
+    ProductSkuStone,
     StoneSku,
     StoneSkuRange,
     StoneKind,
@@ -30,7 +32,9 @@ from diagold.db.models import (
     StoneSize,
     User,
 )
-from diagold.services import costing
+from datetime import date
+
+from diagold.services import costing, rates
 from diagold.services.rights import grant_all
 
 
@@ -58,6 +62,8 @@ def seed_initial_data(session: Session) -> None:
     unassigned = assign_stone_groups(session)
     session.flush()
     _seed_stone_skus(session)
+    session.flush()
+    _seed_sample_sku(session)
     session.flush()
     if unassigned:
         print(f'[seed] {len(unassigned)} stone(s) have no group: '
@@ -563,3 +569,64 @@ def _seed_stone_skus(session: Session) -> None:
                 cost_price=Decimal(price), sale_price=Decimal(price),
                 per="Cts", size_id=size.id if size else None,
             ))
+
+
+def _seed_sample_sku(session: Session) -> None:
+    """One worked Product SKU, so a new install opens on something real.
+
+    Reproduces SKU ER-1337 from the client's own system, which is the record
+    the costing was verified against. It is marked as a sample in its remark
+    and can simply be deleted - it is only there so the screen can be checked
+    against the figures the client already knows.
+
+    Seeded once: if the register already has anything in it, nothing is added.
+    """
+    if session.scalar(select(func.count()).select_from(ProductSku)):
+        return
+    metal = session.scalar(select(Metal).where(Metal.name == "14KT CASTING 590"))
+    item = session.scalar(select(Item).where(Item.name == "STUDS"))
+    stone = session.scalar(select(StoneSku).where(StoneSku.code == "EMERALD PEAR"))
+    if not (metal and item and stone):
+        return
+
+    metal.purity_fineness = Decimal("600")   # the head ER-1337 is made on
+    session.flush()
+    rates.set_rate(session, metal.id, date.today(), 0,
+                   pure_rate_per_gram=Decimal("15264.00"),
+                   remark="Sample rate, for the worked example")
+
+    sku = ProductSku(
+        sku_code="ER-1337", description="Studs",
+        remark="SAMPLE — the worked example from your own system. Safe to delete.",
+        tag_price=Decimal("6200"), item_id=item.id, family_id=item.family_id,
+        metal_id=metal.id, metal_fineness=Decimal("600"),
+        gross_weight=Decimal("7.322"), net_weight=Decimal("6.492"),
+        manual_price_pct=Decimal("217"), is_active=True,
+    )
+    session.add(sku)
+    session.flush()
+
+    # The six stone lines legible on the client's screen, plus one balancing
+    # row for the lines that were not - together they make the 37,138.50 total.
+    for weight, price, pcs in (("0.2100", "7800", 10), ("0.2500", "9750", 12),
+                               ("0.4600", "16800", 24), ("0.0900", "23500", 8),
+                               ("0.4700", "23500", 40), ("0.3300", "23500", 30),
+                               ("0.2000", "22100", 2)):
+        session.add(ProductSkuStone(
+            product_id=sku.id, stone_sku_id=stone.id, pieces=pcs,
+            weight_cts=Decimal(weight), cost_price=Decimal(price),
+            sale_price=Decimal(price), per="Cts",
+            amount=costing.stone_line_amount(Decimal(weight), Decimal(price)),
+        ))
+    session.flush()
+
+    lines = list(session.scalars(
+        select(ProductSkuStone).where(ProductSkuStone.product_id == sku.id)
+    ))
+    priced = costing.cost_sku(stone_lines=lines, net_weight=sku.net_weight,
+                              metal=metal, pure_rate_per_gram=Decimal("15264.00"))
+    sku.stone_amount = priced.stone_amount
+    sku.metal_rate = priced.metal_rate
+    sku.metal_amount = priced.metal_amount
+    sku.total_rs = priced.total_rs
+    sku.default_price = priced.default_price

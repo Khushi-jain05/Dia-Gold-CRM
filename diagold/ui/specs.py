@@ -47,8 +47,11 @@ from diagold.db.models import (
     StoneSkuVendor,
     User,
 )
+from sqlalchemy import select
+
+from diagold.db.session import SessionLocal
 from diagold.services import costing, rates
-from diagold.ui.crud import ChildSpec, CrudSpec, Field
+from diagold.ui.crud import ChildSpec, CrudSpec, Field, Shortcut
 
 _metal_label = lambda m: f"{m.code} - {m.name}".strip(" -")
 _account_label = lambda a: f"{a.code} - {a.name}"
@@ -298,6 +301,8 @@ _register(CrudSpec(
 ))
 
 # --- SKU module --------------------------------------------------------
+# Kept but off the menu - see DROPPED_SKU_SCREENS in diagold/menu.py. The
+# spec stays so the screen returns intact if the client explains Packet No.
 _register(CrudSpec(
     key="sku.stone_packet",
     title="Stone Packets",
@@ -877,6 +882,59 @@ def _fill_family_from_item(dialog, item_id) -> None:
         family_editor.setCurrentIndex(idx)
 
 
+def _show_metal_fineness(dialog, metal_id) -> None:
+    """Put the chosen head's fineness beside the metal, as the legacy form does.
+
+    Display only - costing always reads the fineness from the Metal master, so
+    this copy can never drift into a calculation.
+    """
+    editor = dialog.editors.get("metal_fineness")
+    if editor is None:
+        return
+    metal = dialog.session.get(Metal, metal_id) if metal_id else None
+    editor.setValue(float(metal.purity_fineness) if metal is not None else 0.0)
+
+
+def _fill_stone_price(grid, row: int, _value) -> None:
+    """Pull a stone line's prices out of the Stone SKU catalogue.
+
+    The costing key is the pair (stone, size), per carat - a stone on its own
+    has no single price, since EMERALD PEAR runs from 2,000 at 3*4 to 5,500 at
+    4*6. So nothing is filled until both are known, and the first band is never
+    assumed to be the right one.
+
+    A figure the user typed themselves is left alone; only a blank, or a figure
+    this function put there earlier, is replaced.
+    """
+    stone_sku_id = grid.cell_value(row, "stone_sku_id")
+    size_id = grid.cell_value(row, "size_id")
+    if not stone_sku_id or not size_id:
+        return
+
+    filled = getattr(grid, "_autofilled", None)
+    if filled is None:
+        filled = grid._autofilled = set()
+
+    with SessionLocal() as session:
+        band = session.scalars(
+            select(StoneSkuRange).where(
+                StoneSkuRange.stone_sku_id == stone_sku_id,
+                StoneSkuRange.size_id == size_id,
+            ).limit(1)
+        ).first()
+    if band is None:
+        return
+
+    for name, value in (("cost_price", band.cost_price),
+                        ("sale_price", band.sale_price)):
+        current = grid.cell_value(row, name)
+        if current and (row, name) not in filled:
+            continue  # typed by hand - leave it
+        grid.set_cell_value(row, name, value)
+        filled.add((row, name))
+    grid.set_cell_value(row, "per", band.per)
+
+
 def _price_product_sku(values: dict, children: dict, session) -> None:
     """Recompute the derived money panel from the stone grid and the metal head.
 
@@ -894,9 +952,6 @@ def _price_product_sku(values: dict, children: dict, session) -> None:
         net_weight=values.get("net_weight") or 0,
         metal=metal,
         pure_rate_per_gram=pure_rate,
-        labour_amount=values.get("labour_amount") or 0,
-        finding_labour=values.get("finding_labour") or 0,
-        setting_amount=values.get("setting_amount") or 0,
     )
     values["stone_amount"] = result.stone_amount
     values["metal_rate"] = result.metal_rate
@@ -918,9 +973,40 @@ _register(CrudSpec(
     order_by="sku_code",
     search_hint="Search by SKU, description, design no, style…",
     before_save=_price_product_sku,
+    # The eleven shortcuts listed down the right of the legacy screen. The
+    # client uses them by reflex, so they are bound and shown. Those whose
+    # panel belongs to a module that is not built yet say so rather than
+    # doing nothing silently.
+    shortcuts=[
+        Shortcut("Ctrl+S", "Stone Info", target="stones"),
+        Shortcut("Ctrl+I", "Image", action="image_attach"),
+        Shortcut("Ctrl+R", "Remove Image", action="image_remove"),
+        Shortcut("F5", "More Details", target="design_no"),
+        Shortcut("Ctrl+F", "Finding Info",
+                 note="Findings are not used by the client, so this panel is "
+                      "not built. Raised as decision D2 in the 3 September session."),
+        Shortcut("Ctrl+O", "Parts/Mould Info", target="master_sku",
+                 note="Jumps to the reference fields. The Parts/Mould panel "
+                      "arrives with the Manufacturing module."),
+        Shortcut("Ctrl+L", "Labour Info",
+                 note="Per-SKU labour was dropped from this screen at the client's request. Labour rates live in the Labour master, and karigar setting labour in the Setting Labour Chart."),
+        Shortcut("Ctrl+P", "Mfg Process Info",
+                 note="The per-SKU process routing panel arrives with the "
+                      "Production Planning module."),
+        Shortcut("Ctrl+G", "Client Ref(s)",
+                 note="Client references arrive with the Quotation module."),
+        Shortcut("Ctrl+N", "Vendor Ref(s)",
+                 note="Vendor references arrive with the Purchase module."),
+        Shortcut("Ctrl+T", "Extra Metal",
+                 note="Extra-metal lines arrive with the Manufacturing module."),
+    ],
     fields=[
         Field("sku_code", "SKU", required=True,
               help_text='e.g. "ER-1337", "625 CHOKAR", "BANG-597".'),
+        Field("tag_price", "Tag Price", type="float", in_list=False,
+              help_text="The figure the legacy screen prints under the SKU. Never "
+                        "explained, so it is stored as entered and nothing is "
+                        "derived from it."),
         Field("description", "Description"),
         Field("item_id", "Item", type="fk", fk_model=Item, fk_label=_item_label,
               on_change=_fill_family_from_item,
@@ -928,7 +1014,12 @@ _register(CrudSpec(
                         "the metal karat is typed by hand."),
         Field("family_id", "Family", type="fk", fk_model=FamilyCategory,
               fk_label=_family_label),
-        Field("metal_id", "Metal", type="fk", fk_model=Metal, fk_label=_metal_label),
+        Field("metal_id", "Metal", type="fk", fk_model=Metal, fk_label=_metal_label,
+              on_change=_show_metal_fineness),
+        Field("metal_fineness", "Fineness", type="float", decimals=4, readonly=True,
+              in_list=False,
+              help_text="From the chosen metal head. Costing reads the master, "
+                        "never this copy."),
         Field("gross_weight", "Gross Wt", type="float", decimals=4),
         Field("net_weight", "Net Wt", type="float", decimals=4,
               help_text="Metal is costed on net weight, not gross."),
@@ -944,9 +1035,12 @@ _register(CrudSpec(
               in_list=False,
               help_text="(Stone + Metal) × the margin multiplier. Recalculated on save."),
         # -- money: typed ------------------------------------------------
-        Field("labour_amount", "Labour Amount", type="float", in_list=False),
-        Field("finding_labour", "Finding Labour", type="float", in_list=False),
-        Field("setting_amount", "Setting Amount", type="float", in_list=False),
+        # Labour Amount, Finding Labour and Setting Amount are deliberately
+        # absent: the client confirmed they are not needed on this screen. The
+        # verified record agrees - on ER-1337 all three were blank and TOTAL RS
+        # equalled Stone Amount to the paisa. (Setting labour is still paid to
+        # karigars; that lives in the Setting Labour Chart and its month-end
+        # settlement, not here.)
         Field("manual_price_pct", "Manual Price %", type="float", decimals=4,
               in_list=False,
               help_text="A separate override. Stored alongside the derived price — "
@@ -987,6 +1081,12 @@ _register(CrudSpec(
         Field("is_sizable", "Sizable", type="bool", in_list=False),
         Field("upc", "UPC", in_list=False),
         Field("link_cert", "Link Cert", in_list=False),
+        Field("mc_pct", "MC %", type="float", decimals=4, readonly=True,
+              in_list=False,
+              help_text="Zero on every record seen and never explained — carried, "
+                        "not computed."),
+        Field("lc_pct", "LC %", type="float", decimals=4, readonly=True,
+              in_list=False),
 
         # -- references (meaning not yet explained) -----------------------
         Field("master_sku", "MasterSKU", in_list=False),
@@ -996,13 +1096,16 @@ _register(CrudSpec(
         Field("box_qty", "Box Qty", type="int", in_list=False),
 
         # -- images (T-25) --------------------------------------------------
-        Field("image_finished", "Finished Image", in_list=False,
-              help_text="Path to the photograph of the manufactured piece."),
-        Field("image_design", "Design Image", in_list=False),
-        Field("image_cad", "CAD Image", in_list=False),
-        Field("image_cert", "Cert Image", in_list=False),
+        # Three images per SKU is the one thing the client asked for that the
+        # legacy system does not already do. Cert Image already existed; the
+        # CAD/STL file is a 3D attachment, deliberately separate from the CAD
+        # image (which of the two the client meant is still open — Q20).
+        Field("image_finished", "Finished", type="image", in_list=False),
+        Field("image_design", "Design", type="image", in_list=False),
+        Field("image_cad", "CAD", type="image", in_list=False),
+        Field("image_cert", "Cert", type="image", in_list=False),
         Field("cad_stl_file", "CAD / STL File", in_list=False,
-              help_text="The 3D file attachment — separate from the CAD image."),
+              help_text="A 3D file attachment — separate from the CAD image."),
 
         # -- stone bill of material ------------------------------------------
         Field("stones", "Stone Info", type="child", in_list=False,
@@ -1015,10 +1118,12 @@ _register(CrudSpec(
                                 "sale_price": 0, "per": "Cts"},
                   fields=[
                       Field("stone_sku_id", "SSKU", type="fk", fk_model=StoneSku,
-                            fk_label=_stonesku_label),
+                            fk_label=_stonesku_label, on_change=_fill_stone_price),
                       Field("description", "Description"),
                       Field("size_id", "Size", type="fk", fk_model=StoneSize,
-                            fk_label=_size_label),
+                            fk_label=_size_label, on_change=_fill_stone_price),
+                      Field("wt_per_pcs", "Wt/Pcs", type="float", decimals=4),
+                      Field("min_wt", "MinWt", type="float", decimals=4),
                       Field("pieces", "Pcs", type="int"),
                       Field("weight_cts", "Weight", type="float", decimals=4),
                       Field("brk_wt_pct", "Brk Wt%", type="float", decimals=4),
