@@ -47,6 +47,9 @@ from diagold.db.models import (
     StoneSkuVendor,
     User,
 )
+from sqlalchemy import select
+
+from diagold.db.session import SessionLocal
 from diagold.services import costing, rates
 from diagold.ui.crud import ChildSpec, CrudSpec, Field, Shortcut
 
@@ -879,6 +882,59 @@ def _fill_family_from_item(dialog, item_id) -> None:
         family_editor.setCurrentIndex(idx)
 
 
+def _show_metal_fineness(dialog, metal_id) -> None:
+    """Put the chosen head's fineness beside the metal, as the legacy form does.
+
+    Display only - costing always reads the fineness from the Metal master, so
+    this copy can never drift into a calculation.
+    """
+    editor = dialog.editors.get("metal_fineness")
+    if editor is None:
+        return
+    metal = dialog.session.get(Metal, metal_id) if metal_id else None
+    editor.setValue(float(metal.purity_fineness) if metal is not None else 0.0)
+
+
+def _fill_stone_price(grid, row: int, _value) -> None:
+    """Pull a stone line's prices out of the Stone SKU catalogue.
+
+    The costing key is the pair (stone, size), per carat - a stone on its own
+    has no single price, since EMERALD PEAR runs from 2,000 at 3*4 to 5,500 at
+    4*6. So nothing is filled until both are known, and the first band is never
+    assumed to be the right one.
+
+    A figure the user typed themselves is left alone; only a blank, or a figure
+    this function put there earlier, is replaced.
+    """
+    stone_sku_id = grid.cell_value(row, "stone_sku_id")
+    size_id = grid.cell_value(row, "size_id")
+    if not stone_sku_id or not size_id:
+        return
+
+    filled = getattr(grid, "_autofilled", None)
+    if filled is None:
+        filled = grid._autofilled = set()
+
+    with SessionLocal() as session:
+        band = session.scalars(
+            select(StoneSkuRange).where(
+                StoneSkuRange.stone_sku_id == stone_sku_id,
+                StoneSkuRange.size_id == size_id,
+            ).limit(1)
+        ).first()
+    if band is None:
+        return
+
+    for name, value in (("cost_price", band.cost_price),
+                        ("sale_price", band.sale_price)):
+        current = grid.cell_value(row, name)
+        if current and (row, name) not in filled:
+            continue  # typed by hand - leave it
+        grid.set_cell_value(row, name, value)
+        filled.add((row, name))
+    grid.set_cell_value(row, "per", band.per)
+
+
 def _price_product_sku(values: dict, children: dict, session) -> None:
     """Recompute the derived money panel from the stone grid and the metal head.
 
@@ -949,6 +1005,10 @@ _register(CrudSpec(
     fields=[
         Field("sku_code", "SKU", required=True,
               help_text='e.g. "ER-1337", "625 CHOKAR", "BANG-597".'),
+        Field("tag_price", "Tag Price", type="float", in_list=False,
+              help_text="The figure the legacy screen prints under the SKU. Never "
+                        "explained, so it is stored as entered and nothing is "
+                        "derived from it."),
         Field("description", "Description"),
         Field("item_id", "Item", type="fk", fk_model=Item, fk_label=_item_label,
               on_change=_fill_family_from_item,
@@ -956,7 +1016,12 @@ _register(CrudSpec(
                         "the metal karat is typed by hand."),
         Field("family_id", "Family", type="fk", fk_model=FamilyCategory,
               fk_label=_family_label),
-        Field("metal_id", "Metal", type="fk", fk_model=Metal, fk_label=_metal_label),
+        Field("metal_id", "Metal", type="fk", fk_model=Metal, fk_label=_metal_label,
+              on_change=_show_metal_fineness),
+        Field("metal_fineness", "Fineness", type="float", decimals=4, readonly=True,
+              in_list=False,
+              help_text="From the chosen metal head. Costing reads the master, "
+                        "never this copy."),
         Field("gross_weight", "Gross Wt", type="float", decimals=4),
         Field("net_weight", "Net Wt", type="float", decimals=4,
               help_text="Metal is costed on net weight, not gross."),
@@ -1015,6 +1080,12 @@ _register(CrudSpec(
         Field("is_sizable", "Sizable", type="bool", in_list=False),
         Field("upc", "UPC", in_list=False),
         Field("link_cert", "Link Cert", in_list=False),
+        Field("mc_pct", "MC %", type="float", decimals=4, readonly=True,
+              in_list=False,
+              help_text="Zero on every record seen and never explained — carried, "
+                        "not computed."),
+        Field("lc_pct", "LC %", type="float", decimals=4, readonly=True,
+              in_list=False),
 
         # -- references (meaning not yet explained) -----------------------
         Field("master_sku", "MasterSKU", in_list=False),
@@ -1046,10 +1117,10 @@ _register(CrudSpec(
                                 "sale_price": 0, "per": "Cts"},
                   fields=[
                       Field("stone_sku_id", "SSKU", type="fk", fk_model=StoneSku,
-                            fk_label=_stonesku_label),
+                            fk_label=_stonesku_label, on_change=_fill_stone_price),
                       Field("description", "Description"),
                       Field("size_id", "Size", type="fk", fk_model=StoneSize,
-                            fk_label=_size_label),
+                            fk_label=_size_label, on_change=_fill_stone_price),
                       Field("pieces", "Pcs", type="int"),
                       Field("weight_cts", "Weight", type="float", decimals=4),
                       Field("brk_wt_pct", "Brk Wt%", type="float", decimals=4),

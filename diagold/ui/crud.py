@@ -289,8 +289,52 @@ class ChildTableEditor(QWidget):
         self.table.insertRow(r)
         self.table.setRowHeight(r, ROW_HEIGHT)
         for c, f in enumerate(self.spec.fields):
-            self.table.setCellWidget(r, c, self._cell(f, values.get(f.name)))
+            widget = self._cell(f, values.get(f.name))
+            if f.on_change is not None:
+                self._wire_cell_change(f, widget, r)
+            self.table.setCellWidget(r, c, widget)
         self._refresh_summary()
+
+    def _wire_cell_change(self, f: Field, widget: QWidget, row: int) -> None:
+        """Let a grid cell react to its own change, e.g. to fill sibling cells."""
+        callback = f.on_change
+        if f.type == "fk":
+            widget.currentIndexChanged.connect(
+                lambda _=None, w=widget, r=row: callback(self, r, w.currentData())
+            )
+        elif f.type == "choice":
+            widget.currentTextChanged.connect(lambda t, r=row: callback(self, r, t))
+        elif f.type in ("float", "int"):
+            widget.valueChanged.connect(lambda v, r=row: callback(self, r, v))
+        else:
+            widget.textChanged.connect(lambda t, r=row: callback(self, r, t))
+
+    def cell_value(self, row: int, name: str) -> Any:
+        """Read one cell of a row by field name."""
+        for c, f in enumerate(self.spec.fields):
+            if f.name == name:
+                return self._cell_value(row, c, f)
+        return None
+
+    def set_cell_value(self, row: int, name: str, value: Any) -> None:
+        """Write one cell of a row by field name."""
+        for c, f in enumerate(self.spec.fields):
+            if f.name != name:
+                continue
+            w = self.table.cellWidget(row, c)
+            if w is None:
+                return
+            if f.type in ("float", "int"):
+                w.setValue(float(value or 0))
+            elif f.type == "choice":
+                w.setCurrentText("" if value is None else str(value))
+            elif f.type == "fk":
+                idx = w.findData(value)
+                if idx >= 0:
+                    w.setCurrentIndex(idx)
+            else:
+                w.setText("" if value is None else str(value))
+            return
 
     def _cell(self, f: Field, value: Any) -> QWidget:
         if f.type == "float":
