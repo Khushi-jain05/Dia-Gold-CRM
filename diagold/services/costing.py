@@ -361,11 +361,14 @@ def cost_sku(*, stone_lines: Iterable[Any], net_weight: Any, metal: Any,
              multiplier: Any = None) -> SkuCosting:
     """Price one SKU from its stone lines, its weight and the day's metal rate.
 
-    NOTE on the labour components: Labour Amount, Finding Labour and Setting
-    Amount were all blank on the one SKU whose arithmetic could be verified, so
-    their contribution to TOTAL RS is an assumption - they are treated as
-    additive. Flagged to the client as an open question; do not treat the
-    TOTAL RS line as verified the way the other four are.
+    TOTAL RS is the stone amount. The client confirmed that Labour Amount,
+    Finding Labour and Setting Amount are not wanted on the SKU screen, and the
+    one record whose arithmetic could be verified agrees: all three were blank
+    and TOTAL RS equalled Stone Amount exactly. The parameters remain so a
+    caller can still supply them, but nothing in the application does.
+
+    Setting labour is not lost - karigars are still paid per piece for setting,
+    through the Setting Labour Chart and its month-end settlement.
     """
     stones = stone_amount(stone_lines)
     rate = sku_metal_rate(pure_rate_per_gram, metal)

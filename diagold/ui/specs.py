@@ -952,9 +952,6 @@ def _price_product_sku(values: dict, children: dict, session) -> None:
         net_weight=values.get("net_weight") or 0,
         metal=metal,
         pure_rate_per_gram=pure_rate,
-        labour_amount=values.get("labour_amount") or 0,
-        finding_labour=values.get("finding_labour") or 0,
-        setting_amount=values.get("setting_amount") or 0,
     )
     values["stone_amount"] = result.stone_amount
     values["metal_rate"] = result.metal_rate
@@ -991,7 +988,8 @@ _register(CrudSpec(
         Shortcut("Ctrl+O", "Parts/Mould Info", target="master_sku",
                  note="Jumps to the reference fields. The Parts/Mould panel "
                       "arrives with the Manufacturing module."),
-        Shortcut("Ctrl+L", "Labour Info", target="labour_amount"),
+        Shortcut("Ctrl+L", "Labour Info",
+                 note="Per-SKU labour was dropped from this screen at the client's request. Labour rates live in the Labour master, and karigar setting labour in the Setting Labour Chart."),
         Shortcut("Ctrl+P", "Mfg Process Info",
                  note="The per-SKU process routing panel arrives with the "
                       "Production Planning module."),
@@ -1037,9 +1035,12 @@ _register(CrudSpec(
               in_list=False,
               help_text="(Stone + Metal) × the margin multiplier. Recalculated on save."),
         # -- money: typed ------------------------------------------------
-        Field("labour_amount", "Labour Amount", type="float", in_list=False),
-        Field("finding_labour", "Finding Labour", type="float", in_list=False),
-        Field("setting_amount", "Setting Amount", type="float", in_list=False),
+        # Labour Amount, Finding Labour and Setting Amount are deliberately
+        # absent: the client confirmed they are not needed on this screen. The
+        # verified record agrees - on ER-1337 all three were blank and TOTAL RS
+        # equalled Stone Amount to the paisa. (Setting labour is still paid to
+        # karigars; that lives in the Setting Labour Chart and its month-end
+        # settlement, not here.)
         Field("manual_price_pct", "Manual Price %", type="float", decimals=4,
               in_list=False,
               help_text="A separate override. Stored alongside the derived price — "
