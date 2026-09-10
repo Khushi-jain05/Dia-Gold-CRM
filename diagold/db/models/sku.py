@@ -101,6 +101,8 @@ class StoneSku(Base, PKMixin, TimestampMixin):
     color: Mapped[str] = mapped_column(String(32), default="")
     shelf_no: Mapped[str] = mapped_column(String(24), default="")
     rfid: Mapped[str] = mapped_column(String(40), default="")
+    # Whether this stone's weight counts toward the piece's net weight (§4.1).
+    add_in_netwt: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     range_label: Mapped[str] = mapped_column(String(16), default="")
@@ -111,8 +113,29 @@ class StoneSku(Base, PKMixin, TimestampMixin):
     wt_per_pcs: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
     min_wt: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
 
+    vendors: Mapped[list["StoneSkuVendor"]] = relationship(
+        back_populates="stone_sku", cascade="all, delete-orphan", lazy="selectin"
+    )
+
     def __str__(self) -> str:  # pragma: no cover
         return self.sku_code
+
+
+class StoneSkuVendor(Base, PKMixin):
+    """A vendor that supplies this stone (the screen's Vendor List)."""
+
+    __tablename__ = "stone_sku_vendors"
+    __table_args__ = (
+        UniqueConstraint("stone_sku_id", "account_id", name="uq_stone_sku_vendor"),
+    )
+
+    stone_sku_id: Mapped[int] = mapped_column(
+        ForeignKey("stone_skus.id", ondelete="CASCADE")
+    )
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
+
+    stone_sku: Mapped[StoneSku] = relationship(back_populates="vendors")
+    account: Mapped[Account] = relationship()
 
 
 # ---------------------------------------------------------------------------

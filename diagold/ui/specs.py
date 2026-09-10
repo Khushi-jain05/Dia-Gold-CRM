@@ -43,6 +43,7 @@ from diagold.db.models import (
     StoneSize,
     StonePacket,
     StoneSku,
+    StoneSkuVendor,
     User,
 )
 from sqlalchemy import select
@@ -802,6 +803,15 @@ _register(CrudSpec(
 # --- Stone SKU catalogue (Harshit's flat model) --------------------------
 _register(CrudSpec(
     key="sku.stone_sku",
+    # The legacy screen shows the selected stone's details right under the
+    # list, split the same two ways: what the stone is, and what it costs.
+    detail_panels=[
+        ("Stone SKU", ["sku_code", "description", "mrp", "stone", "shape",
+                       "stone_type", "quality", "color"]),
+        ("Range / Size Info", ["range_label", "cost_price", "sale_price", "per",
+                               "size", "wt_per_pcs", "min_wt"]),
+    ],
+    copyable=True,
     title="Stone SKUs",
     model=StoneSku,
     order_by="sku_code",
@@ -811,13 +821,13 @@ _register(CrudSpec(
               on_change=_stone_sku_autofill),
         Field("mrp", "MRP", in_list=False),
         Field("description", "Description", in_list=False),
-        Field("stone", "Stone",
+        Field("stone", "Stone", in_list=False,
               help_text="Defaults to the Stone Sku text - type over it if the "
-                         "stone name should differ."),
-        Field("shape", "Shape"),
-        Field("stone_type", "Type"),
-        Field("quality", "Quality"),
-        Field("color", "Color"),
+                        "stone name should differ."),
+        Field("shape", "Shape", in_list=False),
+        Field("stone_type", "Type", in_list=False),
+        Field("quality", "Quality", in_list=False),
+        Field("color", "Color", in_list=False),
         Field("shelf_no", "Shelf No.", in_list=False),
         Field("rfid", "RFID#", in_list=False),
         Field("range_label", "Range", in_list=False),
@@ -827,7 +837,17 @@ _register(CrudSpec(
         Field("size", "Size", in_list=False),
         Field("wt_per_pcs", "Wt/Pcs", type="float", decimals=4, in_list=False),
         Field("min_wt", "Min.Wt", type="float", decimals=4, in_list=False),
+        Field("add_in_netwt", "Add In NetWt", type="bool", in_list=False,
+              help_text="Whether this stone's weight counts toward the piece's "
+                        "net weight."),
         Field("is_active", "Active", type="bool", default=True, in_list=False),
+        Field("vendors", "Vendor List", type="child", in_list=False,
+              child=ChildSpec(
+                  model=StoneSkuVendor, fk_attr="stone_sku_id", order_by="id",
+                  height=90,
+                  fields=[Field("account_id", "Vendor", type="fk", fk_model=Account,
+                                fk_label=_account_label)],
+              )),
     ],
 ))
 

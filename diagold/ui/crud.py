@@ -136,6 +136,12 @@ class CrudSpec:
     before_save: Callable[[dict, dict[str, list[dict]], Any], None] | None = None
     # Keyboard shortcuts to bind and display on the form.
     shortcuts: list[Shortcut] = field(default_factory=list)
+    # Read-only summary panels shown beneath the list, as (title, field names).
+    # The legacy screens put the selected record's details right below the
+    # list rather than making you open the form to read them.
+    detail_panels: list[tuple[str, list[str]]] = field(default_factory=list)
+    # "Make A Copy" - clone the selected record and open it for editing.
+    copyable: bool = False
 
 
 class ImageSlot(QWidget):
@@ -913,8 +919,15 @@ class CrudWidget(QWidget):
         self.btn_edit = QPushButton("Edit")
         self.btn_delete = QPushButton("Delete")
         self.btn_delete.setObjectName("Danger")
+        self.btn_copy = QPushButton("Make A Copy")
         self.btn_refresh = QPushButton("Refresh")
-        for b in (self.btn_new, self.btn_edit, self.btn_delete, self.btn_refresh):
+        buttons = [self.btn_new, self.btn_edit]
+        if spec.copyable:
+            buttons.append(self.btn_copy)
+        else:
+            self.btn_copy.setVisible(False)
+        buttons += [self.btn_delete, self.btn_refresh]
+        for b in buttons:
             bar.addWidget(b)
         layout.addLayout(bar)
 
@@ -929,7 +942,35 @@ class CrudWidget(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.doubleClicked.connect(lambda *_: self._edit())
+        self.table.itemSelectionChanged.connect(self._refresh_details)
         layout.addWidget(self.table)
+
+        self.detail_widgets: dict[str, QLabel] = {}
+        if spec.detail_panels:
+            panels = QHBoxLayout()
+            panels.setSpacing(14)
+            for title, names in spec.detail_panels:
+                box = QGroupBox(title)
+                grid = QGridLayout(box)
+                grid.setColumnStretch(1, 1)
+                grid.setVerticalSpacing(5)
+                for row, name in enumerate(names):
+                    f = next((f for f in spec.fields if f.name == name), None)
+                    if f is None:
+                        continue
+                    key = QLabel(f"{f.label}:")
+                    key.setObjectName("Muted")
+                    key.setAlignment(Qt.AlignmentFlag.AlignRight
+                                     | Qt.AlignmentFlag.AlignVCenter)
+                    val = QLabel("—")
+                    val.setTextInteractionFlags(
+                        Qt.TextInteractionFlag.TextSelectableByMouse)
+                    self.detail_widgets[name] = val
+                    grid.addWidget(key, row, 0)
+                    grid.addWidget(val, row, 1)
+                grid.setRowStretch(len(names), 1)
+                panels.addWidget(box, 1)
+            layout.addLayout(panels)
 
         self.status = QLabel("")
         self.status.setStyleSheet("color: gray;")
@@ -938,6 +979,7 @@ class CrudWidget(QWidget):
         self.btn_new.clicked.connect(self._new)
         self.btn_edit.clicked.connect(self._edit)
         self.btn_delete.clicked.connect(self._delete)
+        self.btn_copy.clicked.connect(self._make_copy)
         self.btn_refresh.clicked.connect(self.reload)
 
         if not spec.deletable:
@@ -1005,6 +1047,9 @@ class CrudWidget(QWidget):
                 self.table.setItem(r, c, item)
         self.table.resizeColumnsToContents()
         self.status.setText(f"{len(self._rows)} record(s)")
+        if self._rows and self.spec.detail_panels:
+            self.table.selectRow(0)
+        self._refresh_details()
 
     def _selected(self) -> Any | None:
         rows = self.table.selectionModel().selectedRows()
@@ -1050,6 +1095,70 @@ class CrudWidget(QWidget):
                 return
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.reload()
+
+    def _refresh_details(self) -> None:
+        """Show the selected record in the panels beneath the list."""
+        if not self.detail_widgets:
+            return
+        current = self._selected()
+        with SessionLocal() as session:
+            for name, label in self.detail_widgets.items():
+                if current is None:
+                    label.setText("—")
+                    continue
+                f = next((f for f in self.spec.fields if f.name == name), None)
+                text_value = self._display(current, f, session) if f else ""
+                label.setText(text_value or "—")
+
+    def _make_copy(self) -> None:
+        """Clone the selected record and open the copy for editing.
+
+        The client relies on this to add a stone that is nearly the same as one
+        already on file. Unique keys get a " (copy)" suffix so the clone saves
+        without clashing; everything else comes across as it is.
+        """
+        if not self._require("add"):
+            return
+        current = self._selected()
+        if current is None:
+            QMessageBox.information(self, "Make A Copy", "Select a row first.")
+            return
+        with SessionLocal() as session:
+            source = session.get(self.spec.model, current.id)
+            if source is None:
+                return
+            values: dict[str, Any] = {}
+            for f in self.spec.fields:
+                if f.type in ("child", "password"):
+                    continue
+                values[f.name] = getattr(source, f.name, None)
+            for col in inspect(self.spec.model).columns:
+                if col.unique and col.name in values and values[col.name]:
+                    values[col.name] = f"{values[col.name]} (copy)"
+
+            clone = self.spec.model(**values)
+            session.add(clone)
+            try:
+                session.flush()
+            except Exception as exc:  # noqa: BLE001
+                session.rollback()
+                QMessageBox.critical(self, "Could not copy", str(exc))
+                return
+            # Child rows come across too, so a copy is a real duplicate.
+            for f in self.spec.fields:
+                if f.type != "child" or f.child is None:
+                    continue
+                child = f.child
+                fk = getattr(child.model, child.fk_attr)
+                for row in session.scalars(select(child.model).where(fk == source.id)):
+                    session.add(child.model(**{child.fk_attr: clone.id}, **{
+                        cf.name: getattr(row, cf.name) for cf in child.fields
+                    }))
+            session.commit()
+            fresh = session.get(self.spec.model, clone.id)
+            dlg = FormDialog(self.spec, fresh, session, self, rights=self.rights)
+            dlg.exec()
+        self.reload()
 
     def _delete(self) -> None:
         if not self.spec.deletable:
