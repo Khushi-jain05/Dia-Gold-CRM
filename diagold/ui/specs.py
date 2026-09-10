@@ -48,7 +48,7 @@ from diagold.db.models import (
     User,
 )
 from diagold.services import costing, rates
-from diagold.ui.crud import ChildSpec, CrudSpec, Field
+from diagold.ui.crud import ChildSpec, CrudSpec, Field, Shortcut
 
 _metal_label = lambda m: f"{m.code} - {m.name}".strip(" -")
 _account_label = lambda a: f"{a.code} - {a.name}"
@@ -918,6 +918,32 @@ _register(CrudSpec(
     order_by="sku_code",
     search_hint="Search by SKU, description, design no, style…",
     before_save=_price_product_sku,
+    # The eleven shortcuts listed down the right of the legacy screen. The
+    # client uses them by reflex, so they are bound and shown. Those whose
+    # panel belongs to a module that is not built yet say so rather than
+    # doing nothing silently.
+    shortcuts=[
+        Shortcut("Ctrl+S", "Stone Info", target="stones"),
+        Shortcut("Ctrl+I", "Image", action="image_attach"),
+        Shortcut("Ctrl+R", "Remove Image", action="image_remove"),
+        Shortcut("F5", "More Details", target="design_no"),
+        Shortcut("Ctrl+F", "Finding Info",
+                 note="Findings are not used by the client, so this panel is "
+                      "not built. Raised as decision D2 in the 3 September session."),
+        Shortcut("Ctrl+O", "Parts/Mould Info", target="master_sku",
+                 note="Jumps to the reference fields. The Parts/Mould panel "
+                      "arrives with the Manufacturing module."),
+        Shortcut("Ctrl+L", "Labour Info", target="labour_amount"),
+        Shortcut("Ctrl+P", "Mfg Process Info",
+                 note="The per-SKU process routing panel arrives with the "
+                      "Production Planning module."),
+        Shortcut("Ctrl+G", "Client Ref(s)",
+                 note="Client references arrive with the Quotation module."),
+        Shortcut("Ctrl+N", "Vendor Ref(s)",
+                 note="Vendor references arrive with the Purchase module."),
+        Shortcut("Ctrl+T", "Extra Metal",
+                 note="Extra-metal lines arrive with the Manufacturing module."),
+    ],
     fields=[
         Field("sku_code", "SKU", required=True,
               help_text='e.g. "ER-1337", "625 CHOKAR", "BANG-597".'),
@@ -996,13 +1022,16 @@ _register(CrudSpec(
         Field("box_qty", "Box Qty", type="int", in_list=False),
 
         # -- images (T-25) --------------------------------------------------
-        Field("image_finished", "Finished Image", in_list=False,
-              help_text="Path to the photograph of the manufactured piece."),
-        Field("image_design", "Design Image", in_list=False),
-        Field("image_cad", "CAD Image", in_list=False),
-        Field("image_cert", "Cert Image", in_list=False),
+        # Three images per SKU is the one thing the client asked for that the
+        # legacy system does not already do. Cert Image already existed; the
+        # CAD/STL file is a 3D attachment, deliberately separate from the CAD
+        # image (which of the two the client meant is still open — Q20).
+        Field("image_finished", "Finished", type="image", in_list=False),
+        Field("image_design", "Design", type="image", in_list=False),
+        Field("image_cad", "CAD", type="image", in_list=False),
+        Field("image_cert", "Cert", type="image", in_list=False),
         Field("cad_stl_file", "CAD / STL File", in_list=False,
-              help_text="The 3D file attachment — separate from the CAD image."),
+              help_text="A 3D file attachment — separate from the CAD image."),
 
         # -- stone bill of material ------------------------------------------
         Field("stones", "Stone Info", type="child", in_list=False,
