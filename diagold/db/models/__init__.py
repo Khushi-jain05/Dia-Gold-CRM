@@ -51,8 +51,6 @@ from diagold.db.models.sku import (
     ProductSkuStone,
     StonePacket,
     StoneSku,
-    StoneSkuRange,
-    StoneSkuVendor,
 )
 
 __all__ = [
@@ -101,6 +99,4 @@ __all__ = [
     "ProductSkuStone",
     "StonePacket",
     "StoneSku",
-    "StoneSkuRange",
-    "StoneSkuVendor",
 ]

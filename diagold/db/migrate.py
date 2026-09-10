@@ -179,6 +179,69 @@ def _carry_over_account_types(conn, existing: set[str]) -> None:
         )
 
 
+# Tables that could not be altered in place and must be rebuilt once the
+# main transaction has closed.
+_pending_rebuilds: set[str] = set()
+
+
+def rebuild_tables(engine: Engine) -> list[str]:
+    """Recreate tables whose shape changed too much to ALTER.
+
+    SQLite cannot drop a column that a foreign key names, so the table is
+    recreated from the model and whatever columns both shapes share are copied
+    across. Anything only the old shape had is gone - which is the point, since
+    the model no longer has it.
+    """
+    if not _pending_rebuilds:
+        return []
+    done: list[str] = []
+    names, _pending_rebuilds_local = set(_pending_rebuilds), None
+    _pending_rebuilds.clear()
+
+    for name in names:
+        table = Base.metadata.tables.get(name)
+        if table is None:
+            continue
+        with engine.connect() as conn:
+            # Foreign keys must be off while the table is swapped, and that
+            # cannot be toggled inside a transaction.
+            conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            conn.commit()  # the PRAGMA autobegan a transaction; close it first
+            old_cols = {c["name"] for c in inspect(engine).get_columns(name)}
+            shared = [c.name for c in table.columns if c.name in old_cols]
+            trans = conn.begin()
+            try:
+                conn.execute(text(f'ALTER TABLE "{name}" RENAME TO "{name}__old"'))
+                table.create(bind=conn)
+                carried = 0
+                if shared:
+                    cols = ", ".join(f'"{c}"' for c in shared)
+                    kept = conn.execute(text(f'SELECT COUNT(*) FROM "{name}__old"')).scalar()
+                    try:
+                        conn.execute(text(
+                            f'INSERT INTO "{name}" ({cols}) SELECT {cols} FROM "{name}__old"'
+                        ))
+                        carried = kept or 0
+                    except Exception as exc:  # noqa: BLE001
+                        # The old rows cannot be expressed in the new shape -
+                        # a required column they never had, or a uniqueness the
+                        # old data breaks. Start clean rather than half-migrate,
+                        # and say so instead of losing rows quietly.
+                        conn.execute(text(f'DELETE FROM "{name}"'))
+                        print(f"[migrate] {name}: rebuilt empty, {kept} old row(s) "
+                              f"could not be carried across ({type(exc).__name__}). "
+                              f"Reference data reseeds on start-up.")
+                conn.execute(text(f'DROP TABLE "{name}__old"'))
+                trans.commit()
+                done.append(f"{name} ({carried} row(s) carried)")
+            except Exception:
+                trans.rollback()
+                raise
+            finally:
+                conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+    return done
+
+
 def _drop_orphan_not_null_columns(conn, inspector, existing: set[str]) -> list[str]:
     """Drop NOT NULL columns the models no longer define.
 
@@ -188,6 +251,7 @@ def _drop_orphan_not_null_columns(conn, inspector, existing: set[str]) -> list[s
     are left alone.
     """
     dropped: list[str] = []
+    rebuild: set[str] = set()
     for table in Base.metadata.sorted_tables:
         if table.name not in existing:
             continue
@@ -204,10 +268,24 @@ def _drop_orphan_not_null_columns(conn, inspector, existing: set[str]) -> list[s
                     f"SQLite {sqlite3.sqlite_version} cannot drop it (3.35+ required). "
                     f"Upgrade Python/SQLite, or delete the database file to start fresh."
                 )
-            conn.execute(text(
-                f'ALTER TABLE "{table.name}" DROP COLUMN "{col["name"]}"'
-            ))
+            # An index over the column survives the drop and then breaks every
+            # later statement against the table, so it goes first.
+            for ix in inspector.get_indexes(table.name):
+                if col["name"] in (ix.get("column_names") or []):
+                    conn.execute(text(f'DROP INDEX IF EXISTS "{ix["name"]}"'))
+            try:
+                conn.execute(text(
+                    f'ALTER TABLE "{table.name}" DROP COLUMN "{col["name"]}"'
+                ))
+            except Exception:  # noqa: BLE001
+                # SQLite refuses to drop a column named in a foreign key, so
+                # the table has to be rebuilt to the model's shape instead.
+                rebuild.add(table.name)
+                break
             dropped.append(f'-{table.name}.{col["name"]}')
+    for name in rebuild:
+        dropped.append(f'~{name} (rebuilt)')
+    _pending_rebuilds.update(rebuild)
     return dropped
 
 

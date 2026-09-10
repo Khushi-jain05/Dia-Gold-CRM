@@ -81,96 +81,38 @@ class ItemPriceRange(Base, PKMixin):
 # Stone SKU (T-20)
 # ---------------------------------------------------------------------------
 class StoneSku(Base, PKMixin, TimestampMixin):
-    """One stone head in the priced catalogue.
+    """A catalogue Stone SKU - the client's legacy "Stone SKU" master screen.
 
-    "Emerald Pear" is a single head; every size it comes in sits underneath it
-    in :class:`StoneSkuRange` rather than becoming its own record.
+    Stone / Shape / Type / Quality / Colour are free-typed text here (no
+    dropdown lookups), matching how the client's original screen works. The
+    Range/Size Info fields are a single rate-card row per SKU, not a repeating
+    grid - the client's screen has one range per SKU.
     """
 
     __tablename__ = "stone_skus"
 
-    code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    description: Mapped[str] = mapped_column(String(160), default="")
-    stone_id: Mapped[int] = mapped_column(ForeignKey("stone_info.id"))
-
-    # Optional on purpose: most legacy records hold "-" for these, but the
-    # client asked for the columns and tied them to calculation (Q15).
-    shape_id: Mapped[int | None] = mapped_column(
-        ForeignKey("stone_shapes.id"), nullable=True
-    )
-    kind_id: Mapped[int | None] = mapped_column(
-        ForeignKey("stone_kinds.id"), nullable=True
-    )
-    quality_id: Mapped[int | None] = mapped_column(
-        ForeignKey("stone_qualities.id"), nullable=True
-    )
-    colour: Mapped[str] = mapped_column(String(32), default="")
-
-    is_mrp: Mapped[bool] = mapped_column(Boolean, default=False)
-    shelf_no: Mapped[str] = mapped_column(String(32), default="")
-    rfid: Mapped[str] = mapped_column(String(64), default="")
-    add_in_netwt: Mapped[bool] = mapped_column(Boolean, default=False)
+    sku_code: Mapped[str] = mapped_column(String(64), unique=True)
+    mrp: Mapped[str] = mapped_column(String(16), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    stone: Mapped[str] = mapped_column(String(80), default="")
+    shape: Mapped[str] = mapped_column(String(32), default="")
+    stone_type: Mapped[str] = mapped_column(String(32), default="")
+    quality: Mapped[str] = mapped_column(String(32), default="")
+    color: Mapped[str] = mapped_column(String(32), default="")
+    shelf_no: Mapped[str] = mapped_column(String(24), default="")
+    rfid: Mapped[str] = mapped_column(String(40), default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    stone: Mapped[StoneInfo] = relationship()
-    shape: Mapped[StoneShape | None] = relationship()
-    kind: Mapped[StoneKind | None] = relationship()
-    quality: Mapped[StoneQuality | None] = relationship()
-    ranges: Mapped[list["StoneSkuRange"]] = relationship(
-        back_populates="stone_sku", cascade="all, delete-orphan", lazy="selectin"
-    )
-    vendors: Mapped[list["StoneSkuVendor"]] = relationship(
-        back_populates="stone_sku", cascade="all, delete-orphan", lazy="selectin"
-    )
+    range_label: Mapped[str] = mapped_column(String(16), default="")
+    cost_price: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    sale_price: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    per: Mapped[str] = mapped_column(String(16), default="")
+    size: Mapped[str] = mapped_column(String(24), default="")
+    wt_per_pcs: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
+    min_wt: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
 
     def __str__(self) -> str:  # pragma: no cover
-        return self.code
-
-
-class StoneSkuRange(Base, PKMixin):
-    """One priced size band of a stone head - the costing heart of the screen.
-
-    Cost and sale are BOTH stored as entered. In the client's real data sale is
-    sometimes below cost, so neither is derived from the other and no margin
-    rule is imposed over them (Q16 / C-12).
-    """
-
-    __tablename__ = "stone_sku_ranges"
-
-    stone_sku_id: Mapped[int] = mapped_column(
-        ForeignKey("stone_skus.id", ondelete="CASCADE")
-    )
-    range_label: Mapped[str] = mapped_column(String(16), default="")  # a..z, A, U, 23
-    cost_price: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
-    sale_price: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
-    per: Mapped[str] = mapped_column(String(8), default="Cts")
-    size_id: Mapped[int | None] = mapped_column(
-        ForeignKey("stone_sizes.id"), nullable=True
-    )
-    wt_per_pcs: Mapped[float] = mapped_column(Numeric(12, 4), default=0)
-    min_wt: Mapped[float] = mapped_column(Numeric(12, 4), default=0)
-
-    PER_UNITS = ("Cts", "Pcs", "Gms")
-
-    stone_sku: Mapped[StoneSku] = relationship(back_populates="ranges")
-    size: Mapped[StoneSize | None] = relationship()
-
-
-class StoneSkuVendor(Base, PKMixin):
-    """A vendor that supplies this stone head."""
-
-    __tablename__ = "stone_sku_vendors"
-    __table_args__ = (
-        UniqueConstraint("stone_sku_id", "account_id", name="uq_stone_sku_vendor"),
-    )
-
-    stone_sku_id: Mapped[int] = mapped_column(
-        ForeignKey("stone_skus.id", ondelete="CASCADE")
-    )
-    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
-
-    stone_sku: Mapped[StoneSku] = relationship(back_populates="vendors")
-    account: Mapped[Account] = relationship()
+        return self.sku_code
 
 
 # ---------------------------------------------------------------------------

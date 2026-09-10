@@ -25,7 +25,6 @@ from diagold.db.models import (
     ProductSku,
     ProductSkuStone,
     StoneSku,
-    StoneSkuRange,
     StoneKind,
     StoneQuality,
     StoneShape,
@@ -527,48 +526,25 @@ def assign_stone_groups(session: Session) -> list[str]:
 
 
 def _seed_stone_skus(session: Session) -> None:
-    """The priced stone catalogue, with the two grids read off the screen."""
-    existing = {c for c in session.scalars(select(StoneSku.code)).all() if c}
+    """The priced stone catalogue.
 
-    def size_row(label: str):
-        if not label:
-            return None
-        row = session.scalar(select(StoneSize).where(StoneSize.name == label))
-        if row is None:
-            row = StoneSize(code=_derive_code(label, set(), maxlen=16),
-                            name=label, is_active=True)
-            session.add(row)
-            session.flush()
-        return row
-
-    def stone_row(name: str, group_code: str):
-        row = session.scalar(select(StoneInfo).where(StoneInfo.name == name))
-        if row is None:
-            group = session.scalar(select(StoneGroup).where(StoneGroup.code == group_code))
-            row = StoneInfo(code=_derive_code(name, set(), maxlen=16), name=name,
-                            stone_group_id=group.id, weight_unit="ct", is_active=True)
-            session.add(row)
-            session.flush()
-        return row
-
-    for sku_code, stone_name, group_code, ranges in (
-        ("EMERALD PEAR", "EMERALD PEAR", "CS", _EMERALD_PEAR_RANGES),
-        ("POLKI", "POLKI", "POLKI", _POLKI_RANGES),
-    ):
-        if sku_code in existing:
-            continue
-        stone = stone_row(stone_name, group_code)
-        sku = StoneSku(code=sku_code, stone_id=stone.id, is_active=True)
-        session.add(sku)
-        session.flush()
+    A Stone SKU holds ONE rate card - one range, one size, one pair of prices -
+    so a stone that comes in several sizes needs one record per size. Emerald
+    Pear's nine sizes therefore become nine records, named by size.
+    """
+    existing = {c for c in session.scalars(select(StoneSku.sku_code)).all() if c}
+    for stone_name, ranges in (("EMERALD PEAR", _EMERALD_PEAR_RANGES),
+                               ("POLKI", _POLKI_RANGES)):
         for label, price, size_name in ranges:
-            size = size_row(size_name)
-            # Cost equals sale on the Stone SKU master in every row observed.
-            session.add(StoneSkuRange(
-                stone_sku_id=sku.id, range_label=label,
+            code = f"{stone_name} {size_name}".strip() if size_name else f"{stone_name} {label}"
+            if code in existing:
+                continue
+            session.add(StoneSku(
+                sku_code=code, stone=stone_name, range_label=label,
                 cost_price=Decimal(price), sale_price=Decimal(price),
-                per="Cts", size_id=size.id if size else None,
+                per="Cts", size=size_name, is_active=True,
             ))
+
 
 
 def _seed_sample_sku(session: Session) -> None:
@@ -585,7 +561,9 @@ def _seed_sample_sku(session: Session) -> None:
         return
     metal = session.scalar(select(Metal).where(Metal.name == "14KT CASTING 590"))
     item = session.scalar(select(Item).where(Item.name == "STUDS"))
-    stone = session.scalar(select(StoneSku).where(StoneSku.code == "EMERALD PEAR"))
+    stone = session.scalar(
+        select(StoneSku).where(StoneSku.sku_code.like("EMERALD PEAR%")).limit(1)
+    )
     if not (metal and item and stone):
         return
 
