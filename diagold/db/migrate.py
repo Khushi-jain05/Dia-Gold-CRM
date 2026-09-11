@@ -18,6 +18,7 @@ from __future__ import annotations
 import sqlite3
 
 from sqlalchemy import inspect, text
+from sqlalchemy.schema import CreateTable
 from sqlalchemy.engine import Engine
 
 from diagold.db.models import Base
@@ -80,6 +81,7 @@ def sync_schema(engine: Engine) -> list[str]:
         changes += _drop_orphan_not_null_columns(conn, inspector, existing)
         _create_unique_indexes(conn, inspector, existing)
         _enforce_stone_group(conn, inspector, existing)
+        _drop_broken_orphan_tables(conn, inspector, existing)
 
     return changes
 
@@ -211,27 +213,39 @@ def rebuild_tables(engine: Engine) -> list[str]:
             shared = [c.name for c in table.columns if c.name in old_cols]
             trans = conn.begin()
             try:
-                conn.execute(text(f'ALTER TABLE "{name}" RENAME TO "{name}__old"'))
-                table.create(bind=conn)
+                # Build the new shape under a temporary name and swap it in
+                # by DROPPING the original - never by renaming it. Renaming a
+                # live table makes SQLite rewrite every foreign key that points
+                # at it to follow the new name, which then dangles once the
+                # renamed table is dropped.
+                tmp = f"{name}__new"
+                conn.execute(text(f'DROP TABLE IF EXISTS "{tmp}"'))
+                ddl = str(CreateTable(table).compile(conn)).replace(
+                    f'CREATE TABLE {name}', f'CREATE TABLE "{tmp}"', 1
+                ).replace(f'CREATE TABLE "{name}"', f'CREATE TABLE "{tmp}"', 1)
+                conn.execute(text(ddl))
                 carried = 0
+                kept = conn.execute(text(f'SELECT COUNT(*) FROM "{name}"')).scalar() or 0
                 if shared:
                     cols = ", ".join(f'"{c}"' for c in shared)
-                    kept = conn.execute(text(f'SELECT COUNT(*) FROM "{name}__old"')).scalar()
                     try:
                         conn.execute(text(
-                            f'INSERT INTO "{name}" ({cols}) SELECT {cols} FROM "{name}__old"'
+                            f'INSERT INTO "{tmp}" ({cols}) SELECT {cols} FROM "{name}"'
                         ))
-                        carried = kept or 0
+                        carried = kept
                     except Exception as exc:  # noqa: BLE001
                         # The old rows cannot be expressed in the new shape -
                         # a required column they never had, or a uniqueness the
                         # old data breaks. Start clean rather than half-migrate,
                         # and say so instead of losing rows quietly.
-                        conn.execute(text(f'DELETE FROM "{name}"'))
+                        conn.execute(text(f'DELETE FROM "{tmp}"'))
                         print(f"[migrate] {name}: rebuilt empty, {kept} old row(s) "
                               f"could not be carried across ({type(exc).__name__}). "
                               f"Reference data reseeds on start-up.")
-                conn.execute(text(f'DROP TABLE "{name}__old"'))
+                conn.execute(text(f'DROP TABLE "{name}"'))
+                conn.execute(text(f'ALTER TABLE "{tmp}" RENAME TO "{name}"'))
+                for ix in table.indexes:
+                    ix.create(bind=conn)
                 trans.commit()
                 done.append(f"{name} ({carried} row(s) carried)")
             except Exception:
@@ -333,3 +347,26 @@ def _enforce_stone_group(conn, inspector, existing: set[str]) -> None:
             f"'A stone must belong to a stone group (Diamond, Polki or Colour Stone).'); "
             f"END"
         ))
+
+
+def _drop_broken_orphan_tables(conn, inspector, existing: set[str]) -> None:
+    """Remove tables the models no longer define whose foreign keys dangle.
+
+    A table the models dropped is normally left alone. But one whose foreign
+    keys point at a table that no longer exists is unusable and fails
+    PRAGMA foreign_key_check - that is the residue of an earlier rebuild, and
+    it goes, with a notice.
+    """
+    modelled = {t.name for t in Base.metadata.sorted_tables}
+    for name in sorted(existing):
+        if name in modelled or name.startswith("sqlite_"):
+            continue
+        fks = inspector.get_foreign_keys(name)
+        broken = [fk for fk in fks if fk.get("referred_table") not in existing]
+        if not broken:
+            continue
+        rows = conn.execute(text(f'SELECT COUNT(*) FROM "{name}"')).scalar() or 0
+        targets = ", ".join(sorted({fk["referred_table"] for fk in broken}))
+        conn.execute(text(f'DROP TABLE "{name}"'))
+        print(f"[migrate] dropped orphan table {name} ({rows} row(s)): its foreign "
+              f"key referred to {targets}, which no longer exists.")
