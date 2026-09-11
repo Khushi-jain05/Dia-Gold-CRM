@@ -138,6 +138,14 @@ QTableWidget, QTreeWidget {{
     selection-background-color: {GOLD_SOFT};
     selection-color: {TEXT};
 }}
+/* QSS only paints the header's *sections*. The strip past the last column,
+   and the corner square where the two headers meet, are drawn from the widget
+   palette instead - which shows up as a black block. Paint all three the same
+   so the header reads as one bar. */
+QHeaderView {{
+    background: #FAFAFB;
+    border: none;
+}}
 QHeaderView::section {{
     background: #FAFAFB;
     color: {MUTED};
@@ -147,7 +155,15 @@ QHeaderView::section {{
     font-weight: 700;
     font-size: 11px;
 }}
+QTableView QTableCornerButton::section {{
+    background: #FAFAFB;
+    border: none;
+    border-bottom: 1px solid {BORDER};
+}}
 QTableWidget::item {{ padding: 6px 8px; }}
+/* The viewport behind the rows, and the gutter beside a scroll bar. */
+QTableWidget QWidget {{ background: {CARD}; }}
+QAbstractScrollArea::corner {{ background: {CARD}; border: none; }}
 
 /* ---- Inputs ----
    min-height matters: Qt applies padding INSIDE the widget, so without a
