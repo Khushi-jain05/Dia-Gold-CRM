@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from sqlalchemy import String, Text, inspect, or_, select
+from sqlalchemy.exc import IntegrityError
 
 from diagold.db.session import SessionLocal
 from diagold.services.rights import (
@@ -452,6 +453,40 @@ class ChildTableEditor(QWidget):
             self.summary.setText("")
 
 
+def friendly_db_error(exc: Exception, spec: "CrudSpec", values: dict | None = None) -> str:
+    """Turn a database constraint failure into a sentence a person can act on.
+
+    SQLite reports these as e.g. "UNIQUE constraint failed: product_skus.sku_code"
+    followed by the whole INSERT statement - useless to whoever typed the value.
+    """
+    raw = str(getattr(exc, "orig", exc))
+    labels = {f.name: f.label for f in spec.fields}
+    values = values or {}
+
+    def label_for(column: str) -> str:
+        return labels.get(column, column.replace("_", " ").title())
+
+    if "UNIQUE constraint failed" in raw:
+        col = raw.split("UNIQUE constraint failed:")[1].split("\n")[0].strip()
+        col = col.split(".")[-1].split(",")[0].strip()
+        val = values.get(col)
+        shown = f" '{val}'" if val not in (None, "") else ""
+        return (f"{label_for(col)}{shown} is already in use.\n\n"
+                f"Each {spec.title.rstrip('s').lower()} needs its own {label_for(col).lower()} - "
+                f"choose a different one, or edit the existing record instead.")
+    if "NOT NULL constraint failed" in raw:
+        col = raw.split("NOT NULL constraint failed:")[1].split("\n")[0].strip()
+        col = col.split(".")[-1].strip()
+        return f"{label_for(col)} is required."
+    if "FOREIGN KEY constraint failed" in raw:
+        return ("One of the linked records no longer exists.\n\n"
+                "Re-select the item from the list and try again.")
+    if "CHECK constraint failed" in raw:
+        return "One of the values is outside what this field allows."
+    # Anything else: first line only, without the SQL that follows.
+    return raw.split("[SQL:")[0].strip()
+
+
 class FormDialog(QDialog):
     def __init__(self, spec: CrudSpec, instance: Any | None, session, parent=None,
                  rights: Any = None):
@@ -840,6 +875,30 @@ class FormDialog(QDialog):
                 QMessageBox.critical(self, "Could not calculate", str(exc))
                 return
 
+        # Catch a duplicate key before the database does, so the message can
+        # name the field and put the cursor back in it.
+        for col in inspect(self.spec.model).columns:
+            if not col.unique or col.name not in values or values[col.name] in (None, ""):
+                continue
+            stmt = select(self.spec.model).where(
+                getattr(self.spec.model, col.name) == values[col.name]
+            )
+            if self.instance is not None:
+                stmt = stmt.where(self.spec.model.id != self.instance.id)
+            if self.session.scalar(stmt) is not None:
+                f = next((f for f in self.spec.fields if f.name == col.name), None)
+                label = f.label if f else col.name
+                QMessageBox.warning(
+                    self, "Already exists",
+                    f"{label} '{values[col.name]}' is already in use.\n\n"
+                    f"Each {self.spec.title.rstrip('s').lower()} needs its own "
+                    f"{label.lower()} - choose a different one, or edit the "
+                    f"existing record instead.",
+                )
+                if f and f.name in self.editors:
+                    self.editors[f.name].setFocus()
+                return
+
         try:
             if self.instance is None:
                 obj = self.spec.model(**values)
@@ -855,9 +914,15 @@ class FormDialog(QDialog):
             self.session.flush()  # obj.id is needed by the child rows
             self._save_children(obj, children)
             self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            QMessageBox.warning(self, "Could not save",
+                                friendly_db_error(exc, self.spec, values))
+            return
         except Exception as exc:  # noqa: BLE001 - surface DB errors to the user
             self.session.rollback()
-            QMessageBox.critical(self, "Could not save", str(exc))
+            QMessageBox.critical(self, "Could not save",
+                                 friendly_db_error(exc, self.spec, values))
             return
         self.accept()
 
@@ -1186,9 +1251,10 @@ class CrudWidget(QWidget):
                     session.commit()
                 except Exception as exc:  # noqa: BLE001
                     session.rollback()
-                    QMessageBox.critical(
+                    QMessageBox.warning(
                         self, "Could not delete",
-                        f"{exc}\n\nThis record is probably referenced elsewhere.",
+                        "This record is used by other records, so it cannot be "
+                        "deleted.\n\nClear its Active flag instead to retire it.",
                     )
                     return
         self.reload()
