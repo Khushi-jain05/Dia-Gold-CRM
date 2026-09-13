@@ -157,6 +157,10 @@ class CrudSpec:
         default_factory=list)
     # A wide detail grid (an order's 15-column lines) needs a wider form.
     form_width: int = 0
+    # A date column to filter the list by From/To - the legacy "Edit List"
+    # lookup staff rely on for orders and vouchers (UX5). Defaults to the
+    # current financial year.
+    date_field: str = ""
 
 
 class ImageSlot(QWidget):
@@ -1017,6 +1021,26 @@ class CrudWidget(QWidget):
         self.search.textChanged.connect(self.reload)
         bar.addWidget(self.search, 1)
 
+        self.date_from = self.date_to = None
+        if spec.date_field:
+            today = date.today()
+            fy_start = date(today.year if today.month >= 4 else today.year - 1, 4, 1)
+            fy_end = date(fy_start.year + 1, 3, 31)
+            self.date_from, self.date_to = QDateEdit(), QDateEdit()
+            for w, d in ((self.date_from, fy_start), (self.date_to, fy_end)):
+                w.setCalendarPopup(True)
+                w.setDisplayFormat("dd-MM-yyyy")
+                w.setDate(d)
+                w.dateChanged.connect(self.reload)
+            lab = QLabel("From")
+            lab.setObjectName("Muted")
+            bar.addWidget(lab)
+            bar.addWidget(self.date_from)
+            lab2 = QLabel("To")
+            lab2.setObjectName("Muted")
+            bar.addWidget(lab2)
+            bar.addWidget(self.date_to)
+
         self.btn_new = QPushButton("+ New")
         self.btn_new.setObjectName("Primary")
         self.btn_edit = QPushButton("Edit")
@@ -1125,6 +1149,11 @@ class CrudWidget(QWidget):
                 if cols:
                     like = f"%{term}%"
                     stmt = stmt.where(or_(*[c.ilike(like) for c in cols]))
+            if self.spec.date_field and self.date_from is not None:
+                dcol = getattr(self.spec.model, self.spec.date_field)
+                f, t = self.date_from.date(), self.date_to.date()
+                stmt = stmt.where(dcol >= date(f.year(), f.month(), f.day()),
+                                  dcol <= date(t.year(), t.month(), t.day()))
             if self.spec.order_by:
                 col = getattr(self.spec.model, self.spec.order_by.lstrip("-"))
                 stmt = stmt.order_by(col.desc() if self.spec.order_by.startswith("-")
