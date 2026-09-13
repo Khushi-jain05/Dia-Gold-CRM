@@ -31,6 +31,7 @@ from diagold import APP_NAME, __version__
 from diagold.config import COMPANY_DISPLAY_NAME, DB_PATH
 from diagold.db.session import SessionLocal
 from diagold.menu import MENU, MENU_BY_KEY
+from diagold.services import settings
 from diagold.services.auth import AuthError, CurrentUser, change_password
 from diagold.ui.dashboard import DashboardWidget
 from diagold.ui.registry import build_widget, has_real_screen
@@ -66,6 +67,9 @@ class MainWindow(QMainWindow):
 
         QShortcut(QKeySequence.StandardKey.Find, self,
                   activated=lambda: self.nav_search.setFocus())
+        # Job History is F11 in the legacy system - a habit worth keeping (UX7).
+        QShortcut(QKeySequence("F11"), self,
+                  activated=lambda: self._open_by_key("production_planning.job_history"))
 
         self._open_dashboard()
 
@@ -146,6 +150,8 @@ class MainWindow(QMainWindow):
             for item in group.items:
                 if not self.user.can_view(item.key):
                     continue
+                if not settings.menu_visible(item.key):
+                    continue  # switched off in Tools > Option (T-07)
                 label = item.label
                 if not has_real_screen(item.key):
                     label += "  ·  soon"
@@ -250,6 +256,24 @@ class MainWindow(QMainWindow):
         idx = self.tabs.addTab(widget, f"  {label}  ")
         self._tabs_by_key[menu_key] = widget
         self.tabs.setCurrentIndex(idx)
+        # Screens that link to one another (Job History <-> Job Bag), close
+        # themselves (Exit), or change the menu (Options).
+        if hasattr(widget, "open_requested"):
+            widget.open_requested.connect(
+                lambda key, src=widget: self._open_linked(key, src))
+        if hasattr(widget, "close_requested"):
+            widget.close_requested.connect(
+                lambda w=widget: self._close_tab(self.tabs.indexOf(w)))
+        if hasattr(widget, "nav_changed"):
+            widget.nav_changed.connect(self._populate_nav)
+
+    def _open_linked(self, key: str, source: QWidget) -> None:
+        """Open another job screen on the job the source screen is showing."""
+        self._open_by_key(key)
+        target = self._tabs_by_key.get(key)
+        job_id = getattr(source, "job_id", None)
+        if target is not None and job_id and hasattr(target, "show_job"):
+            target.show_job(job_id)
 
     def _close_tab(self, index: int) -> None:
         widget = self.tabs.widget(index)

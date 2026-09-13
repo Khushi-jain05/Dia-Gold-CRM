@@ -17,9 +17,16 @@ The menu structure is taken directly from the client design workbook
 | Master ▸ Company, Currency, Account, Metal, Location, Parts/Mould, SKU Info, Family/Category, Colour, Stone Info, Setting Type, Manufacturing, Other | ✅ Full add / edit / delete / search |
 | Master ▸ Findings, Voucher Type | ⬜ Dropped — the client confirmed they are unused, so they are hidden from the menu |
 | Master ▸ User Right | ✅ Users + Roles + permission matrix (view / edit per module) |
-| SKU ▸ Stone SKU/Packet No, Product SKU Master | ✅ Full add / edit / delete / search |
-| SKU ▸ SKU View | ⬜ Placeholder |
-| Quotation, MRP, Production Planning, Manufacturing, Purchase, Inventory, Sale, Account, Tools, Reports | ⬜ Menu + placeholders (scaffolded, screens not built) |
+| SKU ▸ Stone SKU, Product SKU Master | ✅ Full add / edit / delete / search, priced from the stone catalogue |
+| Production Planning ▸ Order | ✅ Header + SKU lines; saving allots one job per line (global job sequence) |
+| Production Planning ▸ Job Mapping | ✅ Pending-jobs queue, process groups → dated route per job, Copy To All |
+| Production Planning ▸ Job History (F11) | ✅ Issue / receive vouchers per step with worker and weights; loss derived per step |
+| Production Planning ▸ Job Card Bag | ✅ Per-job stone ledger (Req/Rcvd/Extra/Pnd/Iss/Rtn/Break/Lost/Back/Bal) + two reports |
+| Production Planning ▸ Stone Issue, Inv Return | ✅ Numbered vouchers; stock per location; over-issue / over-return refused |
+| Production Planning ▸ Printing Options | ✅ Six prints from data-driven templates → PDF, with a print log (placeholder layouts until the client's Word format arrives) |
+| Production Planning ▸ Order Day Book | ✅ Built; hidden by default (Tools ▸ Option switches menu items) |
+| Tools ▸ Option | ✅ Production-Planning menu scope by configuration |
+| Quotation, MRP, Manufacturing, Purchase, Inventory, Sale, Account, Reports | ⬜ Menu + placeholders (scaffolded, screens not built) |
 | Tools ▸ Change Password | ✅ Working |
 | Window ▸ Cascade / Tile / Close All | ✅ Working |
 
@@ -107,10 +114,10 @@ and permissions are enforced automatically from the menu key.
 
 ## Roadmap (next modules)
 
-1. **Quotation** → **Order** front-office flow (uses Account + Product SKU masters)
-2. **MRP** & **Purchase Order**
-3. **Production Planning** (Job Card) → **Manufacturing** (Issue / Receive / Costing)
-4. **Inventory** (Metal / Stone / Parts ledgers)
+1. **Manufacturing** (MFG Transfer, job costing) — after the factory session
+2. **Quotation** — post-production, at tag/barcode stage (11 Sept, D7)
+3. **MRP** & **Purchase Order** — scope pending the re-cover (C-05)
+4. **Inventory** (Metal / Stone / Parts ledgers — stock per location already exists)
 5. **Sale** & **Account** (vouchers, ledger, trial balance)
 6. **Reports** across all modules
 

@@ -69,7 +69,13 @@ MENU: list[MenuGroup] = [
         ("mrp", "MRP"),
         ("purchase_order", "Purchase Order"),
     ]),
+    # Order feeds this module (saving one allots the jobs), so it sits at the
+    # top of Production Planning. Which of the legacy items survive is a
+    # configuration switch (Tools > Option), not a code change - see
+    # services/settings.py and the 11 September notes (R10, C-01).
     _g("production_planning", "Production Planning", [
+        ("order", "Order"),
+        ("stone_issue", "Stone Issue on Job-Card"),
         ("wip_job_card", "WIP Job Card"),
         ("job_card", "Job Card"),
         ("job_mapping", "Job Mapping"),
@@ -78,7 +84,7 @@ MENU: list[MenuGroup] = [
         ("job_history", "Job History"),
         ("printing_options", "Printing Options"),
         ("inv_return", "Inv Return"),
-        ("day_book", "Day Book"),
+        ("day_book", "Order Day Book"),
         ("reports", "Reports"),
     ]),
     _g("manufacturing", "Manufacturing", [

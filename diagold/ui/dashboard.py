@@ -18,10 +18,10 @@ from sqlalchemy import func, select
 
 from diagold.db.models import (
     Account,
-    Currency,
+    Job,
     Metal,
+    Order,
     ProductSku,
-    StoneInfo,
     StoneSku,
     User,
 )
@@ -72,13 +72,18 @@ class DashboardWidget(QWidget):
         grid = QGridLayout()
         grid.setSpacing(14)
         with SessionLocal() as s:
+            pending = s.scalar(select(func.count()).select_from(Job)
+                               .where(Job.status == "pending")) or 0
+            wip = s.scalar(select(func.count()).select_from(Job)
+                           .where(Job.status.in_(("mapped", "in_progress")))) or 0
             stats = [
+                ("Pending jobs (to map)", pending, "production_planning.job_mapping"),
+                ("Jobs in production", wip, "production_planning.job_history"),
+                ("Orders", _count(s, Order), "production_planning.order"),
                 ("Product SKUs", _count(s, ProductSku), "sku.product_sku_master"),
                 ("Stone SKUs", _count(s, StoneSku), "sku.stone_sku"),
                 ("Accounts", _count(s, Account), "master.account"),
                 ("Metals", _count(s, Metal), "master.metal"),
-                ("Stone Types", _count(s, StoneInfo), "master.stone_info"),
-                ("Currencies", _count(s, Currency), "master.currency"),
                 ("Users", _count(s, User), "master.user_right"),
             ]
         for i, (label, value, key) in enumerate(stats):
@@ -97,9 +102,10 @@ class DashboardWidget(QWidget):
         row = QHBoxLayout()
         row.setSpacing(10)
         for text, key, primary in [
-            ("+ New Product SKU", "sku.product_sku_master", True),
-            ("+ New Account", "master.account", False),
-            ("+ New Stone SKU", "sku.stone_sku", False),
+            ("+ New Order", "production_planning.order", True),
+            ("Job Mapping", "production_planning.job_mapping", False),
+            ("Job History  (F11)", "production_planning.job_history", False),
+            ("+ New Product SKU", "sku.product_sku_master", False),
             ("Manage Users && Rights", "master.user_right", False),
         ]:
             b = QPushButton(text)
@@ -113,9 +119,11 @@ class DashboardWidget(QWidget):
         outer.addStretch(1)
 
         note = QLabel(
-            "This build covers the Master and SKU modules. Quotation, MRP, Production "
-            "Planning, Manufacturing, Purchase, Inventory, Sale, Account and Reports are "
-            "in the navigation and will be built next."
+            "This build covers the Master, SKU and Production-Planning modules "
+            "(Order → Job Mapping → issue/receive vouchers → Job History, Job Card Bag, "
+            "Stone Issue, Return to Inventory, Printing Options). Quotation, MRP, "
+            "Manufacturing, Purchase, Inventory, Sale, Account and Reports are in the "
+            "navigation and will be built next."
         )
         note.setObjectName("Muted")
         note.setWordWrap(True)

@@ -6,6 +6,15 @@ from decimal import Decimal
 
 from diagold.db.models import (
     Account,
+    InventoryReturn,
+    InventoryReturnLine,
+    Job,
+    JobBagLine,
+    Order,
+    OrderLine,
+    PrintTemplate,
+    StoneIssue,
+    StoneIssueLine,
     Item,
     ItemPriceRange,
     Colour,
@@ -49,7 +58,7 @@ from diagold.db.models import (
 from sqlalchemy import select
 
 from diagold.db.session import SessionLocal
-from diagold.services import costing, rates
+from diagold.services import costing, production, rates
 from diagold.ui.crud import ChildSpec, CrudSpec, Field, Shortcut
 
 _metal_label = lambda m: f"{m.code} - {m.name}".strip(" -")
@@ -1244,5 +1253,346 @@ _register(CrudSpec(
                             choices=["Cts", "Pcs", "Gms"]),
                   ],
               )),
+    ],
+))
+
+
+# ==========================================================================
+# Production Planning (11 September session)
+# ==========================================================================
+_sku_label = lambda p: f"{p.sku_code}" + (f" - {p.description}" if p.description else "")
+_location_label = lambda l: f"{l.code} - {l.name}"
+_stone_sku_label = lambda s: s.sku_code
+_job_fk_label = lambda j: j.label
+_bag_line_label = lambda b: b.label
+_mould_label = lambda m: f"{m.code} - {m.name}"
+
+
+def _fill_order_line_from_sku(grid, row: int, sku_id) -> None:
+    """Picking a SKU on an order line brings its description, metal and
+    weights across; anything already typed on the line is left alone."""
+    if not sku_id:
+        return
+    with SessionLocal() as s:
+        sku = s.get(ProductSku, sku_id)
+    if sku is None:
+        return
+    if not grid.cell_value(row, "sku_desc"):
+        grid.set_cell_value(row, "sku_desc", sku.description)
+    if not grid.cell_value(row, "metal_id") and sku.metal_id:
+        grid.set_cell_value(row, "metal_id", sku.metal_id)
+    if not grid.cell_value(row, "net_wt_per_pcs"):
+        grid.set_cell_value(row, "net_wt_per_pcs", sku.net_weight)
+    if not grid.cell_value(row, "tot_gross_wt"):
+        pcs = grid.cell_value(row, "pcs") or 1
+        grid.set_cell_value(row, "tot_gross_wt", Decimal(str(sku.gross_weight or 0)) * pcs)
+
+
+def _order_lines_summary(rows: list[dict]) -> str:
+    pcs = sum(int(r.get("pcs") or 0) for r in rows)
+    gwt = sum(Decimal(str(r.get("tot_gross_wt") or 0)) for r in rows)
+    return f"{len(rows)} line(s) · {pcs} pcs · gross {gwt:.3f} g · one job per line on save"
+
+
+def _validate_order(values: dict, children: dict[str, list[dict]]) -> str | None:
+    if values.get("order_type") == "Customer" and not values.get("account_id"):
+        return "A customer order needs a customer. Pick the account, or set Ord Type to Stock."
+    lines = [r for r in children.get("lines", [])
+             if r.get("product_sku_id") or (r.get("sku_desc") or "").strip()]
+    if not lines:
+        return "An order needs at least one SKU line."
+    return None
+
+
+def _prepare_order(values: dict, children: dict, session) -> None:
+    if not values.get("order_no"):
+        values["order_no"] = production.next_number(session, Order.order_no)
+    if values.get("order_type") == "Stock":
+        values["account_id"] = None
+    # Serials are what link a line to its job, so they are always 1..n.
+    kept = []
+    for r in children.get("lines", []):
+        if r.get("product_sku_id") or (r.get("sku_desc") or "").strip():
+            kept.append(r)
+    for n, r in enumerate(kept, start=1):
+        r["sno"] = n
+    children["lines"] = kept
+
+
+def _order_saved(order, children, session) -> None:
+    production.sync_jobs_for_order(session, order)
+
+
+def _order_requirement_sheet(widget, order) -> None:
+    """Stone Requirements for every job of the selected order (§4.1 action)."""
+    from PySide6.QtWidgets import QMessageBox
+    from diagold.services import documents
+    if order is None:
+        QMessageBox.information(widget, "Requirement Sheet", "Select an order first.")
+        return
+    with SessionLocal() as s:
+        jobs = list(s.scalars(select(Job).where(Job.order_id == order.id,
+                                                Job.status != "cancelled")))
+        templates = documents.templates_for(s, "stone_req")
+        if not jobs or not templates:
+            QMessageBox.information(widget, "Requirement Sheet",
+                                    "This order has no jobs yet." if not jobs
+                                    else "No Stone Requirements template is active.")
+            return
+        paths = [documents.print_job(s, j, templates[0]) for j in jobs]
+        s.commit()
+    QMessageBox.information(widget, "Requirement Sheet",
+                            "Printed:\n" + "\n".join(str(p) for p in paths))
+
+
+def _order_day_book(widget, _order) -> None:
+    from diagold.ui.production import OrderDayBookWidget, show_in_dialog
+    show_in_dialog(widget, OrderDayBookWidget(), "Order Day Book")
+
+
+_register(CrudSpec(
+    key="production_planning.order",
+    title="Orders",
+    model=Order,
+    order_by="-order_no",
+    search_hint="Search by ref, terms, remark…",
+    validate=_validate_order,
+    before_save=_prepare_order,
+    after_save=_order_saved,
+    form_width=1180,
+    extra_buttons=[("Requirement Sheet", _order_requirement_sheet),
+                   ("Day Book", _order_day_book)],
+    fields=[
+        Field("order_no", "Ord No", type="int", readonly=True,
+              help_text="Allotted on save. Live numbers migrate as they are."),
+        Field("order_date", "Date", type="date", default=date.today, required=True),
+        Field("order_type", "Ord Type", type="choice", choices=list(Order.ORDER_TYPES),
+              default="Customer"),
+        Field("account_id", "Customer", type="fk", fk_model=Account, fk_label=_account_label),
+        Field("ref", "Ref"),
+        Field("terms", "Terms", in_list=False),
+        Field("currency_code", "Currency", default="INR", in_list=False),
+        Field("delivery_date", "Delivery Date", type="date"),
+        Field("priority", "Priority", in_list=False,
+              help_text="Heard as an order-time field; values and effect not yet "
+                        "explained (Q9). Free text until then."),
+        Field("remark", "Remark", in_list=False),
+        Field("lines", "SKU Lines", type="child",
+              help_text="One job is allotted per line when the order is saved. "
+                        "Field rules were explained on the call but the audio was "
+                        "lost - defaults here are unconfirmed (C-05).",
+              child=ChildSpec(
+                  model=OrderLine, fk_attr="order_id", order_by="sno",
+                  summary=_order_lines_summary, height=190,
+                  fields=[
+                      Field("sno", "Sno", type="int", default=1),
+                      Field("product_sku_id", "SKU", type="fk", fk_model=ProductSku,
+                            fk_label=_sku_label, on_change=_fill_order_line_from_sku),
+                      Field("sku_desc", "SKU Desc"),
+                      Field("c_ref", "C-Ref"),
+                      Field("metal_id", "Metal", type="fk", fk_model=Metal,
+                            fk_label=_metal_label),
+                      Field("colour", "Col", type="choice", choices=["Y", "W", "R", ""]),
+                      Field("size", "Size"),
+                      Field("pcs", "Pcs", type="int", default=1),
+                      Field("net_wt_per_pcs", "N-Wt/Pcs", type="float", decimals=3),
+                      Field("tot_gross_wt", "Tot GWt", type="float", decimals=3),
+                      Field("metal_rate_unit", "Metal Rate Unit"),
+                      Field("metal_amount", "Mt Amt", type="float"),
+                      Field("delivery_date", "Del Dt", type="date"),
+                      Field("priority", "Priority"),
+                      Field("remark", "Remark"),
+                  ],
+              )),
+    ],
+))
+
+
+def _fill_stone_line(grid, row: int, sku_id) -> None:
+    if not sku_id:
+        return
+    with SessionLocal() as s:
+        sku = s.get(StoneSku, sku_id)
+    if sku is None:
+        return
+    if not grid.cell_value(row, "size"):
+        grid.set_cell_value(row, "size", sku.size)
+    if not grid.cell_value(row, "wt_per_pcs"):
+        grid.set_cell_value(row, "wt_per_pcs", sku.wt_per_pcs)
+    if not grid.cell_value(row, "price_unit"):
+        grid.set_cell_value(row, "price_unit", sku.per or "Cts")
+    if not grid.cell_value(row, "s_type"):
+        grid.set_cell_value(row, "s_type", sku.stone_type)
+
+
+def _fill_stone_weight(grid, row: int, pcs) -> None:
+    """Weight follows pieces x weight-per-piece until typed by hand."""
+    per = grid.cell_value(row, "wt_per_pcs")
+    if per and not grid.cell_value(row, "weight"):
+        grid.set_cell_value(row, "weight", Decimal(str(per)) * int(pcs or 0))
+
+
+def _stone_issue_summary(rows: list[dict]) -> str:
+    pcs = sum(int(r.get("pcs") or 0) for r in rows)
+    wt = sum(Decimal(str(r.get("weight") or 0)) for r in rows)
+    return f"{len(rows)} line(s) · {pcs} pcs · {wt:.3f}"
+
+
+def _prepare_stone_issue(values: dict, children: dict, session) -> None:
+    if not values.get("vr_no"):
+        values["vr_no"] = production.next_number(session, StoneIssue.vr_no)
+    for n, r in enumerate(children.get("lines", []), start=1):
+        r["sno"] = n
+
+
+def _stone_issue_saved(issue, children, session) -> None:
+    production.apply_stone_issue(session, issue)
+
+
+_register(CrudSpec(
+    key="production_planning.stone_issue",
+    title="Stone Issue on Job-Card",
+    model=StoneIssue,
+    order_by="-vr_no",
+    search_hint="Search by ref, barcode, lot…",
+    editable=False, deletable=False,
+    before_save=_prepare_stone_issue,
+    after_save=_stone_issue_saved,
+    form_width=1180,
+    fields=[
+        Field("vr_no", "Vr No", type="int", readonly=True),
+        Field("job_id", "Job No", type="fk", fk_model=Job, fk_label=_job_fk_label,
+              required=True),
+        Field("vr_date", "Date", type="date", default=date.today, required=True),
+        Field("ref_no", "Ref No"),
+        Field("account_id", "Account", type="fk", fk_model=Account,
+              fk_label=_account_label, in_list=False),
+        Field("barcode", "Barcode", in_list=False,
+              help_text="Scan or type; lot and barcode are recorded on the voucher. "
+                        "Barcode-driven line fill needs the label format (C-05)."),
+        Field("lot_no", "Lot No", in_list=False),
+        Field("is_opening", "Opening", type="bool", default=False,
+              help_text="Opening: the stones were already with the job when the "
+                        "system started - no location is reduced (assumption, C-05)."),
+        Field("remark", "Remark", in_list=False),
+        Field("lines", "Stones", type="child",
+              help_text="Each line leaves its Location and lands in the job's bag as "
+                        "Received. Leave Job blank to use the header's job; fill it "
+                        "to issue to several jobs on one voucher (For Multiple).",
+              child=ChildSpec(
+                  model=StoneIssueLine, fk_attr="issue_id", order_by="sno",
+                  summary=_stone_issue_summary, height=190,
+                  row_template={"price_unit": "Cts"},
+                  fields=[
+                      Field("sno", "SNo", type="int", default=1),
+                      Field("job_id", "Job", type="fk", fk_model=Job, fk_label=_job_fk_label),
+                      Field("location_id", "Location", type="fk", fk_model=Location,
+                            fk_label=_location_label),
+                      Field("stone_sku_id", "SSKU", type="fk", fk_model=StoneSku,
+                            fk_label=_stone_sku_label, on_change=_fill_stone_line),
+                      Field("particulars", "Particulars"),
+                      Field("size", "Size"),
+                      Field("wt_per_pcs", "Wt/Pcs", type="float", decimals=4),
+                      Field("req_pcs", "Req Pcs", type="int"),
+                      Field("req_wt", "Req Wt", type="float", decimals=3),
+                      Field("pcs", "Pcs", type="int", on_change=_fill_stone_weight),
+                      Field("weight", "Weight", type="float", decimals=3),
+                      Field("price_unit", "Price Unit", type="choice",
+                            choices=["Cts", "Pcs", "Gms"]),
+                      Field("s_type", "S Type"),
+                      Field("remark", "Remark"),
+                  ],
+              )),
+    ],
+))
+
+
+def _prepare_inv_return(values: dict, children: dict, session) -> None:
+    if not values.get("vr_no"):
+        values["vr_no"] = production.next_number(session, InventoryReturn.vr_no)
+    for n, r in enumerate(children.get("lines", []), start=1):
+        r["sno"] = n
+
+
+def _inv_return_saved(ret, children, session) -> None:
+    production.apply_inventory_return(session, ret)
+
+
+def _inv_return_summary(rows: list[dict]) -> str:
+    pcs = sum(int(r.get("pcs") or 0) for r in rows)
+    wt = sum(Decimal(str(r.get("weight") or 0)) for r in rows)
+    return f"{len(rows)} line(s) · {pcs} pcs · {wt:.3f}"
+
+
+_register(CrudSpec(
+    key="production_planning.inv_return",
+    title="Return to Inventory",
+    model=InventoryReturn,
+    order_by="-vr_no",
+    search_hint="Search by remark…",
+    editable=False, deletable=False,
+    before_save=_prepare_inv_return,
+    after_save=_inv_return_saved,
+    form_width=1000,
+    fields=[
+        Field("vr_no", "Vr No", type="int", readonly=True),
+        Field("material_class", "Return of", type="choice",
+              choices=["stone", "metal", "mould", "finding"], default="stone",
+              help_text="Rtn to Inv - Stone / Metal / Mould / Finding: four variants, "
+                        "one shape. Stone lines pick a bag line of the job; metal names "
+                        "the head; mould picks the mould; finding is described."),
+        Field("job_id", "Job No", type="fk", fk_model=Job, fk_label=_job_fk_label,
+              required=True),
+        Field("vr_date", "Date", type="date", default=date.today, required=True),
+        Field("location_id", "To Location", type="fk", fk_model=Location,
+              fk_label=_location_label, required=True),
+        Field("account_id", "Account", type="fk", fk_model=Account,
+              fk_label=_account_label, in_list=False),
+        Field("remark", "Remark", in_list=False),
+        Field("lines", "Lines", type="child",
+              child=ChildSpec(
+                  model=InventoryReturnLine, fk_attr="return_id", order_by="sno",
+                  summary=_inv_return_summary, height=170,
+                  fields=[
+                      Field("sno", "SNo", type="int", default=1),
+                      Field("bag_line_id", "Bag line (stone)", type="fk",
+                            fk_model=JobBagLine, fk_label=_bag_line_label),
+                      Field("metal_id", "Metal", type="fk", fk_model=Metal,
+                            fk_label=_metal_label),
+                      Field("mould_id", "Mould", type="fk", fk_model=PartMould,
+                            fk_label=_mould_label),
+                      Field("particulars", "Particulars"),
+                      Field("size", "Size"),
+                      Field("pcs", "Pcs", type="int"),
+                      Field("weight", "Weight", type="float", decimals=3),
+                      Field("remark", "Remark"),
+                  ],
+              )),
+    ],
+))
+
+_register(CrudSpec(
+    key="production_planning.print_templates",
+    title="Print Templates",
+    model=PrintTemplate,
+    order_by="kind",
+    search_hint="Search templates…",
+    copyable=True,
+    fields=[
+        Field("name", "Name", required=True),
+        Field("kind", "Print", type="choice", choices=[k for k, _ in PrintTemplate.KINDS],
+              required=True),
+        Field("is_placeholder", "Placeholder", type="bool", default=False,
+              help_text="On for the layouts we made up while waiting for the client's "
+                        "Word format (C-02). Turn off once a layout matches it."),
+        Field("is_active", "Active", type="bool", default=True),
+        Field("body", "Layout (HTML)", type="text", in_list=False, rows=22,
+              help_text="Placeholders: {{job_no}} {{sku}} {{sku_desc}} {{c_ref}} {{ord_ref}} "
+                        "{{order_no}} {{order_date}} {{client}} {{delivery_date}} {{metal}} "
+                        "{{karat}} {{colour}} {{pcs}} {{route}} {{remark}} {{photo}} "
+                        "{{printed_on}} {{printed_by}} {{company}}. Repeating blocks: "
+                        "{{#steps}} seq process short due_date worker status {{/steps}}, "
+                        "{{#stones}} particulars size type req_pcs req_wt bal_pcs bal_wt "
+                        "unit {{/stones}}, {{#findings}} particulars pcs weight {{/findings}}."),
     ],
 ))

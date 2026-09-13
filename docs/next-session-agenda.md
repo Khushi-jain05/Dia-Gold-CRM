@@ -1,8 +1,28 @@
-# Next session — SKU and Quotation walkthrough
+# Next session — agenda (T-12)
 
-Prepared for the follow-up to the 3 September 2026 Master-module review.
-The client closed that call by moving the agenda on: *"SKU pe aate hain,
-quotation pe aate hain."* Reports were flagged as a later topic.
+Prepared after the 11 September Production-Planning walkthrough. Order of
+business, as agreed on that call: the pending Production-Planning items, the
+re-cover of the screens whose audio was lost, the Word job-sheet format, then
+the Session 1 backlog.
+
+## 0. Production Planning first (25 min)
+
+1. **C-01 / C-03** — Rohit names the two items in use and the three pending
+   sub-items. We untick the rest in Tools ▸ Option on the call.
+2. **C-05 re-cover (10 min)** — Order entry rules (fields, Requirement Sheet,
+   Quotation link, stock orders), Stone Issue on Job-Card, Order Day Book
+   usage, whether anything in M.R.P. is used.
+3. **C-02** — walk the Word job-sheet format and a filled example; agree which
+   fields map to which placeholders.
+4. **Layout review (T-08)** — Job Mapping, Job History, Job Card Bag, Printing
+   Options as built; see `production-planning-walkthrough.md`. Corrections
+   noted in writing.
+5. **C-04** — fix a date for the factory session; question list in
+   `factory-session-questions.md`.
+6. Q5 In-House used? · Q6 first weight-bearing step · Q7 "Back" column ·
+   Q8 scrap/dust/rejects · Q9 Priority · Q10 pre-production quotation ever?
+
+Recording: speakers set to MacBook before joining (`recording-checklist.md`).
 
 ---
 
@@ -18,7 +38,7 @@ sitting behind it that cannot be finished until the answer lands.
 | **Q1 / C-03** | Stone reference data: confirm the nine granular masters | Built to the granular model the client demonstrated. Sign-off needed before it is treated as final. |
 | **Q5** | Labour calculates on **net weight** — confirm | The basis is stored explicitly and is switchable, but the default needs confirming. |
 | **Q6** | Margin: cost +50%, then 20% less to the customer | Both steps are separate editable parameters. Confirm whether the 20% is a discount off tag price. |
-| **Q13** | The default process sequence | The Set Default Process screen is built and empty. |
+| **Q13** | The default process sequence | Answered on 11 Sept by the Job Mapping screen: the eleven-step Default group is loaded. Confirm. |
 | **Q9** | Daily Labour Rates — same behaviour as Daily Metal Rate? | Built mirroring metal rates on that assumption. |
 | **Q3 / C-04** | Staff list with roles, and which masters each may see | The rights screen is ready; only the data is missing. |
 | **Q2** | Is Item Size in scope? | The client said they could record it but do not today. |

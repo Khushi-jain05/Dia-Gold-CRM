@@ -80,6 +80,8 @@ class Field:
     # spec keep a couple of related fields in sync (e.g. auto-filling Family
     # once an Item is picked) without any bespoke screen code.
     on_change: Callable[["FormDialog", Any], None] | None = None
+    # Height of a "text" editor in lines (a print layout needs room).
+    rows: int = 0
 
 
 @dataclass
@@ -143,6 +145,18 @@ class CrudSpec:
     detail_panels: list[tuple[str, list[str]]] = field(default_factory=list)
     # "Make A Copy" - clone the selected record and open it for editing.
     copyable: bool = False
+    # Runs after the record and its child rows are written, before commit -
+    # for effects that need the saved row: allotting jobs to an order's lines,
+    # posting a voucher's stock movements. Raise ValueError to refuse the save
+    # with a message; the whole write is rolled back.
+    after_save: Callable[[Any, dict[str, list[dict]], Any], None] | None = None
+    # Vouchers are posted once and never edited. Edit becomes View.
+    editable: bool = True
+    # Extra actions on the list toolbar, as (label, callback(widget, selected)).
+    extra_buttons: list[tuple[str, Callable[["CrudWidget", Any], None]]] = field(
+        default_factory=list)
+    # A wide detail grid (an order's 15-column lines) needs a wider form.
+    form_width: int = 0
 
 
 class ImageSlot(QWidget):
@@ -489,19 +503,21 @@ def friendly_db_error(exc: Exception, spec: "CrudSpec", values: dict | None = No
 
 class FormDialog(QDialog):
     def __init__(self, spec: CrudSpec, instance: Any | None, session, parent=None,
-                 rights: Any = None):
+                 rights: Any = None, readonly: bool = False):
         super().__init__(parent)
         self.spec = spec
         self.instance = instance
         self.session = session
         self.rights = rights
+        self.readonly = readonly
         self.master = rights_master_for(spec.key) if rights is not None else None
         self.editors: dict[str, QWidget] = {}
         self.child_editors: dict[str, ChildTableEditor] = {}
         self._fk_cache: dict[str, list[tuple[Any, str]]] = {}
 
         self.setWindowTitle(
-            f"{'Edit' if instance else 'New'} {spec.title.rstrip('s')}"
+            f"{'View' if readonly else 'Edit' if instance else 'New'} "
+            f"{spec.title.rstrip('s')}"
         )
         self.setMinimumWidth(460)
 
@@ -605,6 +621,13 @@ class FormDialog(QDialog):
         layout.addWidget(buttons)
 
         self._load_values()
+        if readonly:
+            # A posted voucher is looked at, never changed.
+            for w in list(self.editors.values()) + list(self.child_editors.values()) \
+                    + list(self.image_slots.values()):
+                w.setEnabled(False)
+            buttons.button(QDialogButtonBox.StandardButton.Save).setVisible(False)
+            buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Close")
         self._fit_to_screen(body)
 
     def _build_shortcut_panel(self, body_layout) -> None:
@@ -664,13 +687,18 @@ class FormDialog(QDialog):
         wanted = body.sizeHint().height() + 72  # + button bar
         screen = self.screen() or QApplication.primaryScreen()
         cap = int(screen.availableGeometry().height() * 0.88) if screen else 900
-        self.resize(max(self.minimumWidth(), 700), min(wanted, cap))
+        width = max(self.minimumWidth(), 700, self.spec.form_width)
+        if screen:
+            width = min(width, int(screen.availableGeometry().width() * 0.95))
+        self.resize(width, min(wanted, cap))
 
     # -- editor construction -------------------------------------------------
     def _build_editor(self, f: Field) -> QWidget:
         if f.type == "text":
             w = QPlainTextEdit()
-            w.setMaximumHeight(80)
+            w.setMaximumHeight(max(80, f.rows * 18))
+            if f.rows:
+                w.setMinimumHeight(f.rows * 18)
             return w
         if f.type == "bool":
             return QCheckBox()
@@ -913,11 +941,21 @@ class FormDialog(QDialog):
                     obj.set_password(password)
             self.session.flush()  # obj.id is needed by the child rows
             self._save_children(obj, children)
+            if self.spec.after_save is not None:
+                self.session.flush()
+                self.session.refresh(obj)
+                self.spec.after_save(obj, children, self.session)
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()
             QMessageBox.warning(self, "Could not save",
                                 friendly_db_error(exc, self.spec, values))
+            return
+        except ValueError as exc:
+            # A business rule said no (see CrudSpec.after_save). Nothing was
+            # written; the message is the rule in plain words.
+            self.session.rollback()
+            QMessageBox.warning(self, "Cannot save", str(exc))
             return
         except Exception as exc:  # noqa: BLE001 - surface DB errors to the user
             self.session.rollback()
@@ -992,7 +1030,13 @@ class CrudWidget(QWidget):
         else:
             self.btn_copy.setVisible(False)
         buttons += [self.btn_delete, self.btn_refresh]
+        if not spec.editable:
+            self.btn_edit.setText("View")
         for b in buttons:
+            bar.addWidget(b)
+        for label, callback in spec.extra_buttons:
+            b = QPushButton(label)
+            b.clicked.connect(lambda _=False, cb=callback: cb(self, self._selected()))
             bar.addWidget(b)
         layout.addLayout(bar)
 
@@ -1054,6 +1098,9 @@ class CrudWidget(QWidget):
             for b in (self.btn_new, self.btn_edit, self.btn_delete):
                 b.setEnabled(False)
                 b.setToolTip("You have view-only access to this screen.")
+            if not spec.editable:
+                self.btn_edit.setEnabled(True)
+                self.btn_edit.setToolTip("")
         elif self.rights is not None and self.master is not None:
             for b, action in ((self.btn_new, "add"), (self.btn_edit, "edit"),
                               (self.btn_delete, "delete")):
@@ -1079,7 +1126,9 @@ class CrudWidget(QWidget):
                     like = f"%{term}%"
                     stmt = stmt.where(or_(*[c.ilike(like) for c in cols]))
             if self.spec.order_by:
-                stmt = stmt.order_by(getattr(self.spec.model, self.spec.order_by))
+                col = getattr(self.spec.model, self.spec.order_by.lstrip("-"))
+                stmt = stmt.order_by(col.desc() if self.spec.order_by.startswith("-")
+                                     else col)
             self._rows = list(session.scalars(stmt).all())
             self._fill_table(session)
 
@@ -1147,11 +1196,18 @@ class CrudWidget(QWidget):
                 self.reload()
 
     def _edit(self) -> None:
-        if not self._require("edit"):
-            return
         current = self._selected()
         if current is None:
             QMessageBox.information(self, "Edit", "Select a row first.")
+            return
+        if not self.spec.editable:
+            # Posted vouchers open read-only: the record is history.
+            with SessionLocal() as session:
+                fresh = session.get(self.spec.model, current.id)
+                FormDialog(self.spec, fresh, session, self, rights=self.rights,
+                           readonly=True).exec()
+            return
+        if not self._require("edit"):
             return
         with SessionLocal() as session:
             fresh = session.get(self.spec.model, current.id)

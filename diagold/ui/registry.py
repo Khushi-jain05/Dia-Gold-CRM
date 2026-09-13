@@ -10,11 +10,25 @@ from diagold.services.auth import CurrentUser
 from diagold.ui.crud import CrudWidget
 from diagold.ui.permissions import PermissionMatrixWidget
 from diagold.ui.placeholder import PlaceholderWidget
+from diagold.ui.production import (
+    JobBagWidget,
+    JobHistoryWidget,
+    JobMappingWidget,
+    OptionsWidget,
+    OrderDayBookWidget,
+    PrintingOptionsWidget,
+)
 from diagold.ui.specs import SPECS
 
 # Menu keys that get a real screen but not via a plain CrudSpec.
 _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "master.user_right": lambda user: PermissionMatrixWidget(user),
+    "production_planning.job_mapping": lambda user: JobMappingWidget(user),
+    "production_planning.job_card_bag": lambda user: JobBagWidget(user),
+    "production_planning.job_history": lambda user: JobHistoryWidget(user),
+    "production_planning.printing_options": lambda user: PrintingOptionsWidget(user),
+    "production_planning.day_book": lambda user: OrderDayBookWidget(),
+    "tools.option": lambda user: OptionsWidget(user),
 }
 
 

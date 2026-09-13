@@ -359,6 +359,14 @@ class ManufacturingProcess(Base, PKMixin, TimestampMixin):
     is_inhouse: Mapped[bool] = mapped_column(Boolean, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # Does metal weight travel through this step? CAD is design only - no
+    # weight goes, so no loss is ever derived on it. Weight enters the job at
+    # the first step with this on; it is a flag, not hard-wired to casting,
+    # because the client's own live data first weighed at HandMade (TR5, Q6).
+    weight_bearing: Mapped[bool] = mapped_column(Boolean, default=True)
+    # The abbreviation the legacy route string uses: "HM RHM PP ST FP fs".
+    short_code: Mapped[str] = mapped_column(String(8), default="")
+
     checkpoints: Mapped[list["ProcessCheckpoint"]] = relationship(
         back_populates="process", cascade="all, delete-orphan", lazy="selectin"
     )
@@ -382,15 +390,19 @@ class ProcessCheckpoint(Base, PKMixin):
 
 
 class DefaultProcessStep(Base, PKMixin, TimestampMixin):
-    """One step of the default process sequence (legacy "Set Default Process").
+    """One step of a process group (legacy "Set Default Process").
 
-    The client never explained what the default sequence should be (open
-    question Q13), so nothing is seeded here - the screen is ready for them
-    to fill in.
+    The 11 September session answered Session 1's Q13: the "Default" group is
+    the eleven-step route applied at Job Mapping - CAD, CAMMING, CASTING,
+    HandMade, COLOUR, PrePolish, Setting, Final Polish, final setting, Meena,
+    Puwai. It is seeded; further groups are added on this screen.
     """
 
     __tablename__ = "default_process_steps"
 
+    # Steps belong to a named PROCESS GROUP; Job Mapping copies a group's
+    # steps onto a job. "Default" is the eleven-step route the client showed.
+    group_name: Mapped[str] = mapped_column(String(48), default="Default")
     step_no: Mapped[int] = mapped_column(default=1)
     process_id: Mapped[int | None] = mapped_column(
         ForeignKey("manufacturing_processes.id"), nullable=True

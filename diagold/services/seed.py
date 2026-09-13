@@ -64,6 +64,10 @@ def seed_initial_data(session: Session) -> None:
     session.flush()
     _seed_sample_sku(session)
     session.flush()
+    # Production-Planning reference data and the 11 September sample jobs.
+    from diagold.services.seed_production import seed_production  # noqa: WPS433
+    seed_production(session)
+    session.flush()
     if unassigned:
         print(f'[seed] {len(unassigned)} stone(s) have no group: '
               + ', '.join(sorted(unassigned)))
