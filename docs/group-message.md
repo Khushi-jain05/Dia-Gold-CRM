@@ -8,16 +8,16 @@ with the reason behind each item is the Open Points page.
 
 **Dia Gold CRM — open items (as of 13 Sept)**
 
-Answer each with its code, one line is enough (e.g. `PP-1 — Job Mapping and Job History`).
+Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping and Job History`).
 
 **Production Planning (11 Sept) — needed this week**
-- **PP-1** Which **two** Production-Planning items are actually used? (WIP Job Card / Job Card / Job Mapping / In-House / Job Card Bag / Job History / Printing Options / Inv Return / Day Book / Reports) — after checking downstairs.
-- **PP-2** The **Word job-sheet format** + one filled example — we generate it from the system so no one re-types it.
-- **PP-3** The **three pending sub-items** at the bottom of Production Planning — which three?
-- **PP-4** A date for the **factory session** (casting, weights, loss, scrap, rejects) with the people who run those steps.
-- **PP-5** Ten minutes at the start of the next call to **re-cover Order, Stone Issue, Order Day Book and M.R.P.** — our recording lost that part (our fault, not yours).
-- **PP-6** Exports of orders **1224, 1338, 1339** and jobs **28350, 28590, 28622–28624** with vouchers — the exact records you showed, so we can prove the screens against them.
-- **PP-7** Is **In-House** used? · Which step first carries **metal weight** — casting or handmade? · What does the bag's **Back** column mean? · Is **Priority** on an order used, and how?
+- **11 Sep C-01** Which **two** Production-Planning items are actually used? (WIP Job Card / Job Card / Job Mapping / In-House / Job Card Bag / Job History / Printing Options / Inv Return / Day Book / Reports) — after checking downstairs.
+- **11 Sep C-02** The **Word job-sheet format** + one filled example — we generate it from the system so no one re-types it.
+- **11 Sep C-03** The **three pending sub-items** at the bottom of Production Planning — which three?
+- **11 Sep C-04** A date for the **factory session** (casting, weights, loss, scrap, rejects) with the people who run those steps.
+- **11 Sep C-05** Ten minutes at the start of the next call to **re-cover Order, Stone Issue, Order Day Book and M.R.P.** — our recording lost that part (our fault, not yours).
+- **11 Sep C-06** Exports of orders **1224, 1338, 1339** and jobs **28350, 28590, 28622–28624** with vouchers — the exact records you showed, so we can prove the screens against them.
+- **11 Sep Q5–Q9** Is **In-House** used? · Which step first carries **metal weight** — casting or handmade? · What does the bag's **Back** column mean? · Is **Priority** on an order used, and how?
 
 **Master (3 Sept) — still open**
 - **M-1** Access to `SERVER2\ERP → Diagold26`, or exports of Metals / Locations / Items / Stones / Accounts.
