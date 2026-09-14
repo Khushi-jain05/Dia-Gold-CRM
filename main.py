@@ -12,7 +12,7 @@ from diagold import APP_NAME
 from diagold.db.session import init_db
 from diagold.ui.login import LoginDialog
 from diagold.ui.main_window import MainWindow
-from diagold.ui.style import APP_QSS
+from diagold.ui.style import APP_QSS, build_palette
 
 
 def main() -> int:
@@ -20,6 +20,7 @@ def main() -> int:
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("Dia Gold")
     app.setStyle("Fusion")
+    app.setPalette(build_palette())   # before the sheet: the sheet wins where both speak
     app.setStyleSheet(APP_QSS)
 
     init_db()

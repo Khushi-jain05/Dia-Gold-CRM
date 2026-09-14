@@ -5,6 +5,8 @@ the app looks identical on macOS and Windows.
 """
 from __future__ import annotations
 
+from PySide6.QtGui import QColor, QPalette
+
 # Palette ---------------------------------------------------------------
 GOLD = "#C9A227"
 GOLD_DARK = "#A9861B"
@@ -186,6 +188,53 @@ QDateEdit:focus, QPlainTextEdit:focus {{ border: 1px solid {GOLD}; }}
    native chevron. Overriding them (the CSS triangle trick) collapsed the arrow
    into a stray dash, making combo boxes look like plain text fields. */
 
+/* The drop-down list is a separate popup window, not part of the combo box,
+   so none of the rules above reach it. Left alone it takes the OS palette -
+   black on a Mac in dark mode - with our dark text on top, so the items
+   vanish. Paint it like the rest of the form. */
+QComboBox QAbstractItemView {{
+    background: {CARD};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 0;
+    padding: 4px 0;
+    outline: 0;
+    selection-background-color: {GOLD_SOFT};
+    selection-color: {TEXT};
+}}
+QComboBox QAbstractItemView::item {{
+    min-height: 26px;
+    padding: 4px 9px;
+}}
+QComboBox QAbstractItemView::item:hover,
+QComboBox QAbstractItemView::item:selected {{
+    background: {GOLD_SOFT};
+    color: {TEXT};
+}}
+
+/* Same story for the other popups: the date edit's calendar, menus, tips. */
+QCalendarWidget QWidget {{ background: {CARD}; color: {TEXT}; alternate-background-color: #FAFAFB; }}
+QCalendarWidget QAbstractItemView {{
+    selection-background-color: {GOLD_SOFT};
+    selection-color: {TEXT};
+}}
+QCalendarWidget QToolButton {{ color: {TEXT}; background: transparent; }}
+QCalendarWidget QToolButton:hover {{ background: {GOLD_SOFT}; border-radius: 6px; }}
+QMenu {{
+    background: {CARD};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    padding: 4px 0;
+}}
+QMenu::item {{ padding: 6px 18px; }}
+QMenu::item:selected {{ background: {GOLD_SOFT}; color: {TEXT}; }}
+QToolTip {{
+    background: {INK};
+    color: #FFFFFF;
+    border: 1px solid {INK_2};
+    padding: 4px 8px;
+}}
+
 /* ---- Check boxes ---- */
 QCheckBox {{ spacing: 8px; }}
 QCheckBox::indicator {{
@@ -251,3 +300,44 @@ QScrollArea#FormScroll {{ background: {CANVAS}; border: none; }}
 QScrollArea#FormScroll > QWidget > QWidget {{ background: {CANVAS}; }}
 QWidget#FormBody {{ background: {CANVAS}; }}
 """
+
+
+def build_palette() -> QPalette:
+    """The theme as a QPalette, so the OS dark mode never shows through.
+
+    The style sheet covers what it names; anything it does not - a popup
+    list, a calendar, a message box button - is painted from the widget
+    palette, which Fusion takes from the operating system. On a Mac in dark
+    mode that is near-black, and with our dark text on it the control goes
+    blank. Handing Qt a light palette built from the same colours closes that
+    gap everywhere at once.
+    """
+    p = QPalette()
+    roles = {
+        QPalette.ColorRole.Window: CANVAS,
+        QPalette.ColorRole.WindowText: TEXT,
+        QPalette.ColorRole.Base: CARD,
+        QPalette.ColorRole.AlternateBase: "#FAFAFB",
+        QPalette.ColorRole.Text: TEXT,
+        QPalette.ColorRole.Button: CARD,
+        QPalette.ColorRole.ButtonText: TEXT,
+        QPalette.ColorRole.ToolTipBase: INK,
+        QPalette.ColorRole.ToolTipText: "#FFFFFF",
+        QPalette.ColorRole.PlaceholderText: MUTED,
+        QPalette.ColorRole.Highlight: GOLD_SOFT,
+        QPalette.ColorRole.HighlightedText: TEXT,
+        QPalette.ColorRole.Light: "#FFFFFF",
+        QPalette.ColorRole.Midlight: "#F0F0F2",
+        QPalette.ColorRole.Mid: BORDER,
+        QPalette.ColorRole.Dark: "#C7CAD3",
+        QPalette.ColorRole.Shadow: "#9A9DA8",
+        QPalette.ColorRole.Link: GOLD_DARK,
+    }
+    for role, colour in roles.items():
+        p.setColor(role, QColor(colour))
+    disabled = QPalette.ColorGroup.Disabled
+    for role in (QPalette.ColorRole.Text, QPalette.ColorRole.WindowText,
+                 QPalette.ColorRole.ButtonText):
+        p.setColor(disabled, role, QColor(MUTED))
+    p.setColor(disabled, QPalette.ColorRole.Base, QColor("#F0F0F2"))
+    return p
