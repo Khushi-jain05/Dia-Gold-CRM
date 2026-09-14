@@ -177,9 +177,10 @@ def labour_amount(rate: Any, *, net_weight: Any = 0, gross_weight: Any = 0,
                   weight_basis: str = NET_WEIGHT) -> Decimal:
     """Making labour for one item.
 
-    The client charges labour on NET weight, not gross. The basis is an
-    explicit, named argument rather than an implicit choice so every computed
-    figure can be audited back to which weight it used.
+    The client charges labour on NET weight, not gross - confirmed 14 Sept
+    with their own example: 30 gm net x Rs 1,200/gm = Rs 36,000 (Q5 / M-5).
+    The basis is an explicit, named argument rather than an implicit choice
+    so every computed figure can be audited back to which weight it used.
     """
     weight = _dec(net_weight if weight_basis == NET_WEIGHT else gross_weight)
     return (weight * _dec(rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -243,12 +244,12 @@ class PriceBreakdown:
 def tag_and_customer_price(cost: Any, tag_margin_percent: Any,
                            customer_discount_percent: Any, *,
                            mode: str = MARKUP, round_off: Any = 0) -> PriceBreakdown:
-    """The client's two-step commercial rule, both steps configurable.
+    """Tag price from cost, and an optional customer discount off the tag.
 
-    Stated as: cost + 50% margin, then the customer is given 20% less than
-    that. Read literally that is ``cost * 1.50 * 0.80``. Neither percentage is
-    a constant here - both come from the margin master, and the exact
-    arithmetic is still being confirmed with the client (Q6).
+    Tag price is just cost + 50% - confirmed 14 Sept (Q6). The "20% less" is
+    NOT folded into the tag price; it is a separate discount off the tag,
+    applied only when the margin set carries one (0 otherwise). Neither
+    percentage is a constant here - both come from the margin master.
     """
     cost = _dec(cost)
     tag = apply_margin(cost, tag_margin_percent, mode)
@@ -280,8 +281,8 @@ def tag_and_customer_price(cost: Any, tag_margin_percent: Any,
 #   metal_amount  = net_wt x metal_rate          (net, never gross)
 #   default_price = (stone_amount + metal_amount) x multiplier
 #
-# The multiplier defaults to 1.5 - the client's "cost + 50%" - and is a
-# parameter, never a literal.
+# The multiplier defaults to 1.5 - the client's "cost + 50%", confirmed 14
+# Sept as the tag-price rule (Q6) - and is a parameter, never a literal.
 DEFAULT_PRICE_MULTIPLIER = Decimal("1.5")
 
 

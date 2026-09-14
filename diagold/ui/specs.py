@@ -564,8 +564,9 @@ _register(CrudSpec(
               choices=["Per Gram", "Per Piece", "Fixed"], default="Per Gram"),
         Field("weight_basis", "Weight Basis", type="choice",
               choices=list(LabourRate.WEIGHT_BASES), default="Net Weight",
-              help_text="Labour is charged on NET weight, not gross. Stored "
-                        "explicitly so every figure is auditable."),
+              help_text="Labour is charged on NET weight x the per-gram rate "
+                        "(e.g. 30 gm net x 1,200 = 36,000), never on gross. "
+                        "Stored explicitly so every figure is auditable."),
         Field("effective_from", "Effective From", type="date",
               help_text="Historic jobs keep the rate that applied on their date."),
         Field("is_active", "Active", type="bool", default=True),
@@ -582,12 +583,13 @@ _register(CrudSpec(
     fields=[
         Field("margin_key", "Margin Key", required=True, help_text='e.g. "50"'),
         Field("tag_margin_percent", "Tag Margin %", type="float", decimals=4,
-              help_text="Cost is raised by this to reach the tag price."),
+              help_text="Tag price = cost + this %. The rule is cost + 50%: "
+                        "nothing else goes into the tag price."),
         Field("customer_discount_percent", "Customer Discount %", type="float",
               decimals=4,
-              help_text="Customer price = tag price less this. Both steps are "
-                        "separate and editable — the exact rule is still being "
-                        "confirmed with the client."),
+              help_text="Optional. A discount off the TAG price for the "
+                        "customer; the tag price itself never includes it. "
+                        "Leave 0 unless a discount is actually given."),
         Field("overall_percent", "Overall %", type="float", decimals=4),
         Field("loss_percent", "Loss %", type="float", decimals=4),
         Field("is_active", "Active", type="bool", default=True),

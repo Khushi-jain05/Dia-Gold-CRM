@@ -106,6 +106,8 @@ class StoneSku(Base, PKMixin, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     range_label: Mapped[str] = mapped_column(String(16), default="")
+    # Cost and sale are typed in here, per stone and per size, by the office.
+    # The client keeps no separate price list to import (S-1 / C-09, 14 Sept).
     cost_price: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     sale_price: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     per: Mapped[str] = mapped_column(String(16), default="")

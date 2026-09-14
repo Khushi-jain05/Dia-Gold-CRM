@@ -31,13 +31,16 @@ Recording: speakers set to MacBook before joining (`recording-checklist.md`).
 These block work that is already written and waiting. Each one has code
 sitting behind it that cannot be finished until the answer lands.
 
+Closed on 14 Sept, off this list: **Q5** labour on net weight × per-gram rate
+(30 gm × ₹1,200 = ₹36,000); **Q6** tag price is just cost + 50%, the 20% is not
+part of it; **S-1** the stone price list — the office types cost and sale per
+stone and size; there is no list to import.
+
 | # | Ask | Why it blocks us |
 |---|---|---|
 | **C-01** | Access to `SERVER2\ERP` → `Diagold26`, or CSV exports of the master tables | Metal codes and several purities are placeholders. Importers are written and tested against sample exports — they need the real files. |
 | **Q7 / C-02** | The Setting Labour Chart: is the per-piece rate **₹3 or ₹30**? | A tenfold difference in karigar payouts. Nothing is assumed anywhere in the code. |
 | **Q1 / C-03** | Stone reference data: confirm the nine granular masters | Built to the granular model the client demonstrated. Sign-off needed before it is treated as final. |
-| **Q5** | Labour calculates on **net weight** — confirm | The basis is stored explicitly and is switchable, but the default needs confirming. |
-| **Q6** | Margin: cost +50%, then 20% less to the customer | Both steps are separate editable parameters. Confirm whether the 20% is a discount off tag price. |
 | **Q13** | The default process sequence | Answered on 11 Sept by the Job Mapping screen: the eleven-step Default group is loaded. Confirm. |
 | **Q9** | Daily Labour Rates — same behaviour as Daily Metal Rate? | Built mirroring metal rates on that assumption. |
 | **Q3 / C-04** | Staff list with roles, and which masters each may see | The rights screen is ready; only the data is missing. |

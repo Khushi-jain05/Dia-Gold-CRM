@@ -576,8 +576,9 @@ class LabourRate(Base, PKMixin, TimestampMixin):
     karat: Mapped[str] = mapped_column(String(24), default="")   # e.g. "18KT"
     rate: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
     unit: Mapped[str] = mapped_column(String(16), default="Per Gram")
-    # The client charges labour on net weight, not gross. Kept as a stored,
-    # named basis so every computed figure is auditable (open question Q5).
+    # The client charges labour on net weight, not gross - confirmed 14 Sept
+    # with their own example: 30 gm net x Rs 1,200/gm = Rs 36,000 (Q5 / M-5).
+    # Kept as a stored, named basis so every computed figure is auditable.
     weight_basis: Mapped[str] = mapped_column(String(16), default="Net Weight")
     effective_from: Mapped[date] = mapped_column(Date, default=date.today)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -595,7 +596,7 @@ class MarginSet(Base, PKMixin, TimestampMixin):
 
     Margin is applied COMPONENT-WISE (labour, stone, setting, finding, metal),
     not as one number on the total. Every percentage is data, never a constant
-    in the code - the exact arithmetic is still being confirmed (Q6).
+    in the code. Tag price = cost + 50%, confirmed 14 Sept (Q6).
     """
 
     __tablename__ = "margin_sets"
@@ -607,8 +608,9 @@ class MarginSet(Base, PKMixin, TimestampMixin):
     tagprice_margin: Mapped[bool] = mapped_column(Boolean, default=False)
     overall_percent: Mapped[float] = mapped_column(Numeric(9, 4), default=0)
 
-    # The client's stated rule: cost + 50% margin, then 20% less to the
-    # customer. Both steps are separate, editable parameters.
+    # Tag price is just cost + 50% - confirmed 14 Sept (Q6). The "20% less"
+    # is NOT part of the tag price; it stays as a separate, optional customer
+    # discount off the tag, 0 unless a margin set sets it.
     tag_margin_percent: Mapped[float] = mapped_column(Numeric(9, 4), default=0)
     customer_discount_percent: Mapped[float] = mapped_column(Numeric(9, 4), default=0)
 

@@ -6,9 +6,14 @@ with the reason behind each item is the Open Points page.
 
 ---
 
-**Dia Gold CRM — open items (as of 13 Sept)**
+**Dia Gold CRM — open items (as of 14 Sept)**
 
 Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping and Job History`).
+
+**Answered 14 Sept — thank you, recorded**
+- **M-5 (labour)** Labour = net weight × per-gram rate — your example 30 gm × ₹1,200 = ₹36,000. That is how the software already works; it is now confirmed, not assumed.
+- **S-1** Stone cost and sale prices are typed in per stone and size by the office — there is no list to hand over. Nothing to import; the Stone SKU screen is the entry point.
+- **M-5 (margin)** Tag price is just cost + 50%. The "20% less" is not part of the tag price — recorded that way; the discount field stays optional and off.
 
 **Production Planning (11 Sept) — needed this week**
 - **11 Sep C-01** Which **two** Production-Planning items are actually used? (WIP Job Card / Job Card / Job Mapping / In-House / Job Card Bag / Job History / Printing Options / Inv Return / Day Book / Reports) — after checking downstairs.
@@ -24,12 +29,11 @@ Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping
 - **M-2** Setting labour per piece — **₹3 or ₹30**?
 - **M-3** Sign-off on the nine stone masters.
 - **M-4** Staff list + which screens each person may open.
-- **M-5** Confirm: labour on net weight · margin cost +50% then 20% less · default process order (we have loaded the 11-step route from the 11 Sept screen — confirm).
+- **M-5** Confirm the default process order — we have loaded the 11-step route from the 11 Sept screen.
 - **M-6** The daily slot time.
 
 **SKU (8 Sept) — still open**
-- **S-1** The full stone price list (every stone, every size, cost + sale).
-- **S-2** Stone SKU: one record per stone with sizes beneath it, or one per size?
+- **S-2** Stone SKU: one record per stone with sizes beneath it, or one per size? (Decides how the office types prices in — S-1.)
 - **S-3** Cost Price vs Sale Price — on ER-1337 Polki sale (7,800) is below cost (12,900).
 - **S-4** MasterSKU / SKU Ref / HU Id, Tag Price 6,200, MC% / LC%, 217% Manual Price, Brk Wt%, Create Variance, the "Multi…" button — one line each on what they do.
 - **S-5** Where the design and CAD images live (folder + naming).
