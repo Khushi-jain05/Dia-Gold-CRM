@@ -163,6 +163,20 @@ QTableView QTableCornerButton::section {{
     border-bottom: 1px solid {BORDER};
 }}
 QTableWidget::item {{ padding: 6px 8px; }}
+/* The wide ledgers (Job Card Bag, Job History): twenty-odd columns have to
+   share a laptop screen, so cells and header sections carry less padding and
+   the two-line header is centred over its numbers. */
+QTableWidget#Ledger::item {{ padding: 3px 4px; }}
+QTableView#Frozen {{
+    background: {CARD};
+    border: none;
+    border-right: 2px solid {BORDER};
+    gridline-color: #EEEFF3;
+    selection-background-color: {GOLD_SOFT};
+    selection-color: {TEXT};
+}}
+QTableView#Frozen::item {{ padding: 3px 4px; }}
+QTableWidget#Ledger QHeaderView::section {{ padding: 4px 3px; }}
 /* The viewport behind the rows, and the gutter beside a scroll bar. */
 QTableWidget QWidget {{ background: {CARD}; }}
 QAbstractScrollArea::corner {{ background: {CARD}; border: none; }}

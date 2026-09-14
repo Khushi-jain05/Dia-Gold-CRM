@@ -14,6 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
 
+import shiboken6
 from PySide6.QtCore import QDate, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
@@ -39,6 +40,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QSpinBox,
     QSplitter,
+    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -105,7 +107,16 @@ def _item(text: Any, tint: QColor | None = None, right: bool = False,
     return it
 
 
-def _table(headers: list[str], stretch_last: bool = True) -> QTableWidget:
+def _table(headers: list[str], stretch_last: bool = True,
+           ledger: bool = False) -> QTableWidget:
+    """A read-only grid.
+
+    ``ledger`` is for the wide per-step / per-stone tables (twenty-odd
+    columns): headers are two lines ("Break" over "Pcs") so a column is only
+    as wide as its numbers, cells carry less padding, and the spare width is
+    handed to the first column by :func:`_fit_columns` rather than to the
+    last - otherwise the far columns fall off the right edge of a laptop.
+    """
     t = QTableWidget(0, len(headers))
     t.setHorizontalHeaderLabels(headers)
     t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -113,9 +124,77 @@ def _table(headers: list[str], stretch_last: bool = True) -> QTableWidget:
     t.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     t.verticalHeader().setVisible(False)
     t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-    t.horizontalHeader().setStretchLastSection(stretch_last)
+    t.horizontalHeader().setStretchLastSection(stretch_last and not ledger)
     t.setAlternatingRowColors(False)
+    if ledger:
+        t.setObjectName("Ledger")
+        t.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
     return t
+
+
+def _fit_columns(t: QTableWidget, flex: int = 0) -> None:
+    """Size every column to what it holds, then give the spare width to
+    column ``flex`` so the grid fills its viewport; when the columns need more
+    than the viewport there is nothing spare and the grid scrolls."""
+    t.resizeColumnsToContents()
+    spare = t.viewport().width() - sum(t.columnWidth(c) for c in range(t.columnCount()))
+    if spare > 0:
+        t.setColumnWidth(flex, t.columnWidth(flex) + spare)
+
+
+class _FrozenColumns(QTableView):
+    """Keeps the first ``n`` columns of a wide table in view while the rest
+    scroll sideways - Job History has twenty-five columns and the reader
+    needs to know which step a row belongs to when looking at its far end.
+
+    A second view over the same model and selection, laid over the left edge
+    of the main table and kept in step with its row scrolling and widths.
+    """
+
+    def __init__(self, table: QTableWidget, n: int):
+        super().__init__(table)
+        self.table, self.n = table, n
+        self.setModel(table.model())
+        self.setSelectionModel(table.selectionModel())
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.verticalHeader().hide()
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.horizontalHeader().setDefaultAlignment(table.horizontalHeader().defaultAlignment())
+        self.setObjectName("Frozen")
+        table.viewport().stackUnder(self)
+        table.verticalScrollBar().valueChanged.connect(self.verticalScrollBar().setValue)
+        self.verticalScrollBar().valueChanged.connect(table.verticalScrollBar().setValue)
+        table.horizontalHeader().sectionResized.connect(lambda *_: self.sync())
+        table.verticalHeader().sectionResized.connect(lambda *_: self.sync())
+        table.model().rowsInserted.connect(lambda *_: self.sync())
+        table.model().modelReset.connect(lambda *_: self.sync())
+        self.sync()
+
+    def sync(self) -> None:
+        t = self.table
+        if not shiboken6.isValid(t) or not shiboken6.isValid(self):
+            return  # the model resets once more while the screen is torn down
+        for c in range(t.columnCount()):
+            self.setColumnHidden(c, c >= self.n)
+            if c < self.n:
+                self.setColumnWidth(c, t.columnWidth(c))
+        for r in range(t.rowCount()):
+            self.setRowHeight(r, t.rowHeight(r))
+        # the main header is two lines tall; ours must match or the rows drift
+        self.horizontalHeader().setFixedHeight(t.horizontalHeader().height())
+        width = sum(t.columnWidth(c) for c in range(self.n))
+        self.setGeometry(t.frameWidth(), t.frameWidth(), width,
+                         t.viewport().height() + t.horizontalHeader().height())
+        self.setVisible(width > 0 and t.rowCount() > 0)
+
+
+def _header_text(table: QTableWidget, c: int) -> str:
+    """A header label on one line, for CSV and print."""
+    return table.horizontalHeaderItem(c).text().replace("\n", " ")
 
 
 def _qdate(d: date | None) -> QDate:
@@ -162,7 +241,7 @@ def _export_csv(parent: QWidget, table: QTableWidget, suggested: str) -> None:
         return
     with open(path, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow([table.horizontalHeaderItem(c).text() for c in range(table.columnCount())])
+        w.writerow([_header_text(table, c) for c in range(table.columnCount())])
         for r in range(table.rowCount()):
             w.writerow([(table.item(r, c).text() if table.item(r, c) else "")
                         for c in range(table.columnCount())])
@@ -170,7 +249,7 @@ def _export_csv(parent: QWidget, table: QTableWidget, suggested: str) -> None:
 
 
 def _table_to_html(title: str, table: QTableWidget) -> str:
-    head = "".join(f"<th>{table.horizontalHeaderItem(c).text()}</th>"
+    head = "".join(f"<th>{_header_text(table, c)}</th>"
                    for c in range(table.columnCount()))
     rows = []
     for r in range(table.rowCount()):
@@ -355,8 +434,16 @@ class _Screen(QWidget):
         h1 = QLabel(title)
         h1.setObjectName("H1")
         self.outer.addWidget(h1)
+        # Two rows of buttons, not one: the things done to the job (issue,
+        # receive, return...) sit beside the job picker; prints, reports and
+        # links to other screens go on a second row. One row of nine buttons
+        # plus the picker is wider than a laptop's content area, and Qt then
+        # clips the whole screen - the last buttons and the last table columns
+        # simply fall off the right edge.
         self.toolbar = QHBoxLayout()
         self.toolbar.setSpacing(8)
+        self.secondary = QHBoxLayout()
+        self.secondary.setSpacing(8)
         self.picker: JobPicker | None = None
         if with_picker:
             self.picker = JobPicker()
@@ -364,15 +451,22 @@ class _Screen(QWidget):
             self.job_id = self.picker.job_id()  # the first emit happened before connect
             self.toolbar.addWidget(self.picker, 1)
         self.outer.addLayout(self.toolbar)
+        self.outer.addLayout(self.secondary)
+        self.secondary.addStretch(1)
         self.header = JobHeaderCard()
         self.outer.addWidget(self.header)
 
-    def button(self, label: str, slot: Callable, primary: bool = False) -> QPushButton:
+    def button(self, label: str, slot: Callable, primary: bool = False,
+               secondary: bool = False) -> QPushButton:
         b = QPushButton(label)
         if primary:
             b.setObjectName("Primary")
         b.clicked.connect(slot)
-        self.toolbar.addWidget(b)
+        if secondary:
+            # keep the stretch first so these sit against the right edge
+            self.secondary.insertWidget(self.secondary.count(), b)
+        else:
+            self.toolbar.addWidget(b)
         return b
 
     def _on_job(self, job_id) -> None:
@@ -521,20 +615,22 @@ class JobHistoryWidget(_Screen):
         self.user = user
         self.button("+ Issue", lambda: self._voucher("issue"), primary=True)
         self.button("+ Receive", lambda: self._voucher("receive"))
-        self.button("Print", self._print)
-        self.button("Stone Dtls", lambda: self.stones.setFocus())
         self.button("WIP Costing", self._wip)
-        self.button("Job Bag", lambda: self.open_requested.emit("production_planning.job_card_bag"))
-        self.button("Exit", self.close_requested.emit)
+        self.button("Print", self._print, secondary=True)
+        self.button("Stone Dtls", lambda: self.stones.setFocus(), secondary=True)
+        self.button("Job Bag", lambda: self.open_requested.emit("production_planning.job_card_bag"),
+                    secondary=True)
+        self.button("Exit", self.close_requested.emit, secondary=True)
 
         legend = QLabel("Issue columns are tinted pink, receive columns green — read "
                         "loss across a row.  F11 opens this screen.")
         legend.setObjectName("Muted")
         self.outer.addWidget(legend)
 
-        headers = (["Process", "Worker"] + [f"Iss {l}" for _, l in ISSUE_COLS]
-                   + [f"Rcv {l}" for _, l in RECEIVE_COLS] + ["Loss (g)"])
-        self.grid = _table(headers)
+        headers = (["Process", "Worker"] + [f"Iss\n{l}" for _, l in ISSUE_COLS]
+                   + [f"Rcv\n{l}" for _, l in RECEIVE_COLS] + ["Loss\n(g)"])
+        self.grid = _table(headers, ledger=True)
+        self.frozen = _FrozenColumns(self.grid, 2)
         self.outer.addWidget(self.grid, 3)
 
         stone_box = QGroupBox("Stones on this job")
@@ -549,6 +645,11 @@ class JobHistoryWidget(_Screen):
         self.summary.setWordWrap(True)
         self.outer.addWidget(self.summary)
         self.refresh()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
+        super().resizeEvent(event)
+        _fit_columns(self.grid)
+        self.frozen.sync()
 
     def refresh(self) -> None:
         self.grid.setRowCount(0)
@@ -578,7 +679,8 @@ class JobHistoryWidget(_Screen):
                                                   ("vr_date", "del_date", "vr_time")))
                     c += 1
                 self.grid.setItem(r, c, _item(row.loss, right=True, bold=True))
-            self.grid.resizeColumnsToContents()
+            _fit_columns(self.grid)
+            self.frozen.sync()
             for b in production.bag_ledger(s, job):
                 r = self.stones.rowCount()
                 self.stones.insertRow(r)
@@ -747,16 +849,17 @@ class JobBagWidget(_Screen):
         self.button("Return to Stock", lambda: self._move("rtn"))
         self.button("Break", lambda: self._move("break"))
         self.button("Lost", lambda: self._move("lost"))
-        self.button("Print", self._print)
-        self.button("Stones in Job Cards", self._report_all)
-        self.button("Bag Balance Report", self._report_bag)
-        self.button("Job History", lambda: self.open_requested.emit("production_planning.job_history"))
+        self.button("Print", self._print, secondary=True)
+        self.button("Stones in Job Cards", self._report_all, secondary=True)
+        self.button("Bag Balance Report", self._report_bag, secondary=True)
+        self.button("Job History", lambda: self.open_requested.emit("production_planning.job_history"),
+                    secondary=True)
 
         headers = ["Particulars", "Size", "Type"]
         for col in production.COLUMNS:
             lab = production.COLUMN_LABELS[col]
-            headers += [f"{lab} Pcs", f"{lab} Wt"]
-        self.grid = _table(headers)
+            headers += [f"{lab}\nPcs", f"{lab}\nWt"]
+        self.grid = _table(headers, ledger=True)
         self.outer.addWidget(self.grid, 1)
         legend = QLabel("Bal = Rcvd − Iss − Rtn − Break − Lost + Back.  Tints: Iss yellow, "
                         "Break pink, Lost red, Bal green (as on the legacy screen).  "
@@ -791,7 +894,11 @@ class JobBagWidget(_Screen):
                 self.grid.setItem(r, c, _item(pcs, tint, right=True, bold=col == "bal"))
                 self.grid.setItem(r, c + 1, _item(wt, tint, right=True, bold=col == "bal"))
                 c += 2
-        self.grid.resizeColumnsToContents()
+        _fit_columns(self.grid)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
+        super().resizeEvent(event)
+        _fit_columns(self.grid)
 
     def _selected_row(self) -> production.BagRow | None:
         rows = self.grid.selectionModel().selectedRows()
