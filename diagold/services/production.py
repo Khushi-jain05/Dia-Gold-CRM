@@ -541,12 +541,24 @@ def _find_bag_line(session: Session, job: Job, stone_sku_id: int | None,
     return line
 
 
+def _reject_negative_lines(lines) -> None:
+    """A minus sign on pieces or weight is a slip, never a quantity. Name the
+    line rather than let it fall through as "nothing entered"."""
+    for l in lines:
+        if (l.pcs or 0) < 0 or _dec(l.weight) < 0:
+            raise ProductionError(
+                f"Line {l.sno}: pieces and weight cannot be negative "
+                f"({l.pcs or 0} pcs / {_dec(l.weight)})."
+            )
+
+
 def apply_stone_issue(session: Session, issue: StoneIssue) -> None:
     """Post a saved Stone Issue voucher: stock leaves the location, the
     pieces land in the job's bag as Received."""
     head_job = session.get(Job, issue.job_id)
     if head_job is None:
         raise ProductionError("Pick the job the stones are being issued to.")
+    _reject_negative_lines(issue.lines)
     lines = [l for l in issue.lines if (l.pcs or 0) > 0 or _dec(l.weight) > 0]
     if not lines:
         raise ProductionError("Enter at least one stone line with pieces or weight.")
@@ -711,6 +723,7 @@ def apply_inventory_return(session: Session, ret: InventoryReturn) -> None:
         raise ProductionError("Pick the job the material is coming back from.")
     if not ret.location_id:
         raise ProductionError("Choose the location the material returns to.")
+    _reject_negative_lines(ret.lines)
     lines = [l for l in ret.lines if (l.pcs or 0) > 0 or _dec(l.weight) > 0]
     if not lines:
         raise ProductionError("Enter at least one line with pieces or weight.")

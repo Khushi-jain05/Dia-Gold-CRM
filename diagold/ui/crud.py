@@ -82,6 +82,11 @@ class Field:
     on_change: Callable[["FormDialog", Any], None] | None = None
     # Height of a "text" editor in lines (a print layout needs room).
     rows: int = 0
+    # Lower bound for "int" / "float". Every number typed in this app is a
+    # count, a weight, a rate, a price or a percentage, so nothing goes below
+    # zero unless a spec says so - a minus sign on Pcs was reaching the save
+    # and being read as "no pieces at all".
+    minimum: float = 0
 
 
 @dataclass
@@ -365,13 +370,13 @@ class ChildTableEditor(QWidget):
         if f.type == "float":
             w = QDoubleSpinBox()
             w.setDecimals(f.decimals)
-            w.setRange(-1_000_000_000, 1_000_000_000)
+            w.setRange(f.minimum, 1_000_000_000)
             w.setValue(float(value) if value not in (None, "") else 0.0)
             w.valueChanged.connect(self._refresh_summary)
             return w
         if f.type == "int":
             w = QSpinBox()
-            w.setRange(-1_000_000, 1_000_000_000)
+            w.setRange(int(f.minimum), 1_000_000_000)
             w.setValue(int(value) if value not in (None, "") else 0)
             w.valueChanged.connect(self._refresh_summary)
             return w
@@ -708,12 +713,12 @@ class FormDialog(QDialog):
             return QCheckBox()
         if f.type == "int":
             w = QSpinBox()
-            w.setRange(-1_000_000, 1_000_000_000)
+            w.setRange(int(f.minimum), 1_000_000_000)
             return w
         if f.type == "float":
             w = QDoubleSpinBox()
             w.setDecimals(f.decimals)
-            w.setRange(-1_000_000_000, 1_000_000_000)
+            w.setRange(f.minimum, 1_000_000_000)
             w.setGroupSeparatorShown(True)
             return w
         if f.type == "date":
