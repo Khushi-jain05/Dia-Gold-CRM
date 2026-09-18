@@ -528,6 +528,28 @@ def stock_balance(session: Session, location_id: int, material_class: str,
     return (int(row.pcs), _dec(row.weight)) if row else (0, ZERO)
 
 
+def holdings(session: Session, material_class: str, ref_id: int | None,
+             size: str = "", ref_text: str = "") -> list[tuple[Location, int, Decimal]]:
+    """Every location holding some of this item, most first."""
+    stmt = select(MaterialStock).where(
+        MaterialStock.material_class == material_class,
+        MaterialStock.size == (size or ""),
+        (MaterialStock.pcs > 0) | (MaterialStock.weight > 0),
+    )
+    if ref_id:
+        stmt = stmt.where(MaterialStock.ref_id == ref_id)
+    else:
+        stmt = stmt.where(MaterialStock.ref_id.is_(None),
+                          MaterialStock.ref_text == (ref_text or ""))
+    out = []
+    for row in session.scalars(stmt):
+        loc = session.get(Location, row.location_id)
+        if loc is not None:
+            out.append((loc, int(row.pcs), _dec(row.weight)))
+    out.sort(key=lambda t: (t[1], t[2]), reverse=True)
+    return out
+
+
 def adjust_stock(session: Session, location_id: int, material_class: str,
                  ref_id: int | None, d_pcs: int, d_wt: Any, size: str = "",
                  ref_text: str = "", what: str = "") -> MaterialStock:
@@ -541,11 +563,22 @@ def adjust_stock(session: Session, location_id: int, material_class: str,
     new_wt = (_dec(row.weight) + _dec(d_wt)).quantize(D4)
     if new_pcs < 0 or new_wt < 0:
         loc = session.get(Location, location_id)
-        raise ProductionError(
-            f"{loc.name if loc else 'The location'} holds only {row.pcs} pcs / "
-            f"{_dec(row.weight)} of {what or ref_text or 'this item'} - cannot "
-            f"issue {abs(int(d_pcs))} pcs / {abs(_dec(d_wt))}."
-        )
+        name = what or ref_text or "this item"
+        msg = (f"{loc.name if loc else 'The location'} holds only {row.pcs} pcs / "
+               f"{_dec(row.weight)} of {name} - cannot issue "
+               f"{abs(int(d_pcs))} pcs / {abs(_dec(d_wt))}.")
+        # Say where it is, so the fix is one dropdown away.
+        elsewhere = [(l, p, w) for l, p, w in
+                     holdings(session, material_class, ref_id, size, ref_text)
+                     if l.id != location_id]
+        if elsewhere:
+            msg += "\n\n" + name + " is held at:\n" + "\n".join(
+                f"  {l.name}: {p} pcs / {w}" for l, p, w in elsewhere)
+        else:
+            msg += f"\n\nNo location holds {name} at all. Book it in first " \
+                   "(opening stock), or tick Opening if the stones were " \
+                   "already with the job."
+        raise ProductionError(msg)
     row.pcs, row.weight = new_pcs, new_wt
     session.flush()
     return row

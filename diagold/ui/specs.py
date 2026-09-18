@@ -1436,6 +1436,14 @@ def _fill_stone_line(grid, row: int, sku_id) -> None:
         grid.set_cell_value(row, "price_unit", sku.per or "Cts")
     if not grid.cell_value(row, "s_type"):
         grid.set_cell_value(row, "s_type", sku.stone_type)
+    # Where is it? Point Location at the place holding the most of it, unless
+    # the user already chose a location that has some.
+    with SessionLocal() as s:
+        held = production.holdings(s, "stone", sku.id, sku.size)
+        held = [(l.id, p, w) for l, p, w in held]
+    current = grid.cell_value(row, "location_id")
+    if held and not any(lid == current for lid, _, _ in held):
+        grid.set_cell_value(row, "location_id", held[0][0])
 
 
 def _fill_stone_weight(grid, row: int, pcs) -> None:
