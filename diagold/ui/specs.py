@@ -1325,6 +1325,10 @@ def _order_saved(order, children, session) -> None:
     production.sync_jobs_for_order(session, order)
 
 
+def _order_delete(order, session) -> None:
+    production.delete_order(session, order)
+
+
 def _order_requirement_sheet(widget, order) -> None:
     """Stone Requirements for every job of the selected order (§4.1 action)."""
     from PySide6.QtWidgets import QMessageBox
@@ -1362,6 +1366,7 @@ _register(CrudSpec(
     validate=_validate_order,
     before_save=_prepare_order,
     after_save=_order_saved,
+    before_delete=_order_delete,
     form_width=1180,
     extra_buttons=[("Requirement Sheet", _order_requirement_sheet),
                    ("Day Book", _order_day_book)],

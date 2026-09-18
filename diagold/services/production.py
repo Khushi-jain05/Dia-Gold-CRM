@@ -40,6 +40,7 @@ from diagold.db.models import (
     Metal,
     Order,
     OrderLine,
+    PrintLog,
     ProductSku,
     ProductSkuStone,
     StoneIssue,
@@ -125,6 +126,39 @@ def sync_jobs_for_order(session: Session, order: Order) -> list[Job]:
         job.status = "cancelled"
     session.flush()
     return jobs
+
+
+def delete_order(session: Session, order: Order) -> None:
+    """Delete an order together with the jobs its lines allotted.
+
+    An order is deletable only while nothing has happened to it on the
+    floor. A job with a voucher posted, stones issued against it, or a
+    return booked is history, and history is never detached - the order
+    stays and the message says which job holds it up.
+    """
+    jobs = list(session.scalars(select(Job).where(Job.order_id == order.id)))
+    for job in jobs:
+        if _job_has_movements(session, job) or session.scalars(
+            select(StoneIssue.id).where(StoneIssue.job_id == job.id).limit(1)
+        ).first() or session.scalars(
+            select(InventoryReturn.id).where(InventoryReturn.job_id == job.id).limit(1)
+        ).first():
+            raise ProductionError(
+                f"Order {order.order_no} cannot be deleted: job {job.job_no} "
+                "already has vouchers or stones against it. Cancel those "
+                "first, or leave the order in place - it is part of the "
+                "job's history."
+            )
+    for job in jobs:
+        for line in session.scalars(select(JobBagLine).where(JobBagLine.job_id == job.id)):
+            session.delete(line)
+        for log in session.scalars(select(PrintLog).where(PrintLog.job_id == job.id)):
+            session.delete(log)
+        session.delete(job)           # steps go with it
+    for log in session.scalars(select(PrintLog).where(PrintLog.order_id == order.id)):
+        session.delete(log)
+    session.delete(order)             # lines go with it
+    session.flush()
 
 
 def _job_has_movements(session: Session, job: Job) -> bool:

@@ -45,6 +45,7 @@ from sqlalchemy import String, Text, inspect, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from diagold.db.session import SessionLocal
+from diagold.services.production import ProductionError
 from diagold.services.rights import (
     PermissionDenied,
     master_for_menu_key as rights_master_for,
@@ -157,6 +158,11 @@ class CrudSpec:
     after_save: Callable[[Any, dict[str, list[dict]], Any], None] | None = None
     # Vouchers are posted once and never edited. Edit becomes View.
     editable: bool = True
+    # Runs inside the delete transaction, before the row itself goes: remove
+    # what the record allotted (an order's jobs), or raise ValueError /
+    # ProductionError with the reason it must stay. The message is shown
+    # as-is and nothing is deleted.
+    before_delete: Callable[[Any, Any], None] | None = None
     # Extra actions on the list toolbar, as (label, callback(widget, selected)).
     extra_buttons: list[tuple[str, Callable[["CrudWidget", Any], None]]] = field(
         default_factory=list)
@@ -1177,6 +1183,10 @@ class CrudWidget(QWidget):
             return (f.fk_label or str)(related)
         if f.type == "bool":
             return "Yes" if value else "No"
+        if f.type == "child":
+            # a list of ORM objects would print as "<OrderLine object at 0x…>"
+            n = len(value or [])
+            return f"{n} line{'s' if n != 1 else ''}"
         if value is None:
             return ""
         return str(value)
@@ -1337,14 +1347,23 @@ class CrudWidget(QWidget):
             obj = session.get(self.spec.model, current.id)
             if obj is not None:
                 try:
+                    if self.spec.before_delete is not None:
+                        self.spec.before_delete(obj, session)
                     session.delete(obj)
                     session.commit()
-                except Exception as exc:  # noqa: BLE001
+                except (ValueError, ProductionError) as exc:
                     session.rollback()
+                    QMessageBox.warning(self, "Could not delete", str(exc))
+                    return
+                except Exception:  # noqa: BLE001 - a foreign key holds it
+                    session.rollback()
+                    retire = ("\n\nClear its Active flag instead to retire it."
+                              if hasattr(self.spec.model, "is_active") else
+                              "\n\nRemove or cancel those records first.")
                     QMessageBox.warning(
                         self, "Could not delete",
                         "This record is used by other records, so it cannot be "
-                        "deleted.\n\nClear its Active flag instead to retire it.",
+                        "deleted." + retire,
                     )
                     return
         self.reload()
