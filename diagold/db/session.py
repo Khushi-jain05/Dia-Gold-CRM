@@ -28,13 +28,16 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 
 def init_db() -> None:
     """Create all tables and run first-run seeding."""
-    from diagold.db.migrate import rebuild_tables, sync_schema  # noqa: WPS433
+    from diagold.db.migrate import (  # noqa: WPS433
+        rebuild_tables, repair_dangling_references, sync_schema,
+    )
     from diagold.db.models import Base
     from diagold.services.seed import seed_initial_data
 
     Base.metadata.create_all(engine)
     sync_schema(engine)  # add columns models gained since the file was made
     rebuild_tables(engine)  # recreate any table too changed to ALTER in place
+    repair_dangling_references(engine)  # a rebuild runs with foreign keys off
     with SessionLocal() as session:
         seed_initial_data(session)
         session.commit()

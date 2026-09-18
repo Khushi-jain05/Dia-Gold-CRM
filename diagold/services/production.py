@@ -182,7 +182,9 @@ def seed_bag_requirements(session: Session, job: Job) -> None:
         sku = session.get(StoneSku, st.stone_sku_id) if st.stone_sku_id else None
         size = session.get(StoneSize, st.size_id) if st.size_id else None
         session.add(JobBagLine(
-            job_id=job.id, stone_sku_id=st.stone_sku_id,
+            # a stone the SKU still names but which no longer exists keeps
+            # its description and loses the link, rather than failing the save
+            job_id=job.id, stone_sku_id=sku.id if sku else None,
             particulars=(sku.stone if sku else "") or st.description,
             size=(size.name if size else "") or (sku.size if sku else ""),
             s_type=(sku.stone_type if sku else ""),

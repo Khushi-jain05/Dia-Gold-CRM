@@ -370,3 +370,43 @@ def _drop_broken_orphan_tables(conn, inspector, existing: set[str]) -> None:
         conn.execute(text(f'DROP TABLE "{name}"'))
         print(f"[migrate] dropped orphan table {name} ({rows} row(s)): its foreign "
               f"key referred to {targets}, which no longer exists.")
+
+
+def repair_dangling_references(engine: Engine) -> list[str]:
+    """Find rows whose foreign key points at nothing, and mend what can be.
+
+    A table rebuild runs with foreign keys off, and an earlier build could
+    delete a master that something still pointed at. The row then sits there
+    until a save touches it, and the user sees "one of the linked records no
+    longer exists" on a screen that has nothing to do with the cause. Run on
+    every start-up: a nullable reference is cleared, a mandatory one is left
+    alone and reported, so nothing is silently deleted.
+    """
+    fixed: list[str] = []
+    with engine.begin() as conn:
+        broken = conn.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+        if not broken:
+            return fixed
+        # (table, rowid, parent table, fk index) -> the column via foreign_key_list
+        columns: dict[tuple[str, int], tuple[str, bool]] = {}
+        for table in {b[0] for b in broken}:
+            for fk in conn.exec_driver_sql(f'PRAGMA foreign_key_list("{table}")').fetchall():
+                # id, seq, parent table, from column, to column, ...
+                notnull = any(
+                    c[1] == fk[3] and c[3] == 1
+                    for c in conn.exec_driver_sql(f'PRAGMA table_info("{table}")').fetchall()
+                )
+                columns[(table, fk[0])] = (fk[3], notnull)
+        for table, rowid, parent, fk_id in broken:
+            col, notnull = columns.get((table, fk_id), (None, True))
+            if col is None or rowid is None:
+                continue
+            if notnull:
+                print(f"[migrate] {table} row {rowid}: {col} points at a missing "
+                      f"{parent} row - left as is, needs a look")
+                continue
+            conn.exec_driver_sql(f'UPDATE "{table}" SET "{col}" = NULL WHERE rowid = ?', (rowid,))
+            fixed.append(f"{table}.{col} cleared on row {rowid} (missing {parent})")
+    for line in fixed:
+        print(f"[migrate] repaired: {line}")
+    return fixed
