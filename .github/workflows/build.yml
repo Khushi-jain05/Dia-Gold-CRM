@@ -15,8 +15,10 @@ jobs:
             artifact: DiaGoldCRM-Windows-x64
           - os: macos-14          # Apple Silicon
             artifact: DiaGoldCRM-macOS-arm64
-          - os: macos-13          # Intel
-            artifact: DiaGoldCRM-macOS-x64
+          # No Intel-Mac build: GitHub retired the macos-13 runner, so that
+          # job sat queued for ever and the Release never got created. The
+          # client is on Windows; add macos-15-intel here if an Intel Mac
+          # ever turns up.
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

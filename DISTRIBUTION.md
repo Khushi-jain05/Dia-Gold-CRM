@@ -7,13 +7,12 @@ The client gets a single app to double-click. Two ways to produce the builds.
 ## Option A — GitHub Actions builds both platforms for you (recommended)
 
 You don't need a Windows machine. Push this project to a GitHub repo and the
-included workflow (`.github/workflows/build.yml`) builds all three targets:
+included workflow (`.github/workflows/build.yml`) builds both targets:
 
 | File | For |
 |---|---|
 | `DiaGoldCRM-Windows-x64.zip` | Windows 10/11 |
 | `DiaGoldCRM-macOS-arm64.zip` | Apple Silicon Macs (M1–M4) |
-| `DiaGoldCRM-macOS-x64.zip` | Intel Macs |
 
 Steps:
 
