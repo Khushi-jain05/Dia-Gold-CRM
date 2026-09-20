@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSplitter,
     QStackedWidget,
     QTableView,
     QVBoxLayout,
@@ -480,11 +481,14 @@ class ReportWidget(QWidget):
         outer.setContentsMargins(20, 16, 20, 16)
         outer.setSpacing(8)
 
+        # Three short rows instead of one long one: on a laptop, with the
+        # Reports list on the left, a single row of nine buttons plus search
+        # and group ran past the right edge of the window.
         head = QHBoxLayout()
         h1 = QLabel(spec.title)
         h1.setObjectName("H1")
-        head.addWidget(h1)
-        head.addStretch(1)
+        h1.setWordWrap(True)
+        head.addWidget(h1, 1)
         fy0, fy1 = R.fy_range()
         self.d_from = QDateEdit(QDate(fy0.year, fy0.month, fy0.day))
         self.d_to = QDateEdit(QDate(fy1.year, fy1.month, fy1.day))
@@ -496,40 +500,43 @@ class ReportWidget(QWidget):
             head.addWidget(self.d_from)
             head.addWidget(QLabel("To"))
             head.addWidget(self.d_to)
-        self.option_boxes: dict[str, QCheckBox] = {}
-        for key, (label, default) in spec.options.items():
-            cb = QCheckBox(label)
-            cb.setChecked(default)
-            cb.toggled.connect(lambda _c: self.run())
-            self.option_boxes[key] = cb
-            head.addWidget(cb)
         self.btn_run = QPushButton("Run")
         self.btn_run.setObjectName("Primary")
         self.btn_run.clicked.connect(self.run)
         head.addWidget(self.btn_run)
         outer.addLayout(head)
 
-        bar = QHBoxLayout()
-        bar.setSpacing(6)
+        row2 = QHBoxLayout()
+        row2.setSpacing(6)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search…")
         self.search.setClearButtonEnabled(True)
+        self.search.setMinimumWidth(120)
         self.search.textChanged.connect(self._rebuild)
-        for label, slot in (("Print", self._print), ("Set Column", self._set_columns),
-                            ("Options", self._options)):
-            b = QPushButton(label)
-            b.clicked.connect(slot)
-            bar.addWidget(b)
-        bar.addWidget(self.search, 1)
-        bar.addWidget(QLabel("Group"))
+        row2.addWidget(self.search, 1)
+        row2.addWidget(QLabel("Group"))
         self.group = QComboBox()
+        self.group.setMinimumWidth(140)
         self.group.currentIndexChanged.connect(lambda _i: self._rebuild())
-        bar.addWidget(self.group)
-        for label, slot in (("Adv. Filter", self._adv_filter), ("Export", self._export),
-                            ("Auto Filter", self._auto_filter)):
+        row2.addWidget(self.group)
+        outer.addLayout(row2)
+
+        bar = QHBoxLayout()
+        bar.setSpacing(6)
+        for label, slot in (("Print", self._print), ("Set Column", self._set_columns),
+                            ("Options", self._options), ("Adv. Filter", self._adv_filter),
+                            ("Export", self._export), ("Auto Filter", self._auto_filter)):
             b = QPushButton(label)
             b.clicked.connect(slot)
             bar.addWidget(b)
+        bar.addStretch(1)
+        self.option_boxes: dict[str, QCheckBox] = {}
+        for key, (label, default) in spec.options.items():
+            cb = QCheckBox(label)
+            cb.setChecked(default)
+            cb.toggled.connect(lambda _c: self.run())
+            self.option_boxes[key] = cb
+            bar.addWidget(cb)
         outer.addLayout(bar)
 
         # Filter bar: restrict a grouped report to chosen groups in one click.
@@ -843,6 +850,12 @@ class ReportWidget(QWidget):
         self.model.row_numbers = self.row_numbers
         self.model.load(cols, display)
         self.view.resizeColumnsToContents()
+        # A long remark must not push every other column off the screen; the
+        # user can still drag a column wider.
+        header = self.view.horizontalHeader()
+        for c in range(self.model.columnCount()):
+            if header.sectionSize(c) > 260:
+                header.resizeSection(c, 260)
         parts = [f"{len(rows)} row(s)"]
         if len(rows) != len(self._raw):
             parts.append(f"of {len(self._raw)}")
@@ -1124,7 +1137,7 @@ def build_specs() -> dict[str, ReportSpec]:
         "job_analysis": ReportSpec(
             key="job_analysis", title="Job Analysis", columns=_job_analysis_cols,
             query=lambda s, a, b, late_only=False, **_k: R.job_analysis(s, a, b, late_only),
-            options={"late_only": ("Late deliveries only (the Google-Sheet view)", False)},
+            options={"late_only": ("Late deliveries only", False)},
             on_activate=lambda w, r: w.open_job(r),
             note="Overdays are counted as of the From date. A day column shows 1 when the job "
                  "was open that day. Open = pending / mapped / in progress, cancelled excluded "
@@ -1193,8 +1206,11 @@ class ReportsHub(QWidget):
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
+        split = QSplitter(Qt.Orientation.Horizontal)
+        lay.addWidget(split)
         self.list = QListWidget()
-        self.list.setFixedWidth(230)
+        self.list.setMinimumWidth(150)
+        self.list.setMaximumWidth(320)
         for section, keys in SECTIONS:
             head = QListWidgetItem(section.upper())
             head.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -1207,9 +1223,12 @@ class ReportsHub(QWidget):
                 it.setData(Qt.ItemDataRole.UserRole, k)
                 self.list.addItem(it)
         self.list.currentItemChanged.connect(self._pick)
-        lay.addWidget(self.list)
+        split.addWidget(self.list)
         self.stack = QStackedWidget()
-        lay.addWidget(self.stack, 1)
+        split.addWidget(self.stack)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
+        split.setSizes([200, 900])
         self.show_report(first)
 
     def _pick(self, current, _previous) -> None:
