@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QRadioButton,
     QSpinBox,
@@ -50,8 +51,11 @@ from sqlalchemy import select
 
 from diagold.db.models import (
     Account,
+    InventoryReturn,
+    InventoryReturnLine,
     Job,
     JobBagLine,
+    JobComment,
     Location,
     ManufacturingProcess,
     Metal,
@@ -620,10 +624,17 @@ class JobHistoryWidget(_Screen):
         self.button("Stone Dtls", lambda: self.stones.setFocus(), secondary=True)
         self.button("Job Bag", lambda: self.open_requested.emit("production_planning.job_card_bag"),
                     secondary=True)
+        self.button("Add Comments", self._add_comment, secondary=True)
+        self.button("Stone Return",
+                    lambda: self.open_requested.emit("production_planning.inv_return"),
+                    secondary=True)
+        self.button("Update", lambda: self.open_requested.emit("production_planning.job_mapping"),
+                    secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
 
         legend = QLabel("Issue columns are tinted pink, receive columns green — read "
-                        "loss across a row.  F11 opens this screen.")
+                        "loss across a row.  F11 opens this screen.  Update opens the route in "
+                        "Job Mapping; Stone Return opens the return voucher on this job.")
         legend.setObjectName("Muted")
         self.outer.addWidget(legend)
 
@@ -644,6 +655,14 @@ class JobHistoryWidget(_Screen):
         self.summary.setObjectName("Muted")
         self.summary.setWordWrap(True)
         self.outer.addWidget(self.summary)
+        self.remark = QLabel("")
+        self.remark.setWordWrap(True)
+        self.remark.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.outer.addWidget(self.remark)
+        self.comments = QLabel("")
+        self.comments.setObjectName("Muted")
+        self.comments.setWordWrap(True)
+        self.outer.addWidget(self.comments)
         self.refresh()
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
@@ -657,6 +676,8 @@ class JobHistoryWidget(_Screen):
         if not self.job_id:
             self.header.clear()
             self.summary.setText("")
+            self.remark.setText("")
+            self.comments.setText("")
             return
         with SessionLocal() as s:
             job = s.get(Job, self.job_id)
@@ -699,8 +720,24 @@ class JobHistoryWidget(_Screen):
             self.summary.setText(
                 f"PND: {sm['pnd'] or '—'}    WIP: {sm['wip']}    Rejection: {sm['rejection']}"
                 f"    PND For MFG Transfer: {sm['pnd_mfg_transfer']}    "
-                f"MFG Transfer: {sm['mfg_transfer']}    TOTAL PCS: {sm['total_pcs']}"
-                f"    Order Remark: {sm['order_remark'] or '—'}")
+                f"MFG Transfer: {sm['mfg_transfer']}    TOTAL PCS: {sm['total_pcs']}")
+            # Order Remark carries the stone requirement as text in the legacy
+            # ("daank/411/19.92, DIA./241/2.81"); show it and what it parses to.
+            parsed = production.parse_order_remark(sm["order_remark"])
+            extra = ("  →  " + ", ".join(f"{p['particulars']} {p['pcs']} pcs / {p['weight']}"
+                                        for p in parsed)) if parsed else ""
+            self.remark.setText(f"<b>Order Remark:</b> {sm['order_remark'] or '—'}{extra}")
+            notes = list(s.scalars(select(JobComment).where(JobComment.job_id == job.id)
+                                   .order_by(JobComment.created_at.desc()).limit(8)))
+            if notes:
+                lines = []
+                for n in notes:
+                    who = s.get(User, n.user_id) if n.user_id else None
+                    lines.append(f"{n.created_at.strftime('%d-%b %H:%M')} · "
+                                 f"{who.full_name if who else '—'}: {n.text}")
+                self.comments.setText("<b>Comments</b><br>" + "<br>".join(lines))
+            else:
+                self.comments.setText("")
 
     def _voucher(self, kind: str) -> None:
         if not self.job_id:
@@ -715,6 +752,29 @@ class JobHistoryWidget(_Screen):
         dlg = VoucherDialog(self.job_id, kind, getattr(self.user, "id", None), self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.refresh()
+
+    def _add_comment(self) -> None:
+        if not self.job_id:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add Comments")
+        dlg.setMinimumWidth(460)
+        lay = QVBoxLayout(dlg)
+        box = QPlainTextEdit()
+        box.setPlaceholderText("Note on this job — timestamped and attributed to you.")
+        lay.addWidget(box)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save
+                                   | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not box.toPlainText().strip():
+            return
+        with SessionLocal() as s:
+            s.add(JobComment(job_id=self.job_id, user_id=getattr(self.user, "id", None),
+                             text=box.toPlainText().strip()))
+            s.commit()
+        self.refresh()
 
     def _print(self) -> None:
         if not self.job_id:
@@ -1170,6 +1230,17 @@ class JobMappingWidget(_Screen):
             if job.prod_date:
                 self.start.setDate(_qdate(job.prod_date))
 
+    def show_job(self, job_id: int) -> None:
+        """Land on a given job - from Job History's Update button, or a report."""
+        with SessionLocal() as s:
+            job = s.get(Job, job_id)
+        if job is not None and job.status != "pending" and not self.show_all.isChecked():
+            self.show_all.blockSignals(True)
+            self.show_all.setChecked(True)
+            self.show_all.blockSignals(False)
+        self.job_id = job_id
+        self.refresh()
+
     # -- route editor -------------------------------------------------
     def _add_step(self, process_id: int | None = None, due: date | None = None) -> None:
         r = self.steps.rowCount()
@@ -1544,20 +1615,361 @@ class OptionsWidget(QWidget):
                 cb.setChecked(settings.menu_visible(item.key, s))
                 self.checks[item.key] = cb
                 bl.addWidget(cb)
+        outer.addWidget(box)
+        fbox = QGroupBox("Behaviour")
+        fl = QVBoxLayout(fbox)
+        self.flags: dict[str, QCheckBox] = {}
+        with SessionLocal() as s:
+            for key, (label, default) in settings.FLAGS.items():
+                cb = QCheckBox(label)
+                cb.setChecked(settings.flag(key, default, s))
+                self.flags[key] = cb
+                fl.addWidget(cb)
+        outer.addWidget(fbox)
         bar = QHBoxLayout()
         b = QPushButton("Save")
         b.setObjectName("Primary")
         b.clicked.connect(self._save)
         bar.addWidget(b)
         bar.addStretch(1)
-        bl.addLayout(bar)
-        outer.addWidget(box)
+        outer.addLayout(bar)
         outer.addStretch(1)
 
     def _save(self) -> None:
         with SessionLocal() as s:
             for key, cb in self.checks.items():
                 settings.set_menu_visible(s, key, cb.isChecked())
+            for key, cb in self.flags.items():
+                settings.set_flag(s, key, cb.isChecked())
             s.commit()
         self.nav_changed.emit()
         _info(self, "Options", "Saved. The menu has been updated.")
+
+
+# --------------------------------------------------------------------------
+# Rtn To Inv - Stone, with Show Pending (18 Sept T-05)
+# --------------------------------------------------------------------------
+class StoneReturnWidget(_Screen):
+    """Enter the job number, Show Pending lists what its bag still holds, tick
+    the lines and quantities coming back. Returned credits the location the
+    stones were picked from; Breakage is recorded separately.
+
+    Metal comes back through the Manufacturing side; mould and finding
+    returns are "not used, never needed" (18 Sept D1) - those classes sit
+    behind a switch in Tools > Option.
+    """
+
+    def __init__(self, user=None, parent=None):
+        super().__init__("Rtn To Inv – Stone", parent=parent)
+        self.user = user
+        self.btn_pending = self.button("Show Pending", self._show_pending, primary=True)
+        self.button("Save", self._save)
+        self.button("Print", self._print)
+        self.button("Job Card Bag",
+                    lambda: self.open_requested.emit("production_planning.job_card_bag"))
+        self._other = self.button("Other classes…", self._other_classes)
+        self._other.setVisible(settings.flag("pp.return_other_classes", False))
+        self.button("Exit", self.close_requested.emit)
+
+        form = QHBoxLayout()
+        form.setSpacing(10)
+        form.addWidget(QLabel("Vr No"))
+        self.vr_no = QLabel("—")
+        self.vr_no.setObjectName("CardValue")
+        self.vr_no.setStyleSheet("font-size:16px;")
+        form.addWidget(self.vr_no)
+        form.addSpacing(12)
+        form.addWidget(QLabel("Date"))
+        self.date = QDateEdit(_qdate(None))
+        self.date.setCalendarPopup(True)
+        self.date.setDisplayFormat("yyyy-MM-dd")
+        form.addWidget(self.date)
+        form.addSpacing(12)
+        form.addWidget(QLabel("Contact Person"))
+        self.contact = QComboBox()
+        self.contact.addItem("— none —", None)
+        form.addWidget(self.contact, 1)
+        form.addSpacing(12)
+        form.addWidget(QLabel("Remark"))
+        self.remark = QLineEdit()
+        form.addWidget(self.remark, 1)
+        self.outer.addLayout(form)
+
+        self.grid = QTableWidget(0, 12)
+        self.grid.setHorizontalHeaderLabels(["Location", "Type", "SSKU", "Size", "Bal Pcs",
+                                             "Bal Wt", "Return Pcs", "Return Wt", "Unit",
+                                             "Amount", "JobNo", "Account"])
+        self.grid.verticalHeader().setVisible(False)
+        self.grid.verticalHeader().setDefaultSectionSize(ROW_HEIGHT)
+        self.grid.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.grid.horizontalHeader().setStretchLastSection(True)
+        self.grid.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.grid.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.outer.addWidget(self.grid, 3)
+        note = QLabel("Show Pending lists every stone still in the job's bag. Enter the pieces "
+                      "coming back (weight follows the bag's average and can be changed). "
+                      "Returned → the location's stock goes up; Breakage → leaves the bag only "
+                      "(where it goes and how it is valued is open, 18 Sept Q5).")
+        note.setObjectName("Muted")
+        note.setWordWrap(True)
+        self.outer.addWidget(note)
+
+        hist = QGroupBox("Return vouchers on this job")
+        hl = QVBoxLayout(hist)
+        self.history = _table(["Vr No", "Date", "Type", "SSKU", "Size", "Pcs", "Weight",
+                               "Location", "Amount", "Remark"])
+        hl.addWidget(self.history)
+        self.outer.addWidget(hist, 2)
+        self._rows: list[production.BagRow] = []
+        self._pending_for: int | None = None
+        self.refresh()
+
+    def refresh(self) -> None:
+        with SessionLocal() as s:
+            self.vr_no.setText(str(production.next_number(s, InventoryReturn.vr_no)))
+            if self.contact.count() <= 1:
+                for a in s.scalars(select(Account).order_by(Account.name)):
+                    self.contact.addItem(a.name, a.id)
+            job = s.get(Job, self.job_id) if self.job_id else None
+            self.header.set_job(s, job)
+            self.history.setRowCount(0)
+            if job is not None:
+                locs = {l.id: l for l in s.scalars(select(Location))}
+                for ret in s.scalars(select(InventoryReturn)
+                                     .where(InventoryReturn.job_id == job.id,
+                                            InventoryReturn.material_class == "stone")
+                                     .order_by(InventoryReturn.vr_no.desc())):
+                    for l in ret.lines:
+                        bag = s.get(JobBagLine, l.bag_line_id) if l.bag_line_id else None
+                        sku = s.get(StoneSku, bag.stone_sku_id) if bag and bag.stone_sku_id else None
+                        loc = locs.get(l.location_id or ret.location_id)
+                        r = self.history.rowCount()
+                        self.history.insertRow(r)
+                        for c, v in enumerate([ret.vr_no, ret.vr_date, l.rtn_type,
+                                               sku.sku_code if sku else l.particulars, l.size,
+                                               l.pcs, l.weight, loc.name if loc else "",
+                                               l.amount, l.remark]):
+                            self.history.setItem(r, c, _item(v, right=c in (0, 5, 6, 8)))
+                self.history.resizeColumnsToContents()
+        if self._pending_for != self.job_id:
+            self.grid.setRowCount(0)
+            self._rows = []
+
+    def _show_pending(self) -> None:
+        if not self.job_id:
+            _info(self, "Show Pending", "Enter the job number first.")
+            return
+        self.grid.setRowCount(0)
+        with SessionLocal() as s:
+            job = s.get(Job, self.job_id)
+            self._rows = [b for b in production.bag_ledger(s, job)
+                          if b["bal"][0] > 0 or b["bal"][1] > 0]
+            locs = [(l.id, l.name) for l in s.scalars(select(Location).order_by(Location.name))]
+            client = s.get(Account, job.account_id) if job.account_id else None
+            for b in self._rows:
+                sku = s.get(StoneSku, b.line.stone_sku_id) if b.line.stone_sku_id else None
+                price, unit = production.stone_price(s, b.line.stone_sku_id)
+                bal_pcs, bal_wt = b["bal"]
+                r = self.grid.rowCount()
+                self.grid.insertRow(r)
+                loc = QComboBox()
+                for lid, name in locs:
+                    loc.addItem(name, lid)
+                if b.line.source_location_id:
+                    loc.setCurrentIndex(max(loc.findData(b.line.source_location_id), 0))
+                self.grid.setCellWidget(r, 0, loc)
+                typ = QComboBox()
+                typ.addItems(list(InventoryReturnLine.RTN_TYPES))
+                self.grid.setCellWidget(r, 1, typ)
+                self.grid.setItem(r, 2, _item(sku.sku_code if sku else b.line.particulars))
+                self.grid.setItem(r, 3, _item(b.line.size))
+                self.grid.setItem(r, 4, _item(bal_pcs, right=True))
+                self.grid.setItem(r, 5, _item(bal_wt, right=True))
+                pcs = QSpinBox()
+                pcs.setRange(0, bal_pcs)
+                wt = QDoubleSpinBox()
+                wt.setDecimals(4)
+                wt.setRange(0, float(bal_wt))
+                avg = (bal_wt / bal_pcs) if bal_pcs else Decimal("0")
+                amount = QTableWidgetItem("0.00")
+                amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+                def follow(n, wt=wt, avg=avg, amount=amount, price=price, unit=unit, pcs=pcs):
+                    wt.blockSignals(True)
+                    wt.setValue(float((avg * n).quantize(Decimal("0.0001"))))
+                    wt.blockSignals(False)
+                    amount.setText(str(production.stone_amount(
+                        price, unit, pcs.value(), Decimal(str(wt.value())))))
+
+                def reprice(_v, wt=wt, amount=amount, price=price, unit=unit, pcs=pcs):
+                    amount.setText(str(production.stone_amount(
+                        price, unit, pcs.value(), Decimal(str(wt.value())))))
+                pcs.valueChanged.connect(follow)
+                wt.valueChanged.connect(reprice)
+                self.grid.setCellWidget(r, 6, pcs)
+                self.grid.setCellWidget(r, 7, wt)
+                self.grid.setItem(r, 8, _item(unit))
+                self.grid.setItem(r, 9, amount)
+                self.grid.setItem(r, 10, _item(job.job_no, right=True))
+                self.grid.setItem(r, 11, _item(client.name if client else "stock"))
+            self._pending_for = self.job_id
+        self.grid.resizeColumnsToContents()
+        if not self._rows:
+            _info(self, "Show Pending", "Nothing is lying in this job's bag.")
+
+    def lines(self) -> list[dict]:
+        out = []
+        for r, b in enumerate(self._rows):
+            pcs = self.grid.cellWidget(r, 6).value()
+            wt = Decimal(str(self.grid.cellWidget(r, 7).value()))
+            if pcs <= 0 and wt <= 0:
+                continue
+            out.append({"bag_line_id": b.line.id, "pcs": pcs, "weight": wt,
+                        "rtn_type": self.grid.cellWidget(r, 1).currentText(),
+                        "location_id": self.grid.cellWidget(r, 0).currentData()})
+        return out
+
+    def _save(self) -> None:
+        if not self.job_id or not self._rows:
+            _info(self, "Save", "Show Pending first, then enter what is coming back.")
+            return
+        lines = self.lines()
+        with SessionLocal() as s:
+            job = s.get(Job, self.job_id)
+            try:
+                ret = production.post_stone_return(
+                    s, job, lines, vr_date=_pydate(self.date),
+                    account_id=self.contact.currentData(),
+                    user_id=getattr(self.user, "id", None), remark=self.remark.text().strip())
+                s.commit()
+                vr = ret.vr_no
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot save", str(exc))
+                return
+        self._pending_for = None
+        self.remark.clear()
+        self.refresh()
+        _info(self, "Saved", f"Return voucher {vr} posted. The bag is down and the "
+                             "location's stock is up.")
+
+    def _print(self) -> None:
+        if not self.job_id:
+            return
+        with SessionLocal() as s:
+            job = s.get(Job, self.job_id)
+            title = f"Rtn To Inv – Stone — Job {job.job_no}"
+        _print_table(self, title, self.history, f"stone_return_{self.job_id}")
+
+    def _other_classes(self) -> None:
+        from diagold.ui.specs import SPECS
+        show_in_dialog(self, CrudWidget(SPECS["production_planning.inv_return"]),
+                       "Return to Inventory – Metal / Mould / Finding", (1100, 640))
+
+    def show_job(self, job_id: int) -> None:
+        super().show_job(job_id)
+        self._show_pending()
+
+
+# --------------------------------------------------------------------------
+# Opening stone balances (18 Sept C-03 / T-04)
+# --------------------------------------------------------------------------
+class OpeningStockWidget(QWidget):
+    """Load the opening balance per location - by stone SKU (so the pieces can
+    be issued) or by group only (pcs / ct / value, as the client will supply
+    it). Each row is one 'opening' movement on the ledger."""
+
+    def __init__(self, user=None, parent=None):
+        super().__init__(parent)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 20)
+        outer.setSpacing(10)
+        h1 = QLabel("Opening Stone Balances")
+        h1.setObjectName("H1")
+        outer.addWidget(h1)
+        note = QLabel("The legacy Opening column was never filled, which is why its closings go "
+                      "negative. Enter the balance each location held at the start of the "
+                      "year - per stone SKU where known, otherwise per group. Ledger reports "
+                      "pick it up at once.")
+        note.setObjectName("Muted")
+        note.setWordWrap(True)
+        outer.addWidget(note)
+        form = QGridLayout()
+        form.setHorizontalSpacing(10)
+        self.as_of = QDateEdit(_qdate(_financial_year()[0]))
+        self.as_of.setCalendarPopup(True)
+        self.as_of.setDisplayFormat("yyyy-MM-dd")
+        self.location = QComboBox()
+        self.sku = QComboBox()
+        self.sku.addItem("— group only —", None)
+        self.group = QComboBox()
+        self.group.addItems(["DIAMOND", "POLKI", "COLOR STONE", "OTHER"])
+        self.pcs = QSpinBox()
+        self.pcs.setRange(0, 10_000_000)
+        self.weight = QDoubleSpinBox()
+        self.weight.setDecimals(3)
+        self.weight.setRange(0, 100_000_000)
+        self.value = QDoubleSpinBox()
+        self.value.setDecimals(2)
+        self.value.setRange(0, 10_000_000_000)
+        self.value.setGroupSeparatorShown(True)
+        with SessionLocal() as s:
+            for l in s.scalars(select(Location).order_by(Location.name)):
+                self.location.addItem(l.name, l.id)
+            for k in s.scalars(select(StoneSku).where(StoneSku.is_active.is_(True))
+                               .order_by(StoneSku.sku_code)):
+                self.sku.addItem(k.sku_code, k.id)
+        for i, (label, w) in enumerate((("As of", self.as_of), ("Location", self.location),
+                                        ("Stone SKU", self.sku), ("Group", self.group),
+                                        ("Pcs", self.pcs), ("Weight (ct)", self.weight),
+                                        ("Value", self.value))):
+            form.addWidget(QLabel(label), 0, i)
+            form.addWidget(w, 1, i)
+        b = QPushButton("Add opening")
+        b.setObjectName("Primary")
+        b.clicked.connect(self._add)
+        form.addWidget(b, 1, 7)
+        outer.addLayout(form)
+        self.table = _table(["As of", "Location", "Stone SKU / Group", "Size", "Pcs", "Weight",
+                             "Value", "Remark"])
+        outer.addWidget(self.table, 1)
+        self.refresh()
+
+    def refresh(self) -> None:
+        from diagold.db.models import StockMovement
+        self.table.setRowCount(0)
+        with SessionLocal() as s:
+            locs = {l.id: l for l in s.scalars(select(Location))}
+            for m in s.scalars(select(StockMovement).where(StockMovement.kind == "opening")
+                               .order_by(StockMovement.mv_date.desc(), StockMovement.id.desc())
+                               .limit(300)):
+                sku = s.get(StoneSku, m.ref_id) if m.ref_id else None
+                r = self.table.rowCount()
+                self.table.insertRow(r)
+                for c, v in enumerate([m.mv_date, locs[m.location_id].name if m.location_id in locs
+                                       else "", sku.sku_code if sku else m.stone_group, m.size,
+                                       m.pcs, m.weight, m.value, m.remark]):
+                    self.table.setItem(r, c, _item(v, right=c in (4, 5, 6)))
+        self.table.resizeColumnsToContents()
+
+    def _add(self) -> None:
+        if self.pcs.value() == 0 and self.weight.value() == 0:
+            _info(self, "Opening", "Enter pieces or weight.")
+            return
+        with SessionLocal() as s:
+            try:
+                production.post_opening_stock(
+                    s, self.location.currentData(), self.sku.currentData(), self.pcs.value(),
+                    Decimal(str(self.weight.value())), as_of=_pydate(self.as_of),
+                    group=self.group.currentText(),
+                    value=Decimal(str(self.value.value())) if self.value.value() else None,
+                    remark="opening balance")
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot save", str(exc))
+                return
+        self.pcs.setValue(0)
+        self.weight.setValue(0)
+        self.value.setValue(0)
+        self.refresh()

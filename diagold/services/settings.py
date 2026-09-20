@@ -26,7 +26,18 @@ PP_DEFAULT_VISIBLE: frozenset[str] = frozenset({
     "production_planning.job_history",
     "production_planning.printing_options",
     "production_planning.inv_return",
+    # 18 Sept: the client walked every report and asked for two of them to
+    # replace his Google Sheet, so Reports (and the opening-balance screen
+    # they depend on) are on.
+    "production_planning.reports",
+    "production_planning.opening_stone",
 })
+
+# Behaviour switches (Tools > Option). Metal / mould / finding returns are
+# "not used, never needed" (18 Sept D1) - off unless the client says otherwise.
+FLAGS: dict[str, tuple[str, bool]] = {
+    "pp.return_other_classes": ("Return to Inventory: show Metal / Mould / Finding classes", False),
+}
 _MENU_PREFIX = "menu."
 
 
@@ -58,3 +69,17 @@ def menu_visible(menu_key: str, session: Session | None = None) -> bool:
 
 def set_menu_visible(session: Session, menu_key: str, visible: bool) -> None:
     set_setting(session, _MENU_PREFIX + menu_key, "1" if visible else "0")
+
+
+def flag(key: str, default: bool | None = None, session: Session | None = None) -> bool:
+    if default is None:
+        default = FLAGS.get(key, ("", False))[1]
+    d = "1" if default else "0"
+    if session is not None:
+        return get_setting(session, "flag." + key, d) == "1"
+    with SessionLocal() as s:
+        return get_setting(s, "flag." + key, d) == "1"
+
+
+def set_flag(session: Session, key: str, on: bool) -> None:
+    set_setting(session, "flag." + key, "1" if on else "0")

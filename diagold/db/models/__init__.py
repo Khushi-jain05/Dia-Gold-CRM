@@ -51,6 +51,7 @@ from diagold.db.models.production import (
     Job,
     JobBagLine,
     JobBagMovement,
+    JobComment,
     JobStep,
     JobVoucher,
     MaterialStock,
@@ -58,6 +59,7 @@ from diagold.db.models.production import (
     OrderLine,
     PrintLog,
     PrintTemplate,
+    StockMovement,
     StoneIssue,
     StoneIssueLine,
 )
@@ -124,6 +126,7 @@ __all__ = [
     "Job",
     "JobBagLine",
     "JobBagMovement",
+    "JobComment",
     "JobStep",
     "JobVoucher",
     "MaterialStock",
@@ -131,6 +134,7 @@ __all__ = [
     "OrderLine",
     "PrintLog",
     "PrintTemplate",
+    "StockMovement",
     "StoneIssue",
     "StoneIssueLine",
 ]

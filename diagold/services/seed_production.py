@@ -15,7 +15,7 @@ Three kinds of data, all idempotent:
 """
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -35,6 +35,7 @@ from diagold.db.models import (
     OrderLine,
     ProductSku,
     ProductSkuStone,
+    StockMovement,
     StoneIssue,
     StoneIssueLine,
     StoneSize,
@@ -91,7 +92,9 @@ def seed_production(session: Session) -> None:
     documents.seed_templates(session)
     session.flush()
     _seed_opening_stock(session)
+    _backfill_opening_movements(session)
     _seed_sample_jobs(session)
+    _seed_report_samples(session)
     session.flush()
 
 
@@ -144,12 +147,29 @@ def _seed_opening_stock(session: Session) -> None:
     primary = session.scalar(select(Location).where(Location.name == "Primary"))
     if primary is None:
         return
+    fy_start = date(date.today().year if date.today().month >= 4 else date.today().year - 1, 4, 1)
     for sku in session.scalars(select(StoneSku).where(StoneSku.is_active.is_(True))):
         per = Decimal(str(sku.wt_per_pcs or 0))
         weight = (per * 100) if per > 0 else Decimal("25.000")
-        session.add(MaterialStock(location_id=primary.id, material_class="stone",
-                                  ref_id=sku.id, size=sku.size or "", pcs=100,
-                                  weight=weight))
+        production.post_opening_stock(session, primary.id, sku.id, 100, weight,
+                                      as_of=fy_start, remark="sample opening stock")
+
+
+def _backfill_opening_movements(session: Session) -> None:
+    """A database from before the stock ledger existed has balances but no
+    movements: treat what each location holds today as its opening, so the
+    location x group report starts from the truth rather than from zero."""
+    if session.scalar(select(func.count()).select_from(StockMovement)):
+        return
+    fy_start = date(date.today().year if date.today().month >= 4 else date.today().year - 1, 4, 1)
+    for row in session.scalars(select(MaterialStock)):
+        if not row.pcs and not row.weight:
+            continue
+        production.record_movement(session, row.location_id, row.material_class, row.ref_id,
+                                   int(row.pcs), Decimal(str(row.weight)), size=row.size,
+                                   ref_text=row.ref_text, kind="opening", mv_date=fy_start,
+                                   ref_kind="opening", remark="opening carried from balances")
+    session.flush()
 
 
 # --------------------------------------------------------------------------
@@ -297,4 +317,78 @@ def _seed_sample_jobs(session: Session) -> None:
                         product_sku_id=line.product_sku_id, account_id=kk.id,
                         metal_id=line.metal_id, colour="Y", pcs=1, status="pending",
                         remark=_SAMPLE))
+    session.flush()
+
+
+# --------------------------------------------------------------------------
+# Sample: the two jobs the 18 September reports were explained on
+# --------------------------------------------------------------------------
+def _seed_report_samples(session: Session) -> None:
+    """Job 27751 - ordered 18 Aug, finished 8 Sep, "it took 21 days" (Job
+    Stock Analysis); job 25006 - BANG-32 for stock, open since 1 April, the
+    170-day line at the top of Job Analysis. Both marked SAMPLE."""
+    if session.scalar(select(Job).where(Job.job_no.in_((27751, 25006)))):
+        return
+    if not session.scalar(select(func.count()).select_from(Order)):
+        return  # the main sample did not load; nothing to hang these on
+    metal590 = session.scalar(select(Metal).where(Metal.name == "14KT CASTING 590"))
+    necklace = session.scalar(select(Item).where(Item.name == "NECKLACE"))
+    bangle = session.scalar(select(Item).where(Item.name == "BANGLE"))
+    office = session.scalar(select(Account).where(Account.code == "OFFICE"))
+    ops = session.scalar(select(Account).where(Account.code == "OPS"))
+    if ops is None:
+        ops = Account(code="OPS", name="OPS", account_type="Client", group_name="Sundry Debtors")
+        session.add(ops)
+        session.flush()
+
+    # -- 27751: complete, 21 days -------------------------------------------
+    sku = _sample_sku(session, "NS-2649", necklace, metal590, "Necklace")
+    order = Order(order_no=967, order_date=date(2026, 8, 18), account_id=ops.id,
+                  delivery_date=date(2026, 8, 18), order_type="Customer", remark=_SAMPLE)
+    session.add(order)
+    session.flush()
+    session.add(OrderLine(order_id=order.id, sno=1, product_sku_id=sku.id, sku_desc="Necklace",
+                          metal_id=metal590.id if metal590 else None, colour="Y", pcs=1))
+    job = Job(job_no=27751, order_id=order.id, line_sno=1, product_sku_id=sku.id,
+              account_id=ops.id, metal_id=metal590.id if metal590 else None, colour="Y", pcs=1,
+              prod_date=date(2026, 8, 18), prod_del_date=date(2026, 8, 18), status="pending",
+              remark=_SAMPLE)
+    session.add(job)
+    session.flush()
+    production.map_job(session, job, "Default", date(2026, 8, 18), days_per_step=2)
+    job.mapped_on = date(2026, 8, 18)
+    if office is not None:
+        day = date(2026, 8, 19)
+        weight = Decimal("35.249")
+        for i, step in enumerate(job.steps):
+            w = None if not step.weight_bearing else weight - Decimal("0.05") * i
+            production.post_voucher(session, job, step, "issue", office.id, vr_date=day,
+                                    vr_time="10:00", pcs=1, gross_wt=w, net_wt=w)
+            back = None if w is None else (w - Decimal("0.02")).quantize(Decimal("0.001"))
+            production.post_voucher(session, job, step, "receive", office.id,
+                                    vr_date=day + timedelta(days=1), vr_time="18:00", pcs=1,
+                                    gross_wt=back, net_wt=back)
+            day += timedelta(days=2)
+        job.completed_on = date(2026, 9, 8)
+        job.status = "complete"
+
+    # -- 25006: BANG-32 for stock, open since 1 April ----------------------
+    sku2 = _sample_sku(session, "BANG-32", bangle, metal590, "Bangle")
+    order2 = Order(order_no=1, order_date=date(2026, 4, 1), account_id=None,
+                   delivery_date=date(2026, 4, 1), order_type="Stock", remark=_SAMPLE)
+    session.add(order2)
+    session.flush()
+    session.add(OrderLine(order_id=order2.id, sno=1, product_sku_id=sku2.id, sku_desc="Bangle",
+                          metal_id=metal590.id if metal590 else None, colour="Y", pcs=1))
+    job2 = Job(job_no=25006, order_id=order2.id, line_sno=1, product_sku_id=sku2.id,
+               metal_id=metal590.id if metal590 else None, colour="Y", pcs=1,
+               prod_date=date(2026, 4, 1), prod_del_date=date(2026, 4, 1), status="pending",
+               remark=_SAMPLE)
+    session.add(job2)
+    session.flush()
+    production.map_job(session, job2, "Default", date(2026, 4, 1))
+    job2.mapped_on = date(2026, 4, 1)
+    if office is not None and job2.steps:
+        production.post_voucher(session, job2, job2.steps[0], "issue", office.id,
+                                vr_date=date(2026, 4, 1), vr_time="11:00", pcs=1)
     session.flush()

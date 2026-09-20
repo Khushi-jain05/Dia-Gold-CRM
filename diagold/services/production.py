@@ -43,11 +43,19 @@ from diagold.db.models import (
     PrintLog,
     ProductSku,
     ProductSkuStone,
+    StockMovement,
+    StoneGroup,
+    StoneInfo,
     StoneIssue,
     StoneIssueLine,
     StoneSize,
     StoneSku,
 )
+
+# The client's three heads for stone stock (S1 D4, reaffirmed 18 Sept D9),
+# keyed by the Stone Group master's code.
+STONE_GROUP_LABELS: dict[str, str] = {"DIA": "DIAMOND", "POLKI": "POLKI", "CS": "COLOR STONE"}
+OTHER_GROUP = "OTHER"
 
 ZERO = Decimal("0")
 D3 = Decimal("0.001")
@@ -73,6 +81,81 @@ def next_number(session: Session, column) -> int:
     """
     current = session.scalar(select(func.max(column)))
     return int(current or 0) + 1
+
+
+# --------------------------------------------------------------------------
+# Stone reference helpers
+# --------------------------------------------------------------------------
+def stone_group_label(session: Session, stone_sku_id: int | None,
+                      particulars: str = "", cache: dict | None = None) -> str:
+    """DIAMOND / POLKI / COLOR STONE for a stone, via the Stone master's group.
+
+    A Stone SKU names its stone in free text ("EMERALD PEAR"); the Stone
+    master carries the same name with a group. Text that matches no stone
+    (e.g. "daank") lands in OTHER rather than being guessed.
+    """
+    key = ("sku", stone_sku_id) if stone_sku_id else ("txt", (particulars or "").strip().lower())
+    if cache is not None and key in cache:
+        return cache[key]
+    name = particulars or ""
+    if stone_sku_id:
+        sku = session.get(StoneSku, stone_sku_id)
+        name = (sku.stone or sku.sku_code) if sku else name
+    label = OTHER_GROUP
+    if name.strip():
+        info = session.scalar(select(StoneInfo).where(
+            func.lower(StoneInfo.name) == name.strip().lower()))
+        if info is None:
+            # "POLKI 14-16" -> "POLKI"; "DIA.(-2)" -> starts with DIA
+            head = name.strip().split(" ")[0].lower()
+            info = session.scalar(select(StoneInfo).where(
+                func.lower(StoneInfo.name) == head))
+        if info is not None and info.stone_group_id:
+            grp = session.get(StoneGroup, info.stone_group_id)
+            if grp is not None:
+                label = STONE_GROUP_LABELS.get(grp.code.upper(), grp.name.upper())
+        elif name.strip().upper().startswith("DIA"):
+            label = "DIAMOND"
+        elif name.strip().upper().startswith("POLKI"):
+            label = "POLKI"
+    if cache is not None:
+        cache[key] = label
+    return label
+
+
+def stone_price(session: Session, stone_sku_id: int | None) -> tuple[Decimal, str]:
+    """(price per unit, unit) for valuing stock. Cost price when the catalogue
+    has one, else sale price - inventory is valued at cost (assumption)."""
+    if not stone_sku_id:
+        return ZERO, "Cts"
+    sku = session.get(StoneSku, stone_sku_id)
+    if sku is None:
+        return ZERO, "Cts"
+    price = _dec(sku.cost_price) or _dec(sku.sale_price)
+    return price, (sku.per or "Cts")
+
+
+def stone_amount(price: Decimal, unit: str, pcs: int, weight: Decimal) -> Decimal:
+    qty = _dec(pcs) if (unit or "").lower().startswith("pc") else _dec(weight)
+    return (price * qty).quantize(Decimal("0.01"))
+
+
+def parse_order_remark(text: str) -> list[dict[str, Any]]:
+    """The legacy keeps a job's stone requirement as text on the order:
+    "daank/411/19.92, DIA./241/2.81, POLKI/411/28.75". Parse it into
+    (particulars, pcs, weight) lines; anything that does not fit is skipped."""
+    out: list[dict[str, Any]] = []
+    for part in (text or "").split(","):
+        bits = [b.strip() for b in part.strip().split("/")]
+        if len(bits) < 2 or not bits[0]:
+            continue
+        try:
+            pcs = int(float(bits[1])) if bits[1] else 0
+            wt = Decimal(bits[2]) if len(bits) > 2 and bits[2] else ZERO
+        except (ValueError, ArithmeticError):
+            continue
+        out.append({"particulars": bits[0], "pcs": pcs, "weight": wt})
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -173,11 +256,22 @@ def _job_has_movements(session: Session, job: Job) -> bool:
 def seed_bag_requirements(session: Session, job: Job) -> None:
     """A new job's bag starts with the SKU's stone lines as its requirement,
     so Req and Pnd are visible before a single stone is issued."""
-    if not job.product_sku_id:
-        return
     stones = session.scalars(
         select(ProductSkuStone).where(ProductSkuStone.product_id == job.product_sku_id)
-    ).all()
+    ).all() if job.product_sku_id else []
+    if not stones:
+        # No stone grid on the SKU: the order remark may carry the
+        # requirement as text (18 Sept R14) - "daank/411/19.92, DIA./241/2.81".
+        order = session.get(Order, job.order_id) if job.order_id else None
+        for line in parse_order_remark(order.remark if order else ""):
+            session.add(JobBagLine(
+                job_id=job.id, stone_sku_id=None, particulars=line["particulars"],
+                size="", unit="ct",
+                req_pcs=line["pcs"] * max(int(job.pcs or 1), 1),
+                req_wt=line["weight"] * max(int(job.pcs or 1), 1),
+            ))
+        session.flush()
+        return
     for st in stones:
         sku = session.get(StoneSku, st.stone_sku_id) if st.stone_sku_id else None
         size = session.get(StoneSize, st.size_id) if st.size_id else None
@@ -290,6 +384,8 @@ def set_job_steps(session: Session, job: Job, rows: list[dict]) -> list[JobStep]
         out.append(step)
     if job.status == "pending":
         job.status = "mapped"
+    if job.mapped_on is None:
+        job.mapped_on = date.today()
     session.flush()
     session.refresh(job)
     return out
@@ -418,6 +514,12 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
     session.add(v)
     if job.status in ("pending", "mapped"):
         job.status = "in_progress"
+    # Receiving the last step of the route finishes the job. ASSUMPTION: the
+    # finished piece is "in stock" at that receipt (18 Sept Q8 - it may be the
+    # MFG transfer instead once that module exists).
+    if kind == "receive" and job.steps and step.id == job.steps[-1].id:
+        job.status = "complete"
+        job.completed_on = v.vr_date
     session.flush()
     return v
 
@@ -554,8 +656,12 @@ def holdings(session: Session, material_class: str, ref_id: int | None,
 
 def adjust_stock(session: Session, location_id: int, material_class: str,
                  ref_id: int | None, d_pcs: int, d_wt: Any, size: str = "",
-                 ref_text: str = "", what: str = "") -> MaterialStock:
-    """Move stock in (+) or out (-). Going below zero is refused."""
+                 ref_text: str = "", what: str = "", *, kind: str = "adjust",
+                 mv_date: date | None = None, job_id: int | None = None,
+                 ref_kind: str = "", ref_no: int | None = None,
+                 remark: str = "") -> MaterialStock:
+    """Move stock in (+) or out (-). Going below zero is refused. Every call
+    also writes one :class:`StockMovement`, the ledger the reports read."""
     if not location_id:
         raise ProductionError("A stock location is required.")
     if session.get(Location, location_id) is None:
@@ -565,25 +671,61 @@ def adjust_stock(session: Session, location_id: int, material_class: str,
     new_wt = (_dec(row.weight) + _dec(d_wt)).quantize(D4)
     if new_pcs < 0 or new_wt < 0:
         loc = session.get(Location, location_id)
-        name = what or ref_text or "this item"
-        msg = (f"{loc.name if loc else 'The location'} holds only {row.pcs} pcs / "
-               f"{_dec(row.weight)} of {name} - cannot issue "
-               f"{abs(int(d_pcs))} pcs / {abs(_dec(d_wt))}.")
-        # Say where it is, so the fix is one dropdown away.
-        elsewhere = [(l, p, w) for l, p, w in
-                     holdings(session, material_class, ref_id, size, ref_text)
-                     if l.id != location_id]
-        if elsewhere:
-            msg += "\n\n" + name + " is held at:\n" + "\n".join(
-                f"  {l.name}: {p} pcs / {w}" for l, p, w in elsewhere)
-        else:
-            msg += f"\n\nNo location holds {name} at all. Book it in first " \
-                   "(opening stock), or tick Opening if the stones were " \
-                   "already with the job."
-        raise ProductionError(msg)
+        raise ProductionError(
+            f"{loc.name if loc else 'The location'} holds only {row.pcs} pcs / "
+            f"{_dec(row.weight)} of {what or ref_text or 'this item'} - cannot "
+            f"issue {abs(int(d_pcs))} pcs / {abs(_dec(d_wt))}."
+        )
     row.pcs, row.weight = new_pcs, new_wt
+    record_movement(session, location_id, material_class, ref_id, int(d_pcs), _dec(d_wt),
+                    size=size, ref_text=ref_text, kind=kind, mv_date=mv_date, job_id=job_id,
+                    ref_kind=ref_kind, ref_no=ref_no, remark=remark)
     session.flush()
     return row
+
+
+def record_movement(session: Session, location_id: int, material_class: str,
+                    ref_id: int | None, pcs: int, weight: Decimal, *, size: str = "",
+                    ref_text: str = "", kind: str = "adjust", mv_date: date | None = None,
+                    job_id: int | None = None, ref_kind: str = "", ref_no: int | None = None,
+                    remark: str = "", value: Decimal | None = None) -> StockMovement:
+    """One ledger row. Value = quantity x the stone's price (cost) unless given."""
+    group = ""
+    if material_class == "stone":
+        group = stone_group_label(session, ref_id, ref_text)
+    if value is None:
+        price, unit = stone_price(session, ref_id) if material_class == "stone" else (ZERO, "Cts")
+        value = stone_amount(price, unit, pcs, weight)
+    m = StockMovement(mv_date=mv_date or date.today(), location_id=location_id,
+                      material_class=material_class, ref_id=ref_id, ref_text=ref_text or "",
+                      size=size or "", stone_group=group, kind=kind, pcs=pcs, weight=weight,
+                      value=value, job_id=job_id, ref_kind=ref_kind, ref_no=ref_no,
+                      remark=remark or "")
+    session.add(m)
+    return m
+
+
+def post_opening_stock(session: Session, location_id: int, stone_sku_id: int | None,
+                       pcs: int, weight: Any, *, as_of: date, group: str = "",
+                       value: Any = None, size: str = "", remark: str = "") -> StockMovement:
+    """Opening balance at a location (18 Sept C-03 / R7).
+
+    With a Stone SKU the balance row is raised too, so the pieces can be
+    issued; a group-only opening (pcs / ct / value per Diamond / Polki /
+    Colour Stone, as the client will supply it) feeds the ledger only.
+    """
+    if stone_sku_id:
+        sku = session.get(StoneSku, stone_sku_id)
+        return adjust_stock(session, location_id, "stone", stone_sku_id, pcs, weight,
+                            size=size or (sku.size if sku else ""), kind="opening",
+                            mv_date=as_of, ref_kind="opening", remark=remark)
+    m = record_movement(session, location_id, "stone", None, int(pcs), _dec(weight),
+                        ref_text=group or "", kind="opening", mv_date=as_of,
+                        ref_kind="opening", remark=remark,
+                        value=None if value in (None, "") else _dec(value))
+    m.stone_group = (group or OTHER_GROUP).upper()
+    session.flush()
+    return m
 
 
 # --------------------------------------------------------------------------
@@ -646,7 +788,9 @@ def apply_stone_issue(session: Session, issue: StoneIssue) -> None:
                 raise ProductionError(f"Choose the location {name} is issued from.")
             adjust_stock(session, l.location_id, "stone", l.stone_sku_id,
                          -int(l.pcs or 0), -_dec(l.weight), size=size,
-                         ref_text="" if sku else l.particulars, what=name)
+                         ref_text="" if sku else l.particulars, what=name,
+                         kind="outward", mv_date=issue.vr_date, job_id=job.id,
+                         ref_kind="stone_issue", ref_no=issue.vr_no)
         bag = _find_bag_line(session, job, l.stone_sku_id, l.particulars, size)
         if bag.source_location_id is None and l.location_id:
             bag.source_location_id = l.location_id
@@ -750,13 +894,25 @@ def bag_move(session: Session, line: JobBagLine, kind: str, pcs: int,
             )
     if kind == "iss" and not worker_id:
         raise ProductionError("Say which worker the stones are issued to.")
+    sku = session.get(StoneSku, line.stone_sku_id) if line.stone_sku_id else None
     if kind == "rtn":
         location_id = location_id or line.source_location_id
         if not location_id:
             raise ProductionError("Choose the stock location the stones go back to.")
-        sku = session.get(StoneSku, line.stone_sku_id) if line.stone_sku_id else None
         adjust_stock(session, location_id, "stone", line.stone_sku_id, pcs, weight,
-                     size=line.size, ref_text="" if sku else line.particulars, what=name)
+                     size=line.size, ref_text="" if sku else line.particulars, what=name,
+                     kind="return", mv_date=mv_date, job_id=line.job_id,
+                     ref_kind=ref_kind or "bag", ref_no=ref_id, remark=remark)
+    if kind == "break":
+        # Broken stones leave the bag but credit no saleable stock. Where they
+        # go and how they are valued is open (18 Sept Q5); the ledger still
+        # records them against the source location so the day book shows them.
+        loc = location_id or line.source_location_id
+        if loc:
+            record_movement(session, loc, "stone", line.stone_sku_id, -pcs, -weight,
+                            size=line.size, ref_text="" if sku else line.particulars,
+                            kind="breakage", mv_date=mv_date, job_id=line.job_id,
+                            ref_kind=ref_kind or "bag", ref_no=ref_id, remark=remark)
     m = JobBagMovement(line_id=line.id, kind=kind, pcs=pcs, weight=weight,
                        mv_date=mv_date or date.today(), worker_id=worker_id,
                        location_id=location_id, ref_kind=ref_kind, ref_id=ref_id,
@@ -803,11 +959,16 @@ def apply_inventory_return(session: Session, ret: InventoryReturn) -> None:
             if bag is None or bag.job_id != job.id:
                 raise ProductionError(
                     "Each stone line must pick one of this job's bag lines.")
-            bag_move(session, bag, "rtn", int(l.pcs or 0),
+            kind = "break" if (l.rtn_type or "").lower().startswith("break") else "rtn"
+            bag_move(session, bag, kind, int(l.pcs or 0),
                      None if _dec(l.weight) == 0 else l.weight,
-                     location_id=ret.location_id, mv_date=ret.vr_date,
-                     ref_kind="inv_return", ref_id=ret.id, remark=l.remark or "")
+                     location_id=l.location_id or ret.location_id, mv_date=ret.vr_date,
+                     ref_kind="inv_return", ref_id=ret.vr_no, remark=l.remark or "")
             l.particulars, l.size = bag.particulars, bag.size
+            l.location_id = l.location_id or ret.location_id or bag.source_location_id
+            price, unit = stone_price(session, bag.stone_sku_id)
+            l.price, l.price_unit = price, unit
+            l.amount = stone_amount(price, unit, int(l.pcs or 0), _dec(l.weight))
         return
     if cls == "metal":
         held = job_metal_held(session, job)
@@ -821,7 +982,9 @@ def apply_inventory_return(session: Session, ret: InventoryReturn) -> None:
                 raise ProductionError("Each metal line must name the metal head.")
             metal = session.get(Metal, l.metal_id)
             adjust_stock(session, ret.location_id, "metal", l.metal_id, 0, l.weight,
-                         what=metal.name if metal else "metal")
+                         what=metal.name if metal else "metal", kind="return",
+                         mv_date=ret.vr_date, job_id=job.id, ref_kind="inv_return",
+                         ref_no=ret.vr_no)
         return
     for l in lines:  # mould / finding - counted in pieces
         ref_id = l.mould_id if cls == "mould" else None
@@ -831,7 +994,49 @@ def apply_inventory_return(session: Session, ret: InventoryReturn) -> None:
             raise ProductionError("Describe the finding being returned.")
         adjust_stock(session, ret.location_id, cls, ref_id, int(l.pcs or 0), l.weight,
                      size=l.size or "", ref_text=l.particulars if cls == "finding" else "",
-                     what=l.particulars or cls)
+                     what=l.particulars or cls, kind="return", mv_date=ret.vr_date,
+                     job_id=job.id, ref_kind="inv_return", ref_no=ret.vr_no)
+
+
+def post_stone_return(session: Session, job: Job, lines: list[dict[str, Any]], *,
+                      vr_date: date | None = None, account_id: int | None = None,
+                      user_id: int | None = None, remark: str = "") -> InventoryReturn:
+    """Rtn To Inv - Stone, as the client walked it (18 Sept §4.2).
+
+    ``lines`` come from the Show Pending list: each names a bag line of the
+    job with the pieces / weight going back, Returned or Breakage, and the
+    location credited (default: where the stones were picked from). The bag
+    goes down; for Returned the location's stock goes up.
+    """
+    if job is None:
+        raise ProductionError("Job No is required - enter the job the stones come back from.")
+    keep = [l for l in lines if int(l.get("pcs") or 0) > 0 or _dec(l.get("weight")) > 0]
+    if not keep:
+        raise ProductionError("Enter the pieces (or weight) being returned on at least one line.")
+    ret = InventoryReturn(vr_no=next_number(session, InventoryReturn.vr_no),
+                          material_class="stone", job_id=job.id,
+                          vr_date=vr_date or date.today(),
+                          location_id=int(keep[0].get("location_id") or 0) or None,
+                          account_id=account_id, remark=remark or "", user_id=user_id)
+    if ret.location_id is None:
+        first = session.get(JobBagLine, keep[0]["bag_line_id"])
+        ret.location_id = first.source_location_id if first else None
+    if ret.location_id is None:
+        raise ProductionError("Choose the location the stones go back to.")
+    session.add(ret)
+    session.flush()
+    for n, l in enumerate(keep, start=1):
+        session.add(InventoryReturnLine(
+            return_id=ret.id, sno=n, bag_line_id=l["bag_line_id"],
+            rtn_type=l.get("rtn_type") or "Returned",
+            location_id=l.get("location_id") or ret.location_id,
+            pcs=int(l.get("pcs") or 0), weight=_dec(l.get("weight")),
+            remark=l.get("remark") or "",
+        ))
+    session.flush()
+    session.refresh(ret)
+    apply_inventory_return(session, ret)
+    return ret
 
 
 # --------------------------------------------------------------------------

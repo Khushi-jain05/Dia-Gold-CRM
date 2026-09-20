@@ -1357,8 +1357,9 @@ def _order_requirement_sheet(widget, order) -> None:
 
 
 def _order_day_book(widget, _order) -> None:
-    from diagold.ui.production import OrderDayBookWidget, show_in_dialog
-    show_in_dialog(widget, OrderDayBookWidget(), "Order Day Book")
+    from diagold.ui.production import show_in_dialog
+    from diagold.ui.reports import ReportsHub
+    show_in_dialog(widget, ReportsHub(first="order_day_book"), "Day Books")
 
 
 _register(CrudSpec(

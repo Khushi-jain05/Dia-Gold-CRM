@@ -14,10 +14,12 @@ from diagold.ui.production import (
     JobBagWidget,
     JobHistoryWidget,
     JobMappingWidget,
+    OpeningStockWidget,
     OptionsWidget,
-    OrderDayBookWidget,
     PrintingOptionsWidget,
+    StoneReturnWidget,
 )
+from diagold.ui.reports import ReportsHub
 from diagold.ui.specs import SPECS
 
 # Menu keys that get a real screen but not via a plain CrudSpec.
@@ -27,7 +29,10 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "production_planning.job_card_bag": lambda user: JobBagWidget(user),
     "production_planning.job_history": lambda user: JobHistoryWidget(user),
     "production_planning.printing_options": lambda user: PrintingOptionsWidget(user),
-    "production_planning.day_book": lambda user: OrderDayBookWidget(),
+    "production_planning.inv_return": lambda user: StoneReturnWidget(user),
+    "production_planning.opening_stone": lambda user: OpeningStockWidget(user),
+    "production_planning.day_book": lambda user: ReportsHub(user, first="order_day_book"),
+    "production_planning.reports": lambda user: ReportsHub(user),
     "tools.option": lambda user: OptionsWidget(user),
 }
 

@@ -119,6 +119,11 @@ class Job(Base, PKMixin, TimestampMixin):
     # pending (no route) -> mapped -> in_progress (first voucher) -> complete;
     # cancelled when its order line is removed before any movement.
     status: Mapped[str] = mapped_column(String(16), default="pending")
+    # When the route was set (Job Mapping day book) and when the last step
+    # was received back (STOCK DT in Job Stock Analysis - assumed to be the
+    # final receipt; MFG transfer is a later module, see 18 Sept Q8).
+    mapped_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    completed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     remark: Mapped[str] = mapped_column(String(200), default="")
 
     STATUSES = ("pending", "mapped", "in_progress", "complete", "cancelled")
@@ -374,9 +379,63 @@ class InventoryReturnLine(Base, PKMixin):
     size: Mapped[str] = mapped_column(String(24), default="")
     pcs: Mapped[int] = mapped_column(default=0)
     weight: Mapped[float] = mapped_column(Numeric(12, 4), default=0)
+    # Returned goes back to saleable stock at the location; Breakage is
+    # recorded separately and credits nothing (valuation open - 18 Sept Q5).
+    rtn_type: Mapped[str] = mapped_column(String(12), default="Returned")
+    # Credited location per line - the shelf the stones were picked from.
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), nullable=True)
+    price: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+    price_unit: Mapped[str] = mapped_column(String(8), default="Cts")
+    amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     remark: Mapped[str] = mapped_column(String(200), default="")
 
+    RTN_TYPES = ("Returned", "Breakage")
+
     ret: Mapped[InventoryReturn] = relationship(back_populates="lines")
+
+
+class StockMovement(Base, PKMixin):
+    """The stock ledger behind :class:`MaterialStock` (18 Sept, TR3).
+
+    Every change to a location's holding is one row here, so the location x
+    stone-group report can show OPENING / INWARD / OUTWARD / CLOSING for any
+    period and drill from a cell to the vouchers behind it. Balance rows in
+    MaterialStock are the fast total; this is the truth they summarise.
+    """
+
+    __tablename__ = "stock_movements"
+
+    mv_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"), index=True)
+    material_class: Mapped[str] = mapped_column(String(8), default="stone")
+    ref_id: Mapped[int | None] = mapped_column(nullable=True)
+    ref_text: Mapped[str] = mapped_column(String(120), default="")
+    size: Mapped[str] = mapped_column(String(24), default="")
+    # DIAMOND / POLKI / COLOR STONE - the client's three heads (S1 D4, S3 D9).
+    stone_group: Mapped[str] = mapped_column(String(24), default="", index=True)
+    # opening / inward / outward / return / breakage / adjust
+    kind: Mapped[str] = mapped_column(String(10), index=True)
+    pcs: Mapped[int] = mapped_column(default=0)              # signed
+    weight: Mapped[float] = mapped_column(Numeric(14, 4), default=0)   # signed
+    value: Mapped[float] = mapped_column(Numeric(18, 2), default=0)    # signed
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), nullable=True)
+    ref_kind: Mapped[str] = mapped_column(String(16), default="")   # stone_issue / inv_return / bag
+    ref_no: Mapped[int | None] = mapped_column(nullable=True)      # the voucher number
+    remark: Mapped[str] = mapped_column(String(200), default="")
+
+    KINDS = ("opening", "inward", "outward", "return", "breakage", "adjust")
+
+
+class JobComment(Base, PKMixin):
+    """Timestamped, user-attributed notes on a job (Job History > Add
+    Comments, 18 Sept R14)."""
+
+    __tablename__ = "job_comments"
+
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    text: Mapped[str] = mapped_column(Text, default="")
 
 
 # --------------------------------------------------------------------------
