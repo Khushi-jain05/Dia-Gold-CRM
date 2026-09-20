@@ -1,9 +1,33 @@
-# Next session — agenda (T-12)
+# Next session — agenda (18 Sept T-14)
 
-Prepared after the 11 September Production-Planning walkthrough. Order of
-business, as agreed on that call: the pending Production-Planning items, the
-re-cover of the screens whose audio was lost, the Word job-sheet format, then
-the Session 1 backlog.
+Proposed slot: **Monday 21 September**, the usual time (Rohit: "when do we
+sit again? … Monday"). Rohit closed the 18 Sept call with *"Production
+Planning is complete here — do it up to here, then let's check."* So the
+first item is the check.
+
+## -1. Live demo of v0.5.0 (25 min) — T-12, owed since Session 1
+
+Share the app tab, tested five minutes before the call (recording set-up in
+`recording-checklist.md`). Walk in this order, on the sample jobs Rohit
+knows (28350, 25006, 27751):
+
+1. **Order → Job Mapping → Job History (F11)** — the 11 Sept screens, two
+   minutes each; script in `production-planning-walkthrough.md`.
+2. **Rtn To Inv – Stone** — job 28624: Show Pending, return 2, Breakage 1;
+   Primary stock and the bag move; the Inv Rtn Stone Day Book shows both.
+3. **Job Analysis** — 25006 at 170 overdays; the late-deliveries toggle
+   (27751: 21 days). Ask: does this replace the Google Sheet? (C-04)
+4. **Process Analysis** — tick *fs* in the Show bar: one click, no
+   scrolling. Ask C-01 (open job / current process / PROD DUE).
+5. **Job Card Analysis – Stone** — opening / inward / outward / closing;
+   the red line; drill to the vouchers. Ask C-03 (opening balances).
+6. **Job Stock Analysis** — 27751 "took 21 days"; average / median.
+7. **Tools ▸ Option** — the Production-Planning switches; Reports on.
+
+Then the 18 Sept questions (C-01…C-05, Q5, Q7, Q8), the 11 Sept items
+below, and the Session 1 backlog.
+
+## 0. Production Planning (11 Sept items, 15 min)
 
 ## 0. Production Planning first (25 min)
 

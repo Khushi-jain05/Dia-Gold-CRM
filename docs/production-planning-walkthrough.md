@@ -124,9 +124,48 @@ on; WIP Job Card, Job Card, In-House, Day Book and Reports are off.
 **Ask Rohit:** the two items (C-01), the three pending sub-items (C-03),
 whether In-House is used (Q5).
 
+## 8. Rtn To Inv – Stone  (18 Sept)
+
+Job **28624**. **Show Pending** lists what the bag still holds. Enter 2 on
+EMERALD PEAR 6*4 — the weight follows at the bag's average — **Save**.
+Primary stock is up by 2, the bag down by 2. Change Type to **Breakage** and
+return 1 more: the bag goes down, stock does not.
+
+> Only stone comes back here — metal on the Manufacturing side, mould and
+> findings never (as you said). Those classes are behind a switch, off.
+
+**Ask Rohit:** breakage — where does it go, how is it valued (Q5).
+
+## 9. Reports  (Production Planning ▸ Reports)
+
+Every report has the same toolbar as the old one — Print, Search, Set
+Column, Options, Group, Adv. Filter, Export, Auto Filter — plus a Total row
+and a row count. None of them freeze: the query runs in the background with
+a progress bar and Cancel.
+
+- **Job Analysis** — 25006 BANG-32 at the top, 170 days overdue as of the
+  From date; a column per day. Tick *Late deliveries only*: 27751 shows 21
+  days late. **Ask:** does this replace the Google Sheet? (C-04)
+- **Process Analysis** — grouped by the job's current step. Tick **fs** in
+  the Show bar: only final setting, with its sub-total. No scrolling.
+  **Ask:** the two definitions (C-01).
+- **Job Card Analysis – Stone** — Primary × Polki / Colour Stone with
+  OPENING · INWARD · OUTWARD · CLOSING. A negative closing is red; double-
+  click a line for the vouchers behind it. **Ask:** opening balances per
+  location × group (C-03) — the Opening Stone Balances screen loads them.
+- **Job Stock Analysis** — 27751: ordered 18 Aug, in stock 8 Sep, 21 days;
+  average and median in the footer.
+- **Inv Rtn O/s Stone**, **Job O/s – Stone**, the three **day books**,
+  **Inv O/S (Job O/s %)** last, and **Data Quality** — the migration checks.
+
 ---
 
 ## What is deliberately not built
+
+- Fractional job parts (0.3 / 0.3 / 0.4 to three setters) — a schema change
+  that waits for the client's rules (18 Sept C-02 / T-09).
+- The data-quality checks run on this database; they run on the legacy
+  server once access arrives (S1 C-01).
 
 - MFG Transfer counts show 0 — the Manufacturing module is a later phase.
 - WIP costing has no rule yet; it multiplies net weight by today's rate.

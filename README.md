@@ -22,9 +22,11 @@ The menu structure is taken directly from the client design workbook
 | Production Planning ▸ Job Mapping | ✅ Pending-jobs queue, process groups → dated route per job, Copy To All |
 | Production Planning ▸ Job History (F11) | ✅ Issue / receive vouchers per step with worker and weights; loss derived per step |
 | Production Planning ▸ Job Card Bag | ✅ Per-job stone ledger (Req/Rcvd/Extra/Pnd/Iss/Rtn/Break/Lost/Back/Bal) + two reports |
-| Production Planning ▸ Stone Issue, Inv Return | ✅ Numbered vouchers; stock per location; over-issue / over-return refused |
+| Production Planning ▸ Stone Issue, Inv Return – Stone | ✅ Numbered vouchers; Show Pending on returns; stock ledger per location; over-issue / over-return refused; metal / mould / finding returns behind a switch |
+| Production Planning ▸ Reports | ✅ Shared report engine (toolbar, date range, grouping, filters, export, async) with Job Analysis, Process Analysis (process filter), Job Card Analysis – Stone (location × group with Opening), Job Stock Analysis, Inv Rtn O/s Stone, Job O/s – Stone, three day books, Inv O/S, Data Quality |
+| Production Planning ▸ Opening Stone Balances | ✅ Opening per location by SKU or by group |
 | Production Planning ▸ Printing Options | ✅ Six prints from data-driven templates → PDF, with a print log (placeholder layouts until the client's Word format arrives) |
-| Production Planning ▸ Order Day Book | ✅ Built; hidden by default (Tools ▸ Option switches menu items) |
+| Production Planning ▸ Order Day Book | ✅ In the Reports hub; menu item hidden by default (Tools ▸ Option) |
 | Tools ▸ Option | ✅ Production-Planning menu scope by configuration |
 | Quotation, MRP, Manufacturing, Purchase, Inventory, Sale, Account, Reports | ⬜ Menu + placeholders (scaffolded, screens not built) |
 | Tools ▸ Change Password | ✅ Working |
