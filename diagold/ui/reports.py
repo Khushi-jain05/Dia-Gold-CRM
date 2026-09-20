@@ -90,6 +90,9 @@ class ReportSpec:
     on_activate: Callable[["ReportWidget", dict], None] | None = None
     negative_key: str | None = None
     date_mode: str = "range"
+    # "fy": the financial year; "week": today to today + 7, as the legacy
+    # analysis reports open (overdays are counted as of the From date).
+    date_default: str = "fy"
     note: str = ""
 
 
@@ -490,6 +493,9 @@ class ReportWidget(QWidget):
         h1.setWordWrap(True)
         head.addWidget(h1, 1)
         fy0, fy1 = R.fy_range()
+        if spec.date_default == "week":
+            from datetime import timedelta
+            fy0, fy1 = date.today(), date.today() + timedelta(days=7)
         self.d_from = QDateEdit(QDate(fy0.year, fy0.month, fy0.day))
         self.d_to = QDateEdit(QDate(fy1.year, fy1.month, fy1.day))
         for d in (self.d_from, self.d_to):
@@ -1138,8 +1144,8 @@ def build_specs() -> dict[str, ReportSpec]:
             key="job_analysis", title="Job Analysis", columns=_job_analysis_cols,
             query=lambda s, a, b, late_only=False, **_k: R.job_analysis(s, a, b, late_only),
             options={"late_only": ("Late deliveries only", False)},
-            on_activate=lambda w, r: w.open_job(r),
-            note="Overdays are counted as of the From date. A day column shows 1 when the job "
+            on_activate=lambda w, r: w.open_job(r), date_default="week",
+            note="Overdays are counted as of the From date (today by default). A day column shows 1 when the job "
                  "was open that day. Open = pending / mapped / in progress, cancelled excluded "
                  "- to confirm (18 Sept C-01)."),
         "process_analysis": ReportSpec(
@@ -1147,8 +1153,8 @@ def build_specs() -> dict[str, ReportSpec]:
             columns=_process_analysis_cols,
             query=lambda s, a, b, **_k: R.process_analysis(s, a, b),
             group_by="process", filter_column="process",
-            on_activate=lambda w, r: w.open_job(r),
-            note="Grouped by the job's current step: the last step issued but not received, "
+            on_activate=lambda w, r: w.open_job(r), date_default="week",
+            note="Overdays as of the From date (today by default). Grouped by the job's current step: the last step issued but not received, "
                  "else the next step not yet received (to confirm, C-01). Tick a process in "
                  "the Show bar to see only that group - no scrolling to the bottom."),
         "job_card_analysis_stone": ReportSpec(
@@ -1209,8 +1215,10 @@ class ReportsHub(QWidget):
         split = QSplitter(Qt.Orientation.Horizontal)
         lay.addWidget(split)
         self.list = QListWidget()
-        self.list.setMinimumWidth(150)
+        self.list.setObjectName("ReportList")
+        self.list.setMinimumWidth(170)
         self.list.setMaximumWidth(320)
+        self.list.setSpacing(1)
         for section, keys in SECTIONS:
             head = QListWidgetItem(section.upper())
             head.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -1219,7 +1227,7 @@ class ReportsHub(QWidget):
             head.setFont(f)
             self.list.addItem(head)
             for k in keys:
-                it = QListWidgetItem("   " + self.specs[k].title.split(" (")[0])
+                it = QListWidgetItem(self.specs[k].title.split(" (")[0])
                 it.setData(Qt.ItemDataRole.UserRole, k)
                 self.list.addItem(it)
         self.list.currentItemChanged.connect(self._pick)
@@ -1228,7 +1236,7 @@ class ReportsHub(QWidget):
         split.addWidget(self.stack)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
-        split.setSizes([200, 900])
+        split.setSizes([220, 900])
         self.show_report(first)
 
     def _pick(self, current, _previous) -> None:

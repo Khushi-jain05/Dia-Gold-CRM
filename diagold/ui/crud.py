@@ -1069,11 +1069,19 @@ class CrudWidget(QWidget):
             self.btn_edit.setText("View")
         for b in buttons:
             bar.addWidget(b)
-        for label, callback in spec.extra_buttons:
-            b = QPushButton(label)
-            b.clicked.connect(lambda _=False, cb=callback: cb(self, self._selected()))
-            bar.addWidget(b)
         layout.addLayout(bar)
+        # Screen-specific actions (Requirement Sheet, Day Book...) go on their
+        # own row: search + dates + five buttons already fill a laptop's width,
+        # and a row wider than the window makes Qt clip the whole screen.
+        if spec.extra_buttons:
+            extra = QHBoxLayout()
+            extra.setSpacing(8)
+            extra.addStretch(1)
+            for label, callback in spec.extra_buttons:
+                b = QPushButton(label)
+                b.clicked.connect(lambda _=False, cb=callback: cb(self, self._selected()))
+                extra.addWidget(b)
+            layout.addLayout(extra)
 
         self.list_fields = [f for f in spec.fields if f.in_list]
         self.table = QTableWidget(0, len(self.list_fields) + 1)

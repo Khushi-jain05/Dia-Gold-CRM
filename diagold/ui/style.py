@@ -266,6 +266,29 @@ QCheckBox::indicator:checked {{
 QCheckBox::indicator:disabled {{ background: #F0F0F2; }}
 
 /* ---- Group boxes (child grids on a form) ---- */
+/* ---- Reports hub list ---- */
+QListWidget#ReportList {{
+    background: {CARD};
+    border: none;
+    border-right: 1px solid {BORDER};
+    padding: 10px 8px;
+    outline: 0;
+}}
+QListWidget#ReportList::item {{
+    padding: 6px 10px 6px 18px;
+    border-radius: 6px;
+    color: {TEXT};
+}}
+QListWidget#ReportList::item:hover {{ background: {CANVAS}; }}
+QListWidget#ReportList::item:selected {{ background: {GOLD_SOFT}; color: {INK}; font-weight: 600; }}
+QListWidget#ReportList::item:disabled {{
+    color: {MUTED};
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 12px 6px 4px 6px;
+}}
+
 QGroupBox {{
     border: 1px solid {BORDER};
     border-radius: 10px;

@@ -292,9 +292,14 @@ class JobPicker(QWidget):
         self.combo = QComboBox()
         self.combo.setEditable(True)
         self.combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.combo.setMinimumWidth(320)
+        self.combo.setMinimumWidth(220)
+        # Long labels ("28350 · NS-2968 · RUBY SINGH") must not widen the row.
+        self.combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.combo.setMinimumContentsLength(18)
         lay.addWidget(self.combo)
-        self.btn_refresh = QPushButton("Refresh")
+        self.btn_refresh = QPushButton("↻")
+        self.btn_refresh.setToolTip("Refresh the job list")
+        self.btn_refresh.setFixedWidth(34)
         self.btn_refresh.clicked.connect(self.refresh)
         lay.addWidget(self.btn_refresh)
         lay.addStretch(1)
@@ -367,6 +372,10 @@ class JobHeaderCard(QFrame):
             k.setObjectName("Muted")
             v = QLabel("—")
             v.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            # A long route string or metal head wraps; it must never set the
+            # minimum width of the whole screen.
+            v.setWordWrap(True)
+            v.setMinimumWidth(60)
             if key in ("job_no", "client"):
                 f = v.font()
                 f.setBold(True)
@@ -636,6 +645,7 @@ class JobHistoryWidget(_Screen):
                         "loss across a row.  F11 opens this screen.  Update opens the route in "
                         "Job Mapping; Stone Return opens the return voucher on this job.")
         legend.setObjectName("Muted")
+        legend.setWordWrap(True)
         self.outer.addWidget(legend)
 
         headers = (["Process", "Worker"] + [f"Iss\n{l}" for _, l in ISSUE_COLS]
@@ -907,8 +917,10 @@ class JobBagWidget(_Screen):
         self.button("Issue to Worker", lambda: self._move("iss"), primary=True)
         self.button("Back from Worker", lambda: self._move("back"))
         self.button("Return to Stock", lambda: self._move("rtn"))
-        self.button("Break", lambda: self._move("break"))
-        self.button("Lost", lambda: self._move("lost"))
+        # Break and Lost are rarer; they sit on the second row so the first
+        # row stays inside a laptop's width.
+        self.button("Break", lambda: self._move("break"), secondary=True)
+        self.button("Lost", lambda: self._move("lost"), secondary=True)
         self.button("Print", self._print, secondary=True)
         self.button("Stones in Job Cards", self._report_all, secondary=True)
         self.button("Bag Balance Report", self._report_bag, secondary=True)
@@ -1664,12 +1676,13 @@ class StoneReturnWidget(_Screen):
         self.user = user
         self.btn_pending = self.button("Show Pending", self._show_pending, primary=True)
         self.button("Save", self._save)
-        self.button("Print", self._print)
+        self.button("Print", self._print, secondary=True)
         self.button("Job Card Bag",
-                    lambda: self.open_requested.emit("production_planning.job_card_bag"))
-        self._other = self.button("Other classes…", self._other_classes)
+                    lambda: self.open_requested.emit("production_planning.job_card_bag"),
+                    secondary=True)
+        self._other = self.button("Other classes…", self._other_classes, secondary=True)
         self._other.setVisible(settings.flag("pp.return_other_classes", False))
-        self.button("Exit", self.close_requested.emit)
+        self.button("Exit", self.close_requested.emit, secondary=True)
 
         form = QHBoxLayout()
         form.setSpacing(10)
@@ -1688,6 +1701,8 @@ class StoneReturnWidget(_Screen):
         form.addWidget(QLabel("Contact Person"))
         self.contact = QComboBox()
         self.contact.addItem("— none —", None)
+        self.contact.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.contact.setMinimumContentsLength(14)
         form.addWidget(self.contact, 1)
         form.addSpacing(12)
         form.addWidget(QLabel("Remark"))
@@ -1919,16 +1934,25 @@ class OpeningStockWidget(QWidget):
             for k in s.scalars(select(StoneSku).where(StoneSku.is_active.is_(True))
                                .order_by(StoneSku.sku_code)):
                 self.sku.addItem(k.sku_code, k.id)
+        for combo in (self.location, self.sku, self.group):
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(14)
+        # Two rows of four: one row of eight fields is wider than a laptop.
         for i, (label, w) in enumerate((("As of", self.as_of), ("Location", self.location),
-                                        ("Stone SKU", self.sku), ("Group", self.group),
-                                        ("Pcs", self.pcs), ("Weight (ct)", self.weight),
-                                        ("Value", self.value))):
+                                        ("Stone SKU", self.sku), ("Group", self.group))):
             form.addWidget(QLabel(label), 0, i)
             form.addWidget(w, 1, i)
+        for i, (label, w) in enumerate((("Pcs", self.pcs), ("Weight (ct)", self.weight),
+                                        ("Value", self.value))):
+            form.addWidget(QLabel(label), 2, i)
+            form.addWidget(w, 3, i)
         b = QPushButton("Add opening")
         b.setObjectName("Primary")
         b.clicked.connect(self._add)
-        form.addWidget(b, 1, 7)
+        form.addWidget(b, 3, 3)
+        for c in range(4):
+            form.setColumnStretch(c, 1)
         outer.addLayout(form)
         self.table = _table(["As of", "Location", "Stone SKU / Group", "Size", "Pcs", "Weight",
                              "Value", "Remark"])
