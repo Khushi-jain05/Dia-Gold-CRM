@@ -1904,8 +1904,10 @@ class OpeningStockWidget(QWidget):
         outer.addWidget(h1)
         note = QLabel("The legacy Opening column was never filled, which is why its closings go "
                       "negative. Enter the balance each location held at the start of the "
-                      "year - per stone SKU where known, otherwise per group. Ledger reports "
-                      "pick it up at once.")
+                      "year - per stone SKU where known, otherwise per group. Value fills "
+                      "itself from the Stone SKU's cost price (quantity x price per its unit); "
+                      "type over it if the client's figure differs. For a group-only line, "
+                      "type the value. Ledger reports pick it up at once.")
         note.setObjectName("Muted")
         note.setWordWrap(True)
         outer.addWidget(note)
@@ -1954,6 +1956,14 @@ class OpeningStockWidget(QWidget):
         for c in range(4):
             form.setColumnStretch(c, 1)
         outer.addLayout(form)
+        self.value_hint = QLabel("")
+        self.value_hint.setObjectName("Muted")
+        outer.addWidget(self.value_hint)
+        self._value_typed = False
+        self.sku.currentIndexChanged.connect(self._suggest_value)
+        self.pcs.valueChanged.connect(self._suggest_value)
+        self.weight.valueChanged.connect(self._suggest_value)
+        self.value.editingFinished.connect(self._value_edited)
         self.table = _table(["As of", "Location", "Stone SKU / Group", "Size", "Pcs", "Weight",
                              "Value", "Remark"])
         outer.addWidget(self.table, 1)
@@ -1976,6 +1986,27 @@ class OpeningStockWidget(QWidget):
                     self.table.setItem(r, c, _item(v, right=c in (4, 5, 6)))
         self.table.resizeColumnsToContents()
 
+    def _value_edited(self) -> None:
+        # Once the user types a value it is theirs; stop overwriting it.
+        self._value_typed = self.value.value() > 0
+
+    def _suggest_value(self, *_: Any) -> None:
+        """Value = quantity x the Stone SKU's cost price, shown before saving."""
+        sku_id = self.sku.currentData()
+        if not sku_id:
+            self.value_hint.setText("Group-only line: type the value the client gives "
+                                    "(pcs / ct / value per group).")
+            return
+        with SessionLocal() as s:
+            amount, how = production.suggested_stone_value(
+                s, sku_id, self.pcs.value(), Decimal(str(self.weight.value())))
+        self.value_hint.setText(f"Value = {how} → {amount:,.2f}. Type over it if the "
+                                "client's figure differs.")
+        if not self._value_typed:
+            self.value.blockSignals(True)
+            self.value.setValue(float(amount))
+            self.value.blockSignals(False)
+
     def _add(self) -> None:
         if self.pcs.value() == 0 and self.weight.value() == 0:
             _info(self, "Opening", "Enter pieces or weight.")
@@ -1996,4 +2027,5 @@ class OpeningStockWidget(QWidget):
         self.pcs.setValue(0)
         self.weight.setValue(0)
         self.value.setValue(0)
+        self._value_typed = False
         self.refresh()

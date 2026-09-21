@@ -710,22 +710,45 @@ def post_opening_stock(session: Session, location_id: int, stone_sku_id: int | N
                        value: Any = None, size: str = "", remark: str = "") -> StockMovement:
     """Opening balance at a location (18 Sept C-03 / R7).
 
-    With a Stone SKU the balance row is raised too, so the pieces can be
-    issued; a group-only opening (pcs / ct / value per Diamond / Polki /
-    Colour Stone, as the client will supply it) feeds the ledger only.
+    Value: what was typed wins; left blank, it is quantity x the Stone SKU's
+    cost price (per its unit), or 0 for a group-only line. With a Stone SKU
+    the balance row is raised too, so the pieces can be issued; a group-only
+    opening (pcs / ct / value per Diamond / Polki / Colour Stone, as the
+    client will supply it) feeds the ledger only.
     """
+    typed = None if value in (None, "") else _dec(value)
     if stone_sku_id:
         sku = session.get(StoneSku, stone_sku_id)
-        return adjust_stock(session, location_id, "stone", stone_sku_id, pcs, weight,
-                            size=size or (sku.size if sku else ""), kind="opening",
-                            mv_date=as_of, ref_kind="opening", remark=remark)
+        row_size = size or (sku.size if sku else "")
+        stock_row(session, location_id, "stone", stone_sku_id, row_size, create=True)
+        adjusted = adjust_stock(session, location_id, "stone", stone_sku_id, pcs, weight,
+                                size=row_size, kind="opening", mv_date=as_of,
+                                ref_kind="opening", remark=remark)
+        if typed is not None:
+            # adjust_stock priced the line from the catalogue; the typed value
+            # is the client's own figure, so it replaces that.
+            m = session.scalars(select(StockMovement)
+                                .order_by(StockMovement.id.desc()).limit(1)).first()
+            if m is not None:
+                m.value = typed
+                session.flush()
+        return session.scalars(select(StockMovement)
+                               .order_by(StockMovement.id.desc()).limit(1)).first()
     m = record_movement(session, location_id, "stone", None, int(pcs), _dec(weight),
                         ref_text=group or "", kind="opening", mv_date=as_of,
-                        ref_kind="opening", remark=remark,
-                        value=None if value in (None, "") else _dec(value))
+                        ref_kind="opening", remark=remark, value=typed)
     m.stone_group = (group or OTHER_GROUP).upper()
     session.flush()
     return m
+
+
+def suggested_stone_value(session: Session, stone_sku_id: int | None, pcs: int,
+                          weight: Any) -> tuple[Decimal, str]:
+    """What the catalogue says a quantity of a stone is worth, and how it was
+    priced ("2,000.00 / Cts") - shown before the user commits an opening."""
+    price, unit = stone_price(session, stone_sku_id)
+    return stone_amount(price, unit, int(pcs or 0), _dec(weight)), (
+        f"{price:,.2f} per {unit} (cost price)" if price else "no price on this Stone SKU")
 
 
 # --------------------------------------------------------------------------
