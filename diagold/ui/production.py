@@ -296,6 +296,8 @@ class JobPicker(QWidget):
         # Long labels ("28350 · NS-2968 · RUBY SINGH") must not widen the row.
         self.combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.combo.setMinimumContentsLength(18)
+        # The styled combo's padding swallowed the first character of the text.
+        self.combo.lineEdit().setTextMargins(6, 0, 0, 0)
         lay.addWidget(self.combo)
         self.btn_refresh = QPushButton("↻")
         self.btn_refresh.setToolTip("Refresh the job list")
@@ -1780,6 +1782,10 @@ class StoneReturnWidget(_Screen):
             self._rows = [b for b in production.bag_ledger(s, job)
                           if b["bal"][0] > 0 or b["bal"][1] > 0]
             locs = [(l.id, l.name) for l in s.scalars(select(Location).order_by(Location.name))]
+            # Where the stones came from; a bag filled by an opening entry has
+            # no source, and then the main stock (Primary) is the sane default -
+            # not whichever location sorts first.
+            primary = next((lid for lid, name in locs if name.lower() == "primary"), None)
             client = s.get(Account, job.account_id) if job.account_id else None
             for b in self._rows:
                 sku = s.get(StoneSku, b.line.stone_sku_id) if b.line.stone_sku_id else None
@@ -1790,8 +1796,9 @@ class StoneReturnWidget(_Screen):
                 loc = QComboBox()
                 for lid, name in locs:
                     loc.addItem(name, lid)
-                if b.line.source_location_id:
-                    loc.setCurrentIndex(max(loc.findData(b.line.source_location_id), 0))
+                want = b.line.source_location_id or primary
+                if want:
+                    loc.setCurrentIndex(max(loc.findData(want), 0))
                 self.grid.setCellWidget(r, 0, loc)
                 typ = QComboBox()
                 typ.addItems(list(InventoryReturnLine.RTN_TYPES))
@@ -1829,7 +1836,7 @@ class StoneReturnWidget(_Screen):
                 self.grid.setItem(r, 11, _item(client.name if client else "stock"))
             self._pending_for = self.job_id
         self.grid.resizeColumnsToContents()
-        if not self._rows:
+        if not self._rows and self.sender() is self.btn_pending:
             _info(self, "Show Pending", "Nothing is lying in this job's bag.")
 
     def lines(self) -> list[dict]:
@@ -1865,8 +1872,10 @@ class StoneReturnWidget(_Screen):
         self._pending_for = None
         self.remark.clear()
         self.refresh()
+        self._show_pending()   # what is still in the bag, after this return
         _info(self, "Saved", f"Return voucher {vr} posted. The bag is down and the "
-                             "location's stock is up.")
+                             "location's stock is up. The list now shows what is still "
+                             "in the bag.")
 
     def _print(self) -> None:
         if not self.job_id:
