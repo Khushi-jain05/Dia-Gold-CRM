@@ -316,8 +316,18 @@ class JobPicker(QWidget):
         self.combo.clear()
         with SessionLocal() as s:
             jobs = list(s.scalars(select(Job).where(Job.status != "cancelled")))
-            # Jobs on the floor first, newest first - what F11 is reached for.
-            jobs.sort(key=lambda j: (j.status != "in_progress", -j.job_no))
+
+            def order(job) -> tuple:
+                # Jobs on the floor first, newest first - what F11 is reached
+                # for. A job number that is not a whole number (a stray text
+                # value in the file) must not take the screen down with it.
+                try:
+                    n = int(job.job_no)
+                except (TypeError, ValueError):
+                    n = -1
+                return (job.status != "in_progress", -n)
+
+            jobs.sort(key=order)
             for job in jobs:
                 self.combo.addItem(job.label, job.id)
         comp = QCompleter([self.combo.itemText(i) for i in range(self.combo.count())], self)

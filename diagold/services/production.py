@@ -78,9 +78,16 @@ def next_number(session: Session, column) -> int:
     """The next free number in an explicit sequence (job no, order no, vr no).
 
     Live numbers migrate as they are, so this is max + 1, never autoincrement.
+    A stray text value in the column would otherwise restart the sequence at
+    1 and collide with everything, so those are skipped.
     """
     current = session.scalar(select(func.max(column)))
-    return int(current or 0) + 1
+    try:
+        return int(current or 0) + 1
+    except (TypeError, ValueError):
+        numbers = [int(v) for v in session.scalars(select(column))
+                   if str(v).strip().isdigit()]
+        return (max(numbers) + 1) if numbers else 1
 
 
 # --------------------------------------------------------------------------

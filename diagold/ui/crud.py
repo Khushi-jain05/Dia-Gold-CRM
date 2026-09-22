@@ -55,6 +55,29 @@ from diagold.services.rights import (
 # Tall enough for a styled combo / spin box sitting inside a table cell.
 ROW_HEIGHT = 38
 
+
+def singular(title: str) -> str:
+    """"Currencies" -> "Currency", "Users" -> "User", "Stone Info" -> unchanged.
+
+    Screen titles are plural; the messages ("Delete this ...?") need one
+    record. Chopping a trailing "s" gave "currencie" and "processe", so the
+    usual English endings are handled, on the last word only - a title like
+    "Parts / Moulds" keeps its first half.
+    """
+    head, sep, word = title.rpartition(" ")
+    if not word:
+        return title
+    low = word.lower()
+    if low.endswith("ies") and len(word) > 3:
+        word = word[:-3] + "y"
+    elif low.endswith(("sses", "ches", "shes", "xes")):
+        word = word[:-2]
+    elif low.endswith("s") and not low.endswith("ss") and not (
+            low.endswith(("us", "is")) and word[-2:].islower()):
+        # "SKUs" is a plural; "status" is not.
+        word = word[:-1]
+    return head + sep + word
+
 FieldType = str  # "str" | "text" | "int" | "float" | "bool" | "date"
                  # | "choice" | "fk" | "password" | "child"
 
@@ -151,6 +174,11 @@ class CrudSpec:
     detail_panels: list[tuple[str, list[str]]] = field(default_factory=list)
     # "Make A Copy" - clone the selected record and open it for editing.
     copyable: bool = False
+    # One record's name for messages, when chopping the title's plural would
+    # read oddly ("Families / Categories").
+    singular_title: str = ""
+    # Runs before a delete: return a sentence to refuse it, or None to allow.
+    delete_guard: Callable[[Any, Any], str | None] | None = None
     # Runs after the record and its child rows are written, before commit -
     # for effects that need the saved row: allotting jobs to an order's lines,
     # posting a voucher's stock movements. Raise ValueError to refuse the save
@@ -492,6 +520,8 @@ def friendly_db_error(exc: Exception, spec: "CrudSpec", values: dict | None = No
     labels = {f.name: f.label for f in spec.fields}
     values = values or {}
 
+    one = (spec.singular_title or singular(spec.title)).lower()
+
     def label_for(column: str) -> str:
         return labels.get(column, column.replace("_", " ").title())
 
@@ -501,7 +531,7 @@ def friendly_db_error(exc: Exception, spec: "CrudSpec", values: dict | None = No
         val = values.get(col)
         shown = f" '{val}'" if val not in (None, "") else ""
         return (f"{label_for(col)}{shown} is already in use.\n\n"
-                f"Each {spec.title.rstrip('s').lower()} needs its own {label_for(col).lower()} - "
+                f"Each {one} needs its own {label_for(col).lower()} - "
                 f"choose a different one, or edit the existing record instead.")
     if "NOT NULL constraint failed" in raw:
         col = raw.split("NOT NULL constraint failed:")[1].split("\n")[0].strip()
@@ -532,7 +562,7 @@ class FormDialog(QDialog):
 
         self.setWindowTitle(
             f"{'View' if readonly else 'Edit' if instance else 'New'} "
-            f"{spec.title.rstrip('s')}"
+            f"{spec.singular_title or singular(spec.title)}"
         )
         self.setMinimumWidth(460)
 
@@ -934,9 +964,9 @@ class FormDialog(QDialog):
                 QMessageBox.warning(
                     self, "Already exists",
                     f"{label} '{values[col.name]}' is already in use.\n\n"
-                    f"Each {self.spec.title.rstrip('s').lower()} needs its own "
-                    f"{label.lower()} - choose a different one, or edit the "
-                    f"existing record instead.",
+                    f"Each {(self.spec.singular_title or singular(self.spec.title)).lower()} "
+                    f"needs its own {label.lower()} - choose a different one, or "
+                    f"edit the existing record instead.",
                 )
                 if f and f.name in self.editors:
                     self.editors[f.name].setFocus()
@@ -1347,8 +1377,16 @@ class CrudWidget(QWidget):
         if current is None:
             QMessageBox.information(self, "Delete", "Select a row first.")
             return
+        one = (self.spec.singular_title or singular(self.spec.title)).lower()
+        if self.spec.delete_guard is not None:
+            with SessionLocal() as session:
+                refusal = self.spec.delete_guard(session.get(self.spec.model, current.id),
+                                                 session)
+            if refusal:
+                QMessageBox.warning(self, "Cannot delete", refusal)
+                return
         if QMessageBox.question(
-            self, "Delete", f"Delete this {self.spec.title.rstrip('s').lower()}?"
+            self, "Delete", f"Delete this {one}?"
         ) != QMessageBox.StandardButton.Yes:
             return
         with SessionLocal() as session:
@@ -1370,7 +1408,7 @@ class CrudWidget(QWidget):
                               "\n\nRemove or cancel those records first.")
                     QMessageBox.warning(
                         self, "Could not delete",
-                        "This record is used by other records, so it cannot be "
+                        f"This {one} is used by other records, so it cannot be "
                         "deleted." + retire,
                     )
                     return

@@ -82,8 +82,52 @@ def sync_schema(engine: Engine) -> list[str]:
         _create_unique_indexes(conn, inspector, existing)
         _enforce_stone_group(conn, inspector, existing)
         _drop_broken_orphan_tables(conn, inspector, existing)
+        changes += _mend_voucher_numbers(conn, existing)
 
     return changes
+
+
+# Numbers the client's own system owns: job, order and voucher numbers, which
+# are written explicitly rather than autoincremented.
+_NUMBERED: tuple[tuple[str, str], ...] = (
+    ("jobs", "job_no"),
+    ("orders", "order_no"),
+    ("job_vouchers", "vr_no"),
+    ("stone_issues", "vr_no"),
+    ("inventory_returns", "vr_no"),
+)
+
+
+def _mend_voucher_numbers(conn, existing: set[str]) -> list[str]:
+    """Give a whole number back to any row whose number was stored as text.
+
+    SQLite keeps a non-numeric value ("" for instance) as TEXT even in an
+    INTEGER column. One such row makes every screen that sorts by the number
+    fail, and makes the next number restart at 1. Each is renumbered above
+    the highest real number, which is visible and safe - nothing else points
+    at these numbers, only at the row's id.
+    """
+    fixed: list[str] = []
+    for table, column in _NUMBERED:
+        if table not in existing:
+            continue
+        bad = conn.execute(text(
+            f'SELECT id FROM "{table}" WHERE typeof("{column}") <> \'integer\' '
+            f'ORDER BY id'
+        )).fetchall()
+        if not bad:
+            continue
+        top = conn.execute(text(
+            f'SELECT COALESCE(MAX("{column}"), 0) FROM "{table}" '
+            f'WHERE typeof("{column}") = \'integer\''
+        )).scalar() or 0
+        for n, (row_id,) in enumerate(bad, start=1):
+            conn.execute(text(f'UPDATE "{table}" SET "{column}" = :v WHERE id = :id'),
+                         {"v": int(top) + n, "id": row_id})
+        fixed.append(f"{table}.{column}: renumbered {len(bad)} row(s)")
+        print(f"[db] {table}.{column} had {len(bad)} row(s) with no proper number; "
+              f"they are now {int(top) + 1}-{int(top) + len(bad)}.")
+    return fixed
 
 
 def _add_missing_columns(conn, inspector, existing: set[str]) -> list[str]:

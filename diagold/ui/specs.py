@@ -55,7 +55,7 @@ from diagold.db.models import (
     StoneSkuVendor,
     User,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from diagold.db.session import SessionLocal
 from diagold.services import costing, production, rates
@@ -295,6 +295,22 @@ _register(CrudSpec(
     ],
 ))
 
+def _guard_user_delete(user, session) -> str | None:
+    """A login may be deleted while it owns no history; otherwise it is
+    retired with the Active flag, so its name stays on what it did."""
+    if user is None:
+        return None
+    if user.is_superuser and session.scalar(
+        select(func.count()).select_from(User).where(User.is_superuser.is_(True))
+    ) <= 1:
+        return ("This is the only superuser. Give another user the Superuser "
+                "flag first, or nobody can administer the system.")
+    if user.username == "admin":
+        return ("The admin login is how the system is set up and recovered - "
+                "clear its Active flag instead if it should not be used.")
+    return None
+
+
 # --- User Right (Master > User Right) -----------------------------------
 _register(CrudSpec(
     key="master.user_right",
@@ -302,9 +318,11 @@ _register(CrudSpec(
     model=User,
     order_by="username",
     search_hint="Search by username, name, email, mobile…",
-    # Users are never deleted - deactivating keeps their name on historic
-    # records, which is the whole point of named logins.
-    deletable=False,
+    # A login that owns no history can go; once it has issued or received
+    # anything, the database refuses and the screen says to retire it with
+    # the Active flag instead - its name has to stay on what it did.
+    deletable=True,
+    delete_guard=_guard_user_delete,
     fields=[
         Field("username", "Username", required=True,
               help_text="Role-shaped names such as CST1 or CAD are fine."),
@@ -402,6 +420,7 @@ _register(CrudSpec(
 _register(CrudSpec(
     key="master.family_category",
     title="Families / Categories",
+    singular_title="family / category",
     model=FamilyCategory,
     order_by="name",
     search_hint="Search by code or name…",
@@ -952,6 +971,7 @@ _register(CrudSpec(
 _register(CrudSpec(
     key="master.family_category",
     title="Families / Categories",
+    singular_title="family / category",
     model=FamilyCategory,
     order_by="name",
     search_hint="Search by code or name…",
