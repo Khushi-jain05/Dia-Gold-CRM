@@ -82,7 +82,14 @@ def sync_schema(engine: Engine) -> list[str]:
         _create_unique_indexes(conn, inspector, existing)
         _enforce_stone_group(conn, inspector, existing)
         _drop_broken_orphan_tables(conn, inspector, existing)
-        changes += _mend_voucher_numbers(conn, existing)
+
+    # Its own transaction, and never fatal: mending numbers is housekeeping,
+    # and a file it cannot mend must still open.
+    try:
+        with engine.begin() as conn:
+            changes += _mend_voucher_numbers(conn, existing)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[db] could not mend voucher numbers: {exc}")
 
     return changes
 
@@ -103,30 +110,38 @@ def _mend_voucher_numbers(conn, existing: set[str]) -> list[str]:
 
     SQLite keeps a non-numeric value ("" for instance) as TEXT even in an
     INTEGER column. One such row makes every screen that sorts by the number
-    fail, and makes the next number restart at 1. Each is renumbered above
-    the highest real number, which is visible and safe - nothing else points
-    at these numbers, only at the row's id.
+    fail, and makes the next number restart at 1. Only text / blob / missing
+    values are touched - a number is a number whether it is stored as 1 or
+    1.0 - and each replacement is checked against the numbers already in the
+    table, because they are unique.
     """
     fixed: list[str] = []
     for table, column in _NUMBERED:
         if table not in existing:
             continue
-        bad = conn.execute(text(
-            f'SELECT id FROM "{table}" WHERE typeof("{column}") <> \'integer\' '
-            f'ORDER BY id'
+        rows = conn.execute(text(
+            f'SELECT id, "{column}", typeof("{column}") FROM "{table}" ORDER BY id'
         )).fetchall()
+        bad = [r[0] for r in rows if r[2] not in ("integer", "real")]
         if not bad:
             continue
-        top = conn.execute(text(
-            f'SELECT COALESCE(MAX("{column}"), 0) FROM "{table}" '
-            f'WHERE typeof("{column}") = \'integer\''
-        )).scalar() or 0
-        for n, (row_id,) in enumerate(bad, start=1):
+        # Every number already in use, so a replacement cannot collide. SQLite
+        # treats 1 and 1.0 as the same value in a unique index, so compare on
+        # the integer.
+        taken = {int(r[1]) for r in rows if r[2] in ("integer", "real")}
+        nxt = (max(taken) + 1) if taken else 1
+        given: list[int] = []
+        for row_id in bad:
+            while nxt in taken:
+                nxt += 1
             conn.execute(text(f'UPDATE "{table}" SET "{column}" = :v WHERE id = :id'),
-                         {"v": int(top) + n, "id": row_id})
+                         {"v": nxt, "id": row_id})
+            taken.add(nxt)
+            given.append(nxt)
+            nxt += 1
         fixed.append(f"{table}.{column}: renumbered {len(bad)} row(s)")
         print(f"[db] {table}.{column} had {len(bad)} row(s) with no proper number; "
-              f"they are now {int(top) + 1}-{int(top) + len(bad)}.")
+              f"they are now {', '.join(str(g) for g in given)}.")
     return fixed
 
 

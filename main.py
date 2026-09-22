@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from diagold import APP_NAME
 from diagold.db.session import init_db
@@ -23,7 +23,15 @@ def main() -> int:
     app.setPalette(build_palette())   # before the sheet: the sheet wins where both speak
     app.setStyleSheet(APP_QSS)
 
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:  # noqa: BLE001 - the user sees this, not a traceback
+        from diagold.config import DB_PATH
+        QMessageBox.critical(
+            None, f"{APP_NAME} — could not open the data file",
+            f"{exc}\n\nThe file is:\n{DB_PATH}\n\nNothing has been changed. Send "
+            "this message to the developer; a copy of that file lets us fix it.")
+        return 1
 
     while True:
         login = LoginDialog()
