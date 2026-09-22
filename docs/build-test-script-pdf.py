@@ -37,11 +37,13 @@ def step(n: int, title: str, rows: list[tuple[str, str]], checks: list[str], int
 
 
 HTML = CSS + """
-<h1>Dia Gold CRM v0.5.5 — Test Script</h1>
-<p class='muted'>Build <b>v0.5.5</b> · Login: <b>admin</b> / <b>admin</b>. Steps ko isi order me karo — har screen agli screen me dikhti hai
+<h1>Dia Gold CRM v0.5.6 — Test Script</h1>
+<p class='muted'>Build <b>v0.5.6</b> · Login: <b>admin</b> / <b>admin</b>. Steps ko isi order me karo — har screen agli screen me dikhti hai
 (Order → Jobs → Route → Vouchers → Bag → Return → Reports). Sample data pehle se hai: jobs 28350 (Ruby Singh), 25006, 27751.</p>
 <div class='box'><b>Step 5 me jo job banega, wahi step 6 se 11 tak chalega.</b> Uska number likh lein — har us screen pe
-<i>Job No</i> me wahi chunna hai. 25006 / 27751 / 28350 sample jobs hain, unpe apne steps mat karein.</div>
+<i>Job No</i> me wahi chunna hai. 25006 / 27751 / 28350 sample jobs hain, unpe apne steps mat karein.<br>
+<b>Steps ko skip na karein:</b> step 3 ka stone step 4 me chahiye, step 4 ka SKU step 5 ki SKU list me aata hai,
+step 5 ka job step 6–11 me. Agar koi cheez dropdown me na mile, matlab uska pichhla step reh gaya.</div>
 <div class='box'><b>Bug kaise report karein:</b> screen ka naam · kya dabaya · kya expect tha · kya hua · screenshot.</div>
 """ + step(1, "Master ▸ Account → + New  (ek karigar)", [
     ("Code", "RAHUL"), ("Name", "RAHUL JI"), ("Type", "Worker"), ("Group", "Accounts Payable")],
@@ -63,10 +65,11 @@ HTML = CSS + """
 ) + step(5, "Production Planning ▸ Order → + New", [
     ("Date", "aaj"), ("Ord Type", "Customer"), ("Customer", "KK JEWELS"), ("Ref", "TEST-1"),
     ("Delivery Date", "aaj + 10 din"),
-    ("SKU Lines row 1", "SKU RG-9001 → Desc/Metal/weights khud; Pcs 2"),
-    ("SKU Lines row 2", "SKU NS-2968, Pcs 1")],
-    ["Save → Ord No khud milega; 2 jobs allot hue (Job Mapping me dikhenge).",
-     "Customer khali chhod ke Save → refuse."],
+    ("SKU Lines row 1", "SKU <b>RG-9001</b> (ye step 4 me banaya tha — list me na dikhe to step 4 pura karein) → Desc/Metal/weights khud aa jayenge; <b>Pcs 2</b>"),
+    ("SKU Lines row 2", "<b>Add row</b> dabayein, SKU koi bhi doosra (jaise ER-1337), <b>Pcs 1</b>")],
+    ["Save → Ord No khud milega; <b>2 jobs allot hue</b> (Job Mapping me dikhenge) — dono job number likh lein.",
+     "Customer khali chhod ke Save → refuse.",
+     "Kisi line ka Pcs 0 karke Save → refuse ('Line 1 has no pieces')."],
 ) + step(6, "Production Planning ▸ Job Mapping", [],
     ["'Pending Jobs For Definition' me apne 2 naye jobs. Pehla select → Process Group Default → <b>Apply Group</b> → 11 steps → <b>Save Route</b>.",
      "<b>Copy To All</b> → doosre job pe bhi route.",
@@ -78,11 +81,11 @@ HTML = CSS + """
     ["Save. Dobara same, Pcs 999 → refuse: 'Primary holds only …'."],
 ) + step(8, "Production Planning ▸ Job History  (ya F11)", [
     ("Job No", "step 5 wala apna job number type → Enter"),
-    ("+ Issue", "Step 3 · CASTING, Worker RAHUL JI, Pcs 1, Gross 5.200, Net 5.200 → Save"),
+    ("+ Issue", "Process step <b>3 · CASTING</b> (dialog khud isi pe khulta hai; CAD pe weight boxes band rehte hain), Worker RAHUL JI, Pcs 1, Gross 5.200, Net 5.200 → Save"),
     ("+ Receive", "wahi step, Worker RAHUL JI, Gross 5.150, Net 5.150 → Save")],
     ["Row me <b>Loss 0.050</b> dikhega — Loss column <b>Worker ke bilkul saath</b> hai (scroll karne ki zaroorat nahi), aur neeche footer me <b>LOSS so far</b> bhi.",
      "+ Receive bina weight → refuse ('carries metal…'). Worker khali → refuse.",
-     "+ Issue step 1 · CAD weight ke saath → refuse ('design only').",
+     "Step dropdown me <b>1 · CAD</b> chunein → weight boxes apne aap band ho jate hain aur neeche wajah likhi aati hai (design-only step).",
      "<b>Add Comments</b> → note neeche dikhega. <b>Print</b> → PDF banega."],
 ) + step(9, "Production Planning ▸ Job Card Bag", [
     ("Job No", "apna job"), ("EMERALD PEAR 6*4 line", "Bal 4 / 1.200 dikhna chahiye")],
@@ -116,6 +119,6 @@ HTML = CSS + """
 
 if __name__ == "__main__":
     app = QApplication.instance() or QApplication(sys.argv)
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / "Downloads" / "DiaGold-Test-Script-v0.5.5.pdf"
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / "Downloads" / "DiaGold-Test-Script-v0.5.6.pdf"
     to_pdf(HTML, out)
     print(out)

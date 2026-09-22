@@ -353,7 +353,12 @@ class ChildTableEditor(QWidget):
         self.table.insertRow(r)
         self.table.setRowHeight(r, ROW_HEIGHT)
         for c, f in enumerate(self.spec.fields):
-            widget = self._cell(f, values.get(f.name))
+            value = values.get(f.name)
+            if value in (None, "") and f.default is not None:
+                # A new row starts on the field's default, exactly as the form
+                # above does - a line that says "Pcs 0" is nobody's intention.
+                value = f.default() if callable(f.default) else f.default
+            widget = self._cell(f, value)
             if f.on_change is not None:
                 self._wire_cell_change(f, widget, r)
             self.table.setCellWidget(r, c, widget)

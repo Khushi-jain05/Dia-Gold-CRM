@@ -531,13 +531,20 @@ class VoucherDialog(QDialog):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         self.step = QComboBox()
         self.worker = QComboBox()
+        self._bearing: dict[int, bool] = {}
+        first_free = None
         with SessionLocal() as s:
             job = s.get(Job, job_id)
             for st in job.steps:
                 p = s.get(ManufacturingProcess, st.process_id)
                 open_iss = production.open_issue(s, st)
                 tag = " (out)" if open_iss else ""
+                if not st.weight_bearing:
+                    tag += " — design only, no weights"
+                self._bearing[st.id] = bool(st.weight_bearing)
                 self.step.addItem(f"{st.seq} · {p.name if p else '?'}{tag}", st.id)
+                if kind == "issue" and first_free is None and st.weight_bearing and not open_iss:
+                    first_free = self.step.count() - 1
                 if kind == "receive" and open_iss:
                     self.step.setCurrentIndex(self.step.count() - 1)
                     w = s.get(Account, open_iss.worker_id)
@@ -548,6 +555,10 @@ class VoucherDialog(QDialog):
             i = self.worker.findData(self._default_worker)
             if i >= 0:
                 self.worker.setCurrentIndex(i)
+        if kind == "issue" and first_free is not None:
+            # Open on the first step that actually takes metal: CAD is where
+            # every route starts, and it is the one step that takes no weights.
+            self.step.setCurrentIndex(first_free)
         self.date = QDateEdit(_qdate(None))
         self.date.setCalendarPopup(True)
         self.date.setDisplayFormat("yyyy-MM-dd")
@@ -585,16 +596,32 @@ class VoucherDialog(QDialog):
                 form.addRow(label, self.extra[key])
         self.remark = QLineEdit()
         form.addRow("Remark", self.remark)
-        hint = QLabel("Loss is derived from what comes back: issued net − received net "
-                      "− scrap − dust. A design-only step (CAD) takes no weights.")
-        hint.setObjectName("Muted")
-        hint.setWordWrap(True)
-        form.addRow("", hint)
+        self.hint = QLabel("")
+        self.hint.setObjectName("Muted")
+        self.hint.setWordWrap(True)
+        form.addRow("", self.hint)
+        self.step.currentIndexChanged.connect(lambda _i: self._step_changed())
+        self._step_changed()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save
                                    | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+
+    def _step_changed(self) -> None:
+        """A design-only step takes no weights: grey the boxes and say why,
+        rather than letting the figures be typed and refusing the save."""
+        bearing = self._bearing.get(self.step.currentData(), True)
+        for w in (self.gross, self.net):
+            w.setEnabled(bearing)
+            if not bearing:
+                w.setValue(0)
+            w.setToolTip("" if bearing else "This step carries no metal weight.")
+        self.hint.setText(
+            "Loss is derived from what comes back: issued net − received net − scrap − dust."
+            if bearing else
+            "This step is design only (no metal goes out or comes back), so the weight "
+            "boxes are off. Pick a step like CASTING or HandMade to enter weights.")
 
     @staticmethod
     def _wt(places: int = 3) -> QDoubleSpinBox:

@@ -1318,16 +1318,17 @@ def _order_lines_summary(rows: list[dict]) -> str:
 
 def _validate_order(values: dict, children: dict[str, list[dict]]) -> str | None:
     if values.get("order_type") == "Customer" and not values.get("account_id"):
-        return "A customer order needs a customer. Pick the account, or set Ord Type to Stock."
-    rows = children.get("lines", [])
-    lines = [r for r in rows
+        return ("A customer order needs a customer.\n\nPick the account, or set "
+                "Ord Type to Stock if this is for stock.")
+    lines = [r for r in children.get("lines", [])
              if r.get("product_sku_id") or (r.get("sku_desc") or "").strip()]
     if not lines:
-        if rows:
-            # a row exists but says nothing - say what makes it count
-            return ("Line 1 has no SKU. Pick a SKU in the SKU column (it fills "
-                    "the description, metal and weights), or type a SKU Desc.")
-        return "An order needs at least one SKU line - press Add row."
+        return ("An order needs at least one SKU line.\n\nPick a SKU on the line (or "
+                "type a description), then Save.")
+    empty = [n for n, r in enumerate(lines, start=1) if int(r.get("pcs") or 0) <= 0]
+    if empty:
+        return (f"Line {empty[0]} has no pieces.\n\nEvery line needs Pcs of 1 or more - "
+                "one job is allotted per line, for that many pieces.")
     return None
 
 

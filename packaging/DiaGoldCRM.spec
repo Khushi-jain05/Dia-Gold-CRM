@@ -51,8 +51,8 @@ if sys.platform == "darwin":
         icon=None,
         bundle_identifier="works.iterativetech.diagoldcrm",
         info_plist={
-            "CFBundleShortVersionString": "0.5.5",
-            "CFBundleVersion": "0.5.5",
+            "CFBundleShortVersionString": "0.5.6",
+            "CFBundleVersion": "0.5.6",
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
         },
