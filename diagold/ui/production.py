@@ -973,6 +973,9 @@ class JobBagWidget(_Screen):
         self.button("Break", lambda: self._move("break"), secondary=True)
         self.button("Lost", lambda: self._move("lost"), secondary=True)
         self.button("Print", self._print, secondary=True)
+        self.button("Stone Issue",
+                    lambda: self.open_requested.emit("production_planning.stone_issue"),
+                    secondary=True)
         self.button("Stones in Job Cards", self._report_all, secondary=True)
         self.button("Bag Balance Report", self._report_bag, secondary=True)
         self.button("Job History", lambda: self.open_requested.emit("production_planning.job_history"),
@@ -983,7 +986,16 @@ class JobBagWidget(_Screen):
             lab = production.COLUMN_LABELS[col]
             headers += [f"{lab}\nPcs", f"{lab}\nWt"]
         self.grid = _table(headers, ledger=True)
+        self.grid.setMinimumHeight(220)
         self.outer.addWidget(self.grid, 1)
+        # A job whose SKU carries no stones has an empty bag; say so, rather
+        # than leaving a blank grid that looks broken.
+        self.empty = QLabel()
+        self.empty.setObjectName("Muted")
+        self.empty.setWordWrap(True)
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty.setVisible(False)
+        self.outer.addWidget(self.empty, 1)
         legend = QLabel("Bal = Rcvd − Iss − Rtn − Break − Lost + Back.  Tints: Iss yellow, "
                         "Break pink, Lost red, Bal green (as on the legacy screen).  "
                         "'Back' is read as returned from the worker into the bag (Q7).")
@@ -1018,12 +1030,34 @@ class JobBagWidget(_Screen):
                 self.grid.setItem(r, c + 1, _item(wt, tint, right=True, bold=col == "bal"))
                 c += 2
         _fit_columns(self.grid)
+        self._show_empty_state(job)
+
+    def _show_empty_state(self, job) -> None:
+        empty = not self._rows
+        self.grid.setVisible(not empty)
+        frozen = getattr(self, "frozen", None)
+        if frozen is not None:
+            frozen.setVisible(not empty)
+        self.empty.setVisible(empty)
+        if empty:
+            self.empty.setText(
+                f"<b>Job {job.job_no if job else ''} has nothing in its bag yet.</b>"
+                "<br><br>Stones reach a bag two ways: the SKU's own stone list becomes "
+                "the job's requirement when the order is saved, and <b>Stone Issue on "
+                "Job-Card</b> puts real stones into it.<br><br>Use the <b>Stone Issue</b> "
+                "button above, issue stones to this job, then come back here.")
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
         super().resizeEvent(event)
         _fit_columns(self.grid)
 
     def _selected_row(self) -> production.BagRow | None:
+        if not self._rows:
+            _info(self, "Job Card Bag",
+                  "This job's bag is empty, so there is nothing to issue, return or write "
+                  "off yet.\n\nPut stones into it first: Production Planning ▸ Stone Issue "
+                  "on Job-Card (the Stone Issue button above opens it).")
+            return None
         rows = self.grid.selectionModel().selectedRows()
         if not rows or not self._rows:
             _info(self, "Job Card Bag", "Select a stone line first.")
