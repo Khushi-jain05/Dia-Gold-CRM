@@ -37,9 +37,11 @@ def step(n: int, title: str, rows: list[tuple[str, str]], checks: list[str], int
 
 
 HTML = CSS + """
-<h1>Dia Gold CRM v0.5.0 — Test Script</h1>
-<p class='muted'>Login: <b>admin</b> / <b>admin</b>. Steps ko isi order me karo — har screen agli screen me dikhti hai
+<h1>Dia Gold CRM v0.5.4 — Test Script</h1>
+<p class='muted'>Build <b>v0.5.4</b> · Login: <b>admin</b> / <b>admin</b>. Steps ko isi order me karo — har screen agli screen me dikhti hai
 (Order → Jobs → Route → Vouchers → Bag → Return → Reports). Sample data pehle se hai: jobs 28350 (Ruby Singh), 25006, 27751.</p>
+<div class='box'><b>Step 5 me jo job banega, wahi step 6 se 11 tak chalega.</b> Uska number likh lein — har us screen pe
+<i>Job No</i> me wahi chunna hai. 25006 / 27751 / 28350 sample jobs hain, unpe apne steps mat karein.</div>
 <div class='box'><b>Bug kaise report karein:</b> screen ka naam · kya dabaya · kya expect tha · kya hua · screenshot.</div>
 """ + step(1, "Master ▸ Account → + New  (ek karigar)", [
     ("Code", "RAHUL"), ("Name", "RAHUL JI"), ("Type", "Worker"), ("Group", "Accounts Payable")],
@@ -75,10 +77,10 @@ HTML = CSS + """
     ("Stones row", "Location Primary · SSKU EMERALD PEAR 6*4 (Size/Wt khud) · Pcs 4 · Weight 1.200")],
     ["Save. Dobara same, Pcs 999 → refuse: 'Primary holds only …'."],
 ) + step(8, "Production Planning ▸ Job History  (ya F11)", [
-    ("Job No", "apna job number type → Enter"),
+    ("Job No", "step 5 wala apna job number type → Enter"),
     ("+ Issue", "Step 3 · CASTING, Worker RAHUL JI, Pcs 1, Gross 5.200, Net 5.200 → Save"),
     ("+ Receive", "wahi step, Worker RAHUL JI, Gross 5.150, Net 5.150 → Save")],
-    ["Row me <b>Loss 0.050</b> dikhega.",
+    ["Row me <b>Loss 0.050</b> dikhega — Loss column <b>Worker ke bilkul saath</b> hai (scroll karne ki zaroorat nahi), aur neeche footer me <b>LOSS so far</b> bhi.",
      "+ Receive bina weight → refuse ('carries metal…'). Worker khali → refuse.",
      "+ Issue step 1 · CAD weight ke saath → refuse ('design only').",
      "<b>Add Comments</b> → note neeche dikhega. <b>Print</b> → PDF banega."],
@@ -109,7 +111,8 @@ HTML = CSS + """
     ["Har report pe: <b>Group</b> dropdown, <b>Auto Filter</b> (column select karke), <b>Export</b>, <b>Print</b>."],
 ) + step(14, "Tools ▸ Option", [],
     ["'Job Card Bag' untick → Save → menu se gayab. Wapas tick → wapas."],
-) + "<p class='muted'>Jo bhi galat mile — screenshot ke saath bhej do.</p>"
+) + ("<p class='muted'>Jo bhi galat mile — screenshot ke saath bhej do. Agar koi screen "
+   "khali dikhe, wo aapko khud batayegi ki kya missing hai aur kahan se bharna hai.</p>")
 
 if __name__ == "__main__":
     app = QApplication.instance() or QApplication(sys.argv)

@@ -1019,7 +1019,11 @@ class JobBagWidget(_Screen):
         for b in self._rows:
             r = self.grid.rowCount()
             self.grid.insertRow(r)
-            self.grid.setItem(r, 0, _item(b.line.particulars, bold=True))
+            # A line the job needs but has never received is a requirement,
+            # not stock in the bag - it reads as "(to issue)".
+            waiting = b["bal"] == (0, Decimal("0.000")) and b["rcvd"][0] == 0
+            name = b.line.particulars + ("  (to issue)" if waiting else "")
+            self.grid.setItem(r, 0, _item(name, bold=not waiting))
             self.grid.setItem(r, 1, _item(b.line.size))
             self.grid.setItem(r, 2, _item(b.line.s_type))
             c = 3
@@ -1067,6 +1071,21 @@ class JobBagWidget(_Screen):
     def _move(self, kind: str) -> None:
         row = self._selected_row()
         if row is None:
+            return
+        bal_pcs, bal_wt = row["bal"]
+        req_pcs, req_wt = row["req"]
+        name = f"{row.line.particulars} {row.line.size}".strip()
+        if bal_pcs <= 0 and bal_wt <= 0 and kind != "back":
+            # A line can be here as the SKU's requirement with nothing issued
+            # into the bag yet; "cannot issue 2 of 0" does not explain that.
+            if req_pcs or req_wt:
+                _info(self, "Nothing in the bag for this line",
+                      f"{name} is what this job needs ({req_pcs} pcs / {req_wt}), but "
+                      "none of it has been issued into the bag yet.\n\nIssue the stones "
+                      "first: the Stone Issue button above opens Stone Issue on Job-Card.")
+            else:
+                _info(self, "Nothing in the bag for this line",
+                      f"Nothing is left in the bag for {name}.")
             return
         dlg = MovementDialog(row, kind, self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
