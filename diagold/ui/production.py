@@ -653,25 +653,44 @@ class JobHistoryWidget(_Screen):
                     secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
 
-        legend = QLabel("Issue columns are tinted pink, receive columns green — read "
-                        "loss across a row.  F11 opens this screen.  Update opens the route in "
-                        "Job Mapping; Stone Return opens the return voucher on this job.")
+        legend = QLabel("Loss (issued net − received net − scrap − dust) is beside the "
+                        "worker; issue columns are tinted pink and receive columns green, so "
+                        "the whole step reads across one row.  F11 opens this screen.  Update "
+                        "opens the route in Job Mapping; Stone Return opens the return "
+                        "voucher on this job.")
         legend.setObjectName("Muted")
         legend.setWordWrap(True)
         self.outer.addWidget(legend)
 
-        headers = (["Process", "Worker"] + [f"Iss\n{l}" for _, l in ISSUE_COLS]
-                   + [f"Rcv\n{l}" for _, l in RECEIVE_COLS] + ["Loss\n(g)"])
+        # Loss sits with Process and Worker, not at the far right: it is the
+        # number the row exists for, and the reader should never have to
+        # scroll twenty columns to find it. The frozen block carries all three.
+        headers = (["Process", "Worker", "Loss\n(g)"]
+                   + [f"Iss\n{l}" for _, l in ISSUE_COLS]
+                   + [f"Rcv\n{l}" for _, l in RECEIVE_COLS])
         self.grid = _table(headers, ledger=True)
-        self.frozen = _FrozenColumns(self.grid, 2)
-        self.outer.addWidget(self.grid, 3)
+        # The route is eleven steps; a grid one row tall hides the very row
+        # the reader came for, so it keeps most of the screen and the stone
+        # list below it can be dragged smaller or larger.
+        self.grid.setMinimumHeight(240)
+        self.frozen = _FrozenColumns(self.grid, 3)
 
         stone_box = QGroupBox("Stones on this job")
         sl = QVBoxLayout(stone_box)
+        sl.setContentsMargins(10, 8, 10, 8)
         self.stones = _table(["Location", "SSKU", "Description", "Size", "LotNo", "Wt/Pcs",
                               "Pcs", "Weight", "Rtn", "Break", "Loss", "S Type", "Remark"])
+        self.stones.setMinimumHeight(70)
         sl.addWidget(self.stones)
-        self.outer.addWidget(stone_box, 2)
+        stone_box.setMinimumHeight(110)
+
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.addWidget(self.grid)
+        split.addWidget(stone_box)
+        split.setStretchFactor(0, 4)
+        split.setStretchFactor(1, 1)
+        split.setSizes([460, 150])
+        self.outer.addWidget(split, 1)
 
         self.summary = QLabel("")
         self.summary.setObjectName("Muted")
@@ -704,13 +723,16 @@ class JobHistoryWidget(_Screen):
         with SessionLocal() as s:
             job = s.get(Job, self.job_id)
             self.header.set_job(s, job)
+            self._row_steps: list[int] = []
             for row in production.history_rows(s, job):
                 r = self.grid.rowCount()
                 self.grid.insertRow(r)
+                self._row_steps.append(row.step.id)
                 self.grid.setItem(r, 0, _item(row.process.name if row.process else "",
                                               bold=row.issue is not None))
                 self.grid.setItem(r, 1, _item(row.worker))
-                c = 2
+                self.grid.setItem(r, 2, _item(row.loss, right=True, bold=True))
+                c = 3
                 for key, _ in ISSUE_COLS:
                     v = getattr(row.issue, key, None) if row.issue else None
                     self.grid.setItem(r, c, _item(v, TINT_ISSUE, right=key not in
@@ -721,7 +743,6 @@ class JobHistoryWidget(_Screen):
                     self.grid.setItem(r, c, _item(v, TINT_RECEIVE, right=key not in
                                                   ("vr_date", "del_date", "vr_time")))
                     c += 1
-                self.grid.setItem(r, c, _item(row.loss, right=True, bold=True))
             _fit_columns(self.grid)
             self.frozen.sync()
             for b in production.bag_ledger(s, job):
@@ -739,8 +760,12 @@ class JobHistoryWidget(_Screen):
                     self.stones.setItem(r, c, _item(v, right=c in (5, 6, 7)))
             self.stones.resizeColumnsToContents()
             sm = production.job_summary(s, job)
+            losses = [r.loss for r in production.history_rows(s, job) if r.loss is not None]
+            total_loss = sum(losses) if losses else None
             self.summary.setText(
-                f"PND: {sm['pnd'] or '—'}    WIP: {sm['wip']}    Rejection: {sm['rejection']}"
+                (f"<b>LOSS so far: {total_loss:.3f} g</b> over {len(losses)} step(s)    "
+                 if total_loss is not None else "")
+                + f"PND: {sm['pnd'] or '—'}    WIP: {sm['wip']}    Rejection: {sm['rejection']}"
                 f"    PND For MFG Transfer: {sm['pnd_mfg_transfer']}    "
                 f"MFG Transfer: {sm['mfg_transfer']}    TOTAL PCS: {sm['total_pcs']}")
             # Order Remark carries the stone requirement as text in the legacy
@@ -773,7 +798,9 @@ class JobHistoryWidget(_Screen):
                 return
         dlg = VoucherDialog(self.job_id, kind, getattr(self.user, "id", None), self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            step_id = dlg.step.currentData()
             self.refresh()
+            self._show_step(step_id)
 
     def _add_comment(self) -> None:
         if not self.job_id:
@@ -797,6 +824,18 @@ class JobHistoryWidget(_Screen):
                              text=box.toPlainText().strip()))
             s.commit()
         self.refresh()
+
+    def _show_step(self, step_id: int | None) -> None:
+        """Select and scroll to the row of a step - after an issue or receive,
+        that is the row the user is checking."""
+        if not step_id or not hasattr(self, "_row_steps"):
+            return
+        for r, sid in enumerate(self._row_steps):
+            if sid == step_id:
+                self.grid.selectRow(r)
+                self.grid.scrollToItem(self.grid.item(r, 0),
+                                       QAbstractItemView.ScrollHint.PositionAtCenter)
+                return
 
     def _print(self) -> None:
         if not self.job_id:
