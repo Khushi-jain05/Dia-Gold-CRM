@@ -37,8 +37,8 @@ def step(n: int, title: str, rows: list[tuple[str, str]], checks: list[str], int
 
 
 HTML = CSS + """
-<h1>Dia Gold CRM v0.5.4 — Test Script</h1>
-<p class='muted'>Build <b>v0.5.4</b> · Login: <b>admin</b> / <b>admin</b>. Steps ko isi order me karo — har screen agli screen me dikhti hai
+<h1>Dia Gold CRM v0.5.5 — Test Script</h1>
+<p class='muted'>Build <b>v0.5.5</b> · Login: <b>admin</b> / <b>admin</b>. Steps ko isi order me karo — har screen agli screen me dikhti hai
 (Order → Jobs → Route → Vouchers → Bag → Return → Reports). Sample data pehle se hai: jobs 28350 (Ruby Singh), 25006, 27751.</p>
 <div class='box'><b>Step 5 me jo job banega, wahi step 6 se 11 tak chalega.</b> Uska number likh lein — har us screen pe
 <i>Job No</i> me wahi chunna hai. 25006 / 27751 / 28350 sample jobs hain, unpe apne steps mat karein.</div>
@@ -116,6 +116,6 @@ HTML = CSS + """
 
 if __name__ == "__main__":
     app = QApplication.instance() or QApplication(sys.argv)
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / "Downloads" / "DiaGold-Test-Script-v0.5.0.pdf"
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / "Downloads" / "DiaGold-Test-Script-v0.5.5.pdf"
     to_pdf(HTML, out)
     print(out)
