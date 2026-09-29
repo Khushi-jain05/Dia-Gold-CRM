@@ -32,7 +32,10 @@ The menu structure is taken directly from the client design workbook
 | Manufacturing ▸ MFG Transfer, Pending for MFG Transfer, MFG Transfer Day Book | ✅ Fill Prices (metal + stones + labour + mark-up → price → tag), Stock No / bar code in Primary, Tag List |
 | Item Search (top right) | ✅ Find by Stock No / Job No / SKU / Cert No; Delete History & Purchase sends the job back to Pending for MFG Transfer, with an audit row |
 | Every save | ✅ "Save? Yes / No" confirmation, as in the legacy system (switch in Tools ▸ Option) |
-| Quotation, MRP, the rest of Manufacturing, Purchase, Inventory, Sale, Account, Reports | ⬜ Menu + placeholders (scaffolded, screens not built) |
+| Inventory ▸ Metal / Stone | ✅ Purchase, Issue Outside / Worker, Receipt vouchers posting to the stock ledger (weight + fine at posting); Stone ▸ Issue On Job Card; negative stock block / warn / allow (Tools ▸ Option); delete reverses with an audit row. Load, Issue On Tree, Conversion, Adjustment, Worker Recovery, WIP Rtn, Bhav Cut wait for the client (C-04) |
+| Inventory ▸ Reports | ✅ Metal Analysis (drill to the location ledger), Worker Balance (Metal), Metal / Stone Day Books; Worker Metal Ledger includes MI / MR |
+| Show Pending | ✅ Job History (several jobs on one issue / receive voucher), Job Card Bag, Stone Issue, Inv Return, MFG Transfer |
+| Quotation, MRP, the rest of Manufacturing, Purchase, Sale, Account, Reports | ⬜ Menu + placeholders (scaffolded, screens not built) |
 | Tools ▸ Change Password | ✅ Working |
 | Window ▸ Cascade / Tile / Close All | ✅ Working |
 
