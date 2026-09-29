@@ -33,6 +33,7 @@ from diagold.db.models import User, UserPermission
 from diagold.db.session import SessionLocal
 from diagold.services import rights as rights_service
 from diagold.services.auth import CurrentUser
+from diagold.ui.confirm import confirm_save
 from diagold.ui.crud import CrudWidget
 from diagold.ui.specs import SPECS
 
@@ -157,6 +158,8 @@ class PermissionMatrixWidget(QWidget):
     def _save_matrix(self) -> None:
         user_id = self.rights_user.currentData()
         if user_id is None:
+            return
+        if not confirm_save(self, "the rights"):
             return
         with SessionLocal() as s:
             for stale in s.scalars(
@@ -286,6 +289,8 @@ class PermissionMatrixWidget(QWidget):
     def _save_options(self) -> None:
         user_id = self.opts_user.currentData()
         if user_id is None:
+            return
+        if not confirm_save(self, "the user options"):
             return
         with SessionLocal() as s:
             u = s.get(User, user_id)

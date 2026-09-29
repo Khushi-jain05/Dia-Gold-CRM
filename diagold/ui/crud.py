@@ -46,6 +46,7 @@ from sqlalchemy.exc import IntegrityError
 
 from diagold.db.session import SessionLocal
 from diagold.services.production import ProductionError
+from diagold.ui.confirm import confirm_save
 from diagold.services.rights import (
     PermissionDenied,
     master_for_menu_key as rights_master_for,
@@ -553,7 +554,8 @@ def friendly_db_error(exc: Exception, spec: "CrudSpec", values: dict | None = No
 
 class FormDialog(QDialog):
     def __init__(self, spec: CrudSpec, instance: Any | None, session, parent=None,
-                 rights: Any = None, readonly: bool = False):
+                 rights: Any = None, readonly: bool = False,
+                 initial: dict[str, Any] | None = None):
         super().__init__(parent)
         self.spec = spec
         self.instance = instance
@@ -671,6 +673,14 @@ class FormDialog(QDialog):
         layout.addWidget(buttons)
 
         self._load_values()
+        # A new record may start filled in - Show Pending opens Stone Issue on
+        # the job it picked, with the stones that job still needs.
+        for name, value in (initial or {}).items():
+            if name in self.child_editors:
+                self.child_editors[name].set_rows([dict(r) for r in value])
+            elif name in self.editors:
+                f = next(f for f in spec.fields if f.name == name)
+                self._set_editor_value(f, self.editors[name], value)
         if readonly:
             # A posted voucher is looked at, never changed.
             for w in list(self.editors.values()) + list(self.child_editors.values()) \
@@ -896,6 +906,8 @@ class FormDialog(QDialog):
         return editor.text().strip()
 
     def _on_save(self) -> None:
+        if not confirm_save(self):
+            return
         # Rights are checked here as well as on the button, so a caller that
         # constructs this dialog directly is refused too.
         if self.rights is not None and self.master is not None:
@@ -1279,6 +1291,16 @@ class CrudWidget(QWidget):
             return
         with SessionLocal() as session:
             dlg = FormDialog(self.spec, None, session, self, rights=self.rights)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.reload()
+
+    def new_with(self, initial: dict[str, Any]) -> None:
+        """Open a new record already filled in with ``initial``."""
+        if not self._require("add"):
+            return
+        with SessionLocal() as session:
+            dlg = FormDialog(self.spec, None, session, self, rights=self.rights,
+                             initial=initial)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.reload()
 

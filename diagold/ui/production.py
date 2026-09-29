@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -56,6 +57,7 @@ from diagold.db.models import (
     Job,
     JobBagLine,
     JobComment,
+    JobVoucher,
     Location,
     ManufacturingProcess,
     Metal,
@@ -63,6 +65,7 @@ from diagold.db.models import (
     PrintLog,
     PrintTemplate,
     ProductSku,
+    SettingType,
     StoneSku,
     User,
 )
@@ -70,6 +73,7 @@ from diagold.db.session import SessionLocal
 from diagold.menu import MENU_BY_KEY
 from diagold.services import documents, production, rates, settings
 from diagold.services.production import ProductionError
+from diagold.ui.confirm import confirm_save
 from diagold.ui.crud import ROW_HEIGHT, CrudWidget
 
 # Legacy colour cues (UX1, UX3) - kept as tints so the text stays readable.
@@ -516,7 +520,7 @@ ISSUE_COLS = [("vr_date", "Date"), ("vr_time", "Time"), ("vr_no", "VrNo"), ("pcs
 RECEIVE_COLS = [("del_date", "Del-Date"), ("vr_date", "Date"), ("vr_time", "Time"),
                 ("vr_no", "VrNo"), ("pcs", "Pcs"), ("gross_wt", "G-Wt"), ("net_wt", "N-Wt"),
                 ("rej_pcs", "Rej Pcs"), ("rej_wt", "Rej Wt"), ("scrap", "Scrap"),
-                ("dust", "Dust")]
+                ("dust", "Dust"), ("allow_loss_pct", "Alw L %"), ("labour", "Labour")]
 
 
 class VoucherDialog(QDialog):
@@ -569,6 +573,12 @@ class VoucherDialog(QDialog):
         self.pcs.setValue(1)
         self.gross = self._wt()
         self.net = self._wt()
+        # Allowed loss % (28 Sept R5): starts on the process master's figure
+        # (a receive on its issue's) and can be changed for this line.
+        self.allow = QDoubleSpinBox()
+        self.allow.setDecimals(4)
+        self.allow.setRange(0, 99.9999)
+        self.allow.setSuffix(" %")
         form.addRow("Process step *", self.step)
         form.addRow("Worker *", self.worker)
         form.addRow("Date", self.date)
@@ -576,6 +586,7 @@ class VoucherDialog(QDialog):
         form.addRow("Pcs", self.pcs)
         form.addRow("Gross Wt (g)", self.gross)
         form.addRow("Net Wt (g)", self.net)
+        form.addRow("Allow Loss %", self.allow)
         self.extra: dict[str, QWidget] = {}
         if kind == "issue":
             for key, label in (("stone_wt", "Stone Wt"), ("extra", "Extra"),
@@ -612,13 +623,21 @@ class VoucherDialog(QDialog):
         """A design-only step takes no weights: grey the boxes and say why,
         rather than letting the figures be typed and refusing the save."""
         bearing = self._bearing.get(self.step.currentData(), True)
+        with SessionLocal() as s:
+            job = s.get(Job, self.job_id)
+            step = next((st for st in job.steps if st.id == self.step.currentData()), None)
+            if step is not None:
+                issue = production.open_issue(s, step) if self.kind == "receive" else None
+                self.allow.setValue(float(production.default_allow_loss_pct(s, step, issue)))
+        self.allow.setEnabled(bearing)
         for w in (self.gross, self.net):
             w.setEnabled(bearing)
             if not bearing:
                 w.setValue(0)
             w.setToolTip("" if bearing else "This step carries no metal weight.")
         self.hint.setText(
-            "Loss is derived from what comes back: issued net − received net − scrap − dust."
+            "Loss is derived from what comes back: issued net − received net − scrap − dust. "
+            "The karigar is allowed Allow Loss % of the net weight received back."
             if bearing else
             "This step is design only (no metal goes out or comes back), so the weight "
             "boxes are off. Pick a step like CASTING or HandMade to enter weights.")
@@ -632,6 +651,8 @@ class VoucherDialog(QDialog):
         return w
 
     def _save(self) -> None:
+        if not confirm_save(self, "this issue" if self.kind == "issue" else "this receipt"):
+            return
         def val(w) -> Any:
             if isinstance(w, QDoubleSpinBox):
                 return None if w.value() == 0 else Decimal(str(w.value()))
@@ -649,6 +670,7 @@ class VoucherDialog(QDialog):
                     vr_date=_pydate(self.date), vr_time=self.time.text().strip(),
                     pcs=self.pcs.value(), gross_wt=val(self.gross), net_wt=val(self.net),
                     user_id=self.user_id, remark=self.remark.text().strip(),
+                    allow_loss_pct=Decimal(str(self.allow.value())),
                     **{k: val(w) for k, w in self.extra.items()},
                 )
                 s.commit()
@@ -659,6 +681,222 @@ class VoucherDialog(QDialog):
         self.accept()
 
 
+class PendingDialog(QDialog):
+    """Show Pending: the jobs pending for this screen, and nothing else - if
+    nothing is pending the list says so (28 Sept R3 / UX3). Double-click or
+    Open picks one."""
+
+    def __init__(self, title: str, note: str, columns: list[tuple[str, str]],
+                 rows: list[dict[str, Any]], empty: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(720, 420)
+        self.rows = rows
+        self.picked: dict[str, Any] | None = None
+        lay = QVBoxLayout(self)
+        head = QLabel(note if rows else empty)
+        head.setObjectName("Muted")
+        head.setWordWrap(True)
+        lay.addWidget(head)
+        self.grid = _table([label for _k, label in columns])
+        for row in rows:
+            r = self.grid.rowCount()
+            self.grid.insertRow(r)
+            for c, (key, _l) in enumerate(columns):
+                v = row.get(key)
+                self.grid.setItem(r, c, _item(v, right=isinstance(v, (int, Decimal))
+                                              and key not in ("job_no",)))
+        self.grid.resizeColumnsToContents()
+        self.grid.cellDoubleClicked.connect(lambda r, _c: self._pick(r))
+        lay.addWidget(self.grid, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        ok = buttons.addButton("Open", QDialogButtonBox.ButtonRole.AcceptRole)
+        ok.setEnabled(bool(rows))
+        buttons.accepted.connect(self._pick_selected)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
+        if rows:
+            self.grid.selectRow(0)
+
+    def _pick_selected(self) -> None:
+        sel = self.grid.selectionModel().selectedRows()
+        if sel:
+            self._pick(sel[0].row())
+
+    def _pick(self, r: int) -> None:
+        self.picked = self.rows[r]
+        self.accept()
+
+
+class PendingVoucherDialog(QDialog):
+    """Show Pending on Job History: the legacy "Issue To <Process>" /
+    "Received From <Process>" voucher. Pick the process, see only the jobs
+    pending for it, tick several and save them on ONE voucher number - or
+    open one job's own voucher (28 Sept R3 / R4)."""
+
+    GROSS, NET, SCRAP, DUST = 7, 8, 9, 10
+
+    def __init__(self, user_id: int | None, parent=None):
+        super().__init__(parent)
+        self.user_id = user_id
+        self.open_job: tuple[int, str] | None = None
+        self.setWindowTitle("Show Pending — issue / receive")
+        self.setMinimumSize(1020, 560)
+        lay = QVBoxLayout(self)
+        top = QHBoxLayout()
+        self.r_issue = QRadioButton("Issue To")
+        self.r_receive = QRadioButton("Received From")
+        self.r_issue.setChecked(True)
+        self.process = QComboBox()
+        self.process.addItem("All processes", None)
+        self.worker = QComboBox()
+        with SessionLocal() as s:
+            for p in s.scalars(select(ManufacturingProcess).where(
+                    ManufacturingProcess.is_active.is_(True)).order_by(ManufacturingProcess.name)):
+                self.process.addItem(p.name, p.id)
+            for w in _workers(s):
+                self.worker.addItem(w.name, w.id)
+        self.date = QDateEdit(_qdate(None))
+        self.date.setCalendarPopup(True)
+        self.date.setDisplayFormat("dd-MM-yyyy")
+        self.time = QLineEdit(datetime.now().strftime("%H:%M"))
+        self.time.setMaximumWidth(64)
+        self.allow = QDoubleSpinBox()
+        self.allow.setDecimals(4)
+        self.allow.setRange(0, 99.9999)
+        self.allow.setSuffix(" %")
+        self.allow.setToolTip("Allowed loss % for every ticked line. With 'process "
+                              "default' ticked, each line takes its process's figure.")
+        self.use_default_allow = QCheckBox("process default")
+        self.use_default_allow.setChecked(True)
+        self.use_default_allow.toggled.connect(lambda on: self.allow.setEnabled(not on))
+        self.allow.setEnabled(False)
+        for w in (self.r_issue, self.r_receive, QLabel("Process"), self.process,
+                  QLabel("Worker"), self.worker, QLabel("Date"), self.date, self.time,
+                  QLabel("Allow Loss"), self.allow, self.use_default_allow):
+            top.addWidget(w)
+        top.addStretch(1)
+        lay.addLayout(top)
+        self.hint = QLabel("")
+        self.hint.setObjectName("Muted")
+        self.hint.setWordWrap(True)
+        lay.addWidget(self.hint)
+        self.grid = _table(["", "Job No", "SKU", "Client", "Process", "With", "Out since",
+                            "Gross Wt", "Net Wt", "Scrap", "Dust"])
+        self.grid.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
+                                  | QAbstractItemView.EditTrigger.AnyKeyPressed)
+        lay.addWidget(self.grid, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        self.b_open = buttons.addButton("Open Job", QDialogButtonBox.ButtonRole.ActionRole)
+        self.b_save = buttons.addButton("Save as one voucher",
+                                        QDialogButtonBox.ButtonRole.ActionRole)
+        self.b_save.setObjectName("Primary")
+        self.b_open.clicked.connect(self._open_selected)
+        self.b_save.clicked.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
+        for sig in (self.r_issue.toggled, self.process.currentIndexChanged,
+                    self.worker.currentIndexChanged):
+            sig.connect(lambda *_: self.reload())
+        self.reload()
+
+    @property
+    def kind(self) -> str:
+        return "issue" if self.r_issue.isChecked() else "receive"
+
+    def reload(self) -> None:
+        issue = self.kind == "issue"
+        with SessionLocal() as s:
+            # A receive lists every karigar's jobs; each comes back from whoever
+            # has it out, so the worker box only matters for an issue.
+            self.rows = production.pending_steps(s, self.kind, self.process.currentData())
+        self.grid.setRowCount(0)
+        for row in self.rows:
+            r = self.grid.rowCount()
+            self.grid.insertRow(r)
+            chk = QTableWidgetItem("")
+            chk.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+            chk.setCheckState(Qt.CheckState.Unchecked)
+            self.grid.setItem(r, 0, chk)
+            vals = [row["job_no"], row["sku"], row["client"], row["process"],
+                    row["worker"] or "—", row["issued_on"]]
+            for c, v in enumerate(vals, start=1):
+                it = _item(v)
+                it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                self.grid.setItem(r, c, it)
+            # Issue: weights start on what was last weighed. Receive: typed in.
+            wb = row["weight_bearing"]
+            for c, v in ((self.GROSS, row["gross"] if issue else None),
+                         (self.NET, row["net"] if issue else None),
+                         (self.SCRAP, None), (self.DUST, None)):
+                editable = wb and (issue and c in (self.GROSS, self.NET) or not issue)
+                it = _item(v if wb else "", TINT_RECEIVE if editable else None, right=True)
+                flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+                if editable:
+                    flags |= Qt.ItemFlag.ItemIsEditable
+                it.setFlags(flags)
+                self.grid.setItem(r, c, it)
+        _fit_columns(self.grid, 3)
+        self.hint.setText(
+            (f"{len(self.rows)} job(s) waiting to be issued" if issue else
+             f"{len(self.rows)} job(s) out with a karigar") +
+            (" for this process." if self.process.currentData() else ".") +
+            ("  Tick the jobs, choose the worker, check the weights (green) and Save as one "
+             "voucher; or select one and Open Job." if self.rows else
+             "  Nothing is pending - it will show here as soon as it is."))
+        self.worker.setEnabled(issue)
+        self.worker.setToolTip("The karigar the ticked jobs are issued to." if issue else
+                               "Each job comes back from the karigar who has it.")
+
+    def _num(self, r: int, c: int) -> Decimal | None:
+        it = self.grid.item(r, c)
+        text = (it.text() if it else "").replace(",", "").strip()
+        try:
+            return Decimal(text) if text else None
+        except Exception:  # noqa: BLE001 - a typo reads as blank and is refused below
+            return None
+
+    def _open_selected(self) -> None:
+        sel = self.grid.selectionModel().selectedRows()
+        if not sel:
+            _info(self, "Show Pending", "Select a job first.")
+            return
+        row = self.rows[sel[0].row()]
+        self.open_job = (row["_job_id"], self.kind)
+        self.accept()
+
+    def _save(self) -> None:
+        lines = []
+        for r, row in enumerate(self.rows):
+            if self.grid.item(r, 0).checkState() != Qt.CheckState.Checked:
+                continue
+            lines.append({"job_id": row["_job_id"], "step_id": row["_step_id"],
+                          "gross": self._num(r, self.GROSS), "net": self._num(r, self.NET),
+                          "scrap": self._num(r, self.SCRAP), "dust": self._num(r, self.DUST)})
+        if not lines:
+            _info(self, "Save", "Tick the jobs to put on this voucher.")
+            return
+        what = f"{'issue' if self.kind == 'issue' else 'receipt'} of {len(lines)} job(s)"
+        if self.kind == "issue":
+            what += f" to {self.worker.currentText()}"
+        if not confirm_save(self, what):
+            return
+        allow = None if self.use_default_allow.isChecked() else Decimal(str(self.allow.value()))
+        with SessionLocal() as s:
+            try:
+                vr = production.post_multi_voucher(
+                    s, self.kind, self.worker.currentData(), lines,
+                    vr_date=_pydate(self.date), vr_time=self.time.text().strip(),
+                    allow_loss_pct=allow, user_id=self.user_id)
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot save", str(exc))
+                return
+        _info(self, "Saved", f"Vr {vr}: {len(lines)} job(s).")
+        self.reload()
+
+
 class JobHistoryWidget(_Screen):
     """The complete life of a job in one view (R5, §4.6)."""
 
@@ -667,7 +905,10 @@ class JobHistoryWidget(_Screen):
         self.user = user
         self.button("+ Issue", lambda: self._voucher("issue"), primary=True)
         self.button("+ Receive", lambda: self._voucher("receive"))
+        self.button("Show Pending", self._show_pending)
         self.button("WIP Costing", self._wip)
+        self.button("Setting Labour", self._setting_labour, secondary=True)
+        self.button("MFG Price", self._mfg_price, secondary=True)
         self.button("Print", self._print, secondary=True)
         self.button("Stone Dtls", lambda: self.stones.setFocus(), secondary=True)
         self.button("Job Bag", lambda: self.open_requested.emit("production_planning.job_card_bag"),
@@ -680,8 +921,9 @@ class JobHistoryWidget(_Screen):
                     secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
 
-        legend = QLabel("Loss (issued net − received net − scrap − dust) is beside the "
-                        "worker; issue columns are tinted pink and receive columns green, so "
+        legend = QLabel("Loss (issued net − received net − scrap − dust) and Loss % (of the "
+                        "issued net) are beside the worker; a loss in italics went out "
+                        "unweighed and is read as the allowance. Issue columns are tinted pink and receive columns green, so "
                         "the whole step reads across one row.  F11 opens this screen.  Update "
                         "opens the route in Job Mapping; Stone Return opens the return "
                         "voucher on this job.")
@@ -692,7 +934,7 @@ class JobHistoryWidget(_Screen):
         # Loss sits with Process and Worker, not at the far right: it is the
         # number the row exists for, and the reader should never have to
         # scroll twenty columns to find it. The frozen block carries all three.
-        headers = (["Process", "Worker", "Loss\n(g)"]
+        headers = (["Process", "Worker", "Loss\n(g)", "Loss\n%"]
                    + [f"Iss\n{l}" for _, l in ISSUE_COLS]
                    + [f"Rcv\n{l}" for _, l in RECEIVE_COLS])
         self.grid = _table(headers, ledger=True)
@@ -700,7 +942,7 @@ class JobHistoryWidget(_Screen):
         # the reader came for, so it keeps most of the screen and the stone
         # list below it can be dragged smaller or larger.
         self.grid.setMinimumHeight(240)
-        self.frozen = _FrozenColumns(self.grid, 3)
+        self.frozen = _FrozenColumns(self.grid, 4)
 
         stone_box = QGroupBox("Stones on this job")
         sl = QVBoxLayout(stone_box)
@@ -758,8 +1000,22 @@ class JobHistoryWidget(_Screen):
                 self.grid.setItem(r, 0, _item(row.process.name if row.process else "",
                                               bold=row.issue is not None))
                 self.grid.setItem(r, 1, _item(row.worker))
-                self.grid.setItem(r, 2, _item(row.loss, right=True, bold=True))
-                c = 3
+                loss_item = _item(row.loss, right=True, bold=True)
+                pct_item = _item(f"{row.detail.loss_pct:.2f}" if row.detail else "", right=True)
+                if row.detail is not None:
+                    tip = (f"Allowed {row.detail.allow_pct:g}% = {row.detail.allowed} g; "
+                           f"beyond the allowance: {row.detail.excess} g")
+                    if row.detail.from_allowance:
+                        tip = ("Issued unweighed, so the loss is read as the allowance. "
+                               + tip)
+                        f = loss_item.font()
+                        f.setItalic(True)
+                        loss_item.setFont(f)
+                    loss_item.setToolTip(tip)
+                    pct_item.setToolTip(tip)
+                self.grid.setItem(r, 2, loss_item)
+                self.grid.setItem(r, 3, pct_item)
+                c = 4
                 for key, _ in ISSUE_COLS:
                     v = getattr(row.issue, key, None) if row.issue else None
                     self.grid.setItem(r, c, _item(v, TINT_ISSUE, right=key not in
@@ -767,6 +1023,10 @@ class JobHistoryWidget(_Screen):
                     c += 1
                 for key, _ in RECEIVE_COLS:
                     v = getattr(row.receive, key, None) if row.receive else None
+                    if key == "labour":
+                        v = f"{Decimal(str(v)):,.2f}" if v else ""
+                    elif key == "allow_loss_pct" and v is not None:
+                        v = f"{Decimal(str(v)):.2f}"
                     self.grid.setItem(r, c, _item(v, TINT_RECEIVE, right=key not in
                                                   ("vr_date", "del_date", "vr_time")))
                     c += 1
@@ -787,11 +1047,15 @@ class JobHistoryWidget(_Screen):
                     self.stones.setItem(r, c, _item(v, right=c in (5, 6, 7)))
             self.stones.resizeColumnsToContents()
             sm = production.job_summary(s, job)
-            losses = [r.loss for r in production.history_rows(s, job) if r.loss is not None]
-            total_loss = sum(losses) if losses else None
+            total_loss, total_pct, n_loss = production.job_loss_total(s, job)
+            labour = sum((Decimal(str(v.labour or 0)) for v in s.scalars(
+                select(JobVoucher).where(JobVoucher.job_id == job.id,
+                                         JobVoucher.kind == "receive"))), Decimal("0"))
             self.summary.setText(
-                (f"<b>LOSS so far: {total_loss:.3f} g</b> over {len(losses)} step(s)    "
-                 if total_loss is not None else "")
+                (f"<b>LOSS so far: {total_loss:.3f} g"
+                 + (f" ({total_pct}% of the current net)" if total_pct is not None else "")
+                 + f"</b> over {n_loss} step(s)    " if n_loss else "")
+                + (f"<b>Setting labour: {labour:,.2f}</b>    " if labour else "")
                 + f"PND: {sm['pnd'] or '—'}    WIP: {sm['wip']}    Rejection: {sm['rejection']}"
                 f"    PND For MFG Transfer: {sm['pnd_mfg_transfer']}    "
                 f"MFG Transfer: {sm['mfg_transfer']}    TOTAL PCS: {sm['total_pcs']}")
@@ -812,6 +1076,91 @@ class JobHistoryWidget(_Screen):
                 self.comments.setText("<b>Comments</b><br>" + "<br>".join(lines))
             else:
                 self.comments.setText("")
+
+    def _show_pending(self) -> None:
+        dlg = PendingVoucherDialog(getattr(self.user, "id", None), self)
+        dlg.exec()
+        if dlg.open_job is not None:
+            job_id, kind = dlg.open_job
+            self.show_job(job_id)
+            self._voucher(kind)
+        else:
+            self.refresh()
+
+    def _setting_labour(self) -> None:
+        """Pieces set x setting-type rate for every receive that earned labour
+        on this job (28 Sept R8)."""
+        if not self.job_id:
+            return
+        t = _table(["Step", "Worker", "Receive Vr", "Stone", "Size", "Setting Type",
+                    "Issued", "Back", "Set", "Rate / pc", "Rate from", "Labour"])
+        total = Decimal("0")
+        with SessionLocal() as s:
+            job = s.get(Job, self.job_id)
+            for row in production.history_rows(s, job):
+                if row.issue is None or row.receive is None:
+                    continue
+                for l in production.setting_labour_lines(s, row.issue, row.receive.vr_date):
+                    total += l.amount
+                    r = t.rowCount()
+                    t.insertRow(r)
+                    vals = [row.process.name if row.process else "", row.worker,
+                            row.receive.vr_no, l.line.particulars, l.line.size,
+                            l.setting_type or "—", l.issued, l.back, l.set_pcs, l.rate,
+                            l.rate_source, l.amount]
+                    for c, v in enumerate(vals):
+                        t.setItem(r, c, _item(v, right=c >= 6 and c != 10))
+        t.resizeColumnsToContents()
+        box = QWidget()
+        lay = QVBoxLayout(box)
+        note = QLabel(f"Total setting labour on this job: <b>{total:,.2f}</b>.  Pieces set = "
+                      "issued to the karigar − back from the karigar; everything that comes "
+                      "back, whole or broken, is unpaid (to confirm - 28 Sept Q4).  The rate "
+                      "is the Setting Type's, as it stood on the receive date; a Setting "
+                      "Labour Chart row for the type overrides it from its date.")
+        note.setWordWrap(True)
+        note.setObjectName("Muted")
+        lay.addWidget(note)
+        lay.addWidget(t)
+        show_in_dialog(self, box, "Setting Labour", (980, 440))
+
+    def _mfg_price(self) -> None:
+        """Fill Prices preview for this job, from today's masters (28 Sept T-07).
+        Nothing is saved - the MFG Ready Stock Transfer voucher is the
+        Manufacturing module."""
+        if not self.job_id:
+            return
+        from diagold.services import mfg_pricing
+        with SessionLocal() as s:
+            job = s.get(Job, self.job_id)
+            result = mfg_pricing.fill_prices(s, job, date.today())
+        t = _table(["Component", "How", "Amount"])
+        for comp, how, amount in result.as_rows():
+            r = t.rowCount()
+            t.insertRow(r)
+            bold = comp in ("Total cost", "Price per piece", "Tag price")
+            t.setItem(r, 0, _item(comp, bold=bold))
+            t.setItem(r, 1, _item(how))
+            t.setItem(r, 2, _item(amount, right=True, bold=bold))
+        st = _table(["Stone", "Pcs", "Weight", "Per", "Price", "Amount"])
+        for sc in result.stones:
+            r = st.rowCount()
+            st.insertRow(r)
+            for c, v in enumerate([sc.label, sc.pcs, sc.weight, sc.unit, sc.price, sc.amount]):
+                st.setItem(r, c, _item(v, right=c >= 1 and c != 3))
+        t.resizeColumnsToContents()
+        st.resizeColumnsToContents()
+        box = QWidget()
+        lay = QVBoxLayout(box)
+        note = QLabel("Preview only - the price the MFG Ready Stock Transfer would fill "
+                      "today. Stones are those that went to a karigar and did not come back, "
+                      "at the Stone SKU's sale price.<br>" + "<br>".join(result.notes))
+        note.setWordWrap(True)
+        note.setObjectName("Muted")
+        lay.addWidget(note)
+        lay.addWidget(t)
+        lay.addWidget(st)
+        show_in_dialog(self, box, "MFG Price (Fill Prices preview)", (900, 620))
 
     def _voucher(self, kind: str) -> None:
         if not self.job_id:
@@ -845,6 +1194,8 @@ class JobHistoryWidget(_Screen):
         buttons.rejected.connect(dlg.reject)
         lay.addWidget(buttons)
         if dlg.exec() != QDialog.DialogCode.Accepted or not box.toPlainText().strip():
+            return
+        if not confirm_save(self, "the comment"):
             return
         with SessionLocal() as s:
             s.add(JobComment(job_id=self.job_id, user_id=getattr(self.user, "id", None),
@@ -992,7 +1343,8 @@ class JobBagWidget(_Screen):
     def __init__(self, user=None, parent=None):
         super().__init__("Job Card Bag", parent=parent)
         self.user = user
-        self.button("Issue to Worker", lambda: self._move("iss"), primary=True)
+        self.button("Show Pending", self._show_pending, primary=True)
+        self.button("Issue to Worker", lambda: self._move("iss"))
         self.button("Back from Worker", lambda: self._move("back"))
         self.button("Return to Stock", lambda: self._move("rtn"))
         # Break and Lost are rarer; they sit on the second row so the first
@@ -1005,10 +1357,11 @@ class JobBagWidget(_Screen):
                     secondary=True)
         self.button("Stones in Job Cards", self._report_all, secondary=True)
         self.button("Bag Balance Report", self._report_bag, secondary=True)
+        self.button("Setting Type", self._set_setting_type, secondary=True)
         self.button("Job History", lambda: self.open_requested.emit("production_planning.job_history"),
                     secondary=True)
 
-        headers = ["Particulars", "Size", "Type"]
+        headers = ["Particulars", "Size", "Type", "Setting"]
         for col in production.COLUMNS:
             lab = production.COLUMN_LABELS[col]
             headers += [f"{lab}\nPcs", f"{lab}\nWt"]
@@ -1043,6 +1396,7 @@ class JobBagWidget(_Screen):
             job = s.get(Job, self.job_id)
             self.header.set_job(s, job)
             self._rows = production.bag_ledger(s, job)
+            setting_names = {st.id: st.name for st in s.scalars(select(SettingType))}
         for b in self._rows:
             r = self.grid.rowCount()
             self.grid.insertRow(r)
@@ -1053,7 +1407,8 @@ class JobBagWidget(_Screen):
             self.grid.setItem(r, 0, _item(name, bold=not waiting))
             self.grid.setItem(r, 1, _item(b.line.size))
             self.grid.setItem(r, 2, _item(b.line.s_type))
-            c = 3
+            self.grid.setItem(r, 3, _item(setting_names.get(b.line.setting_type_id, "")))
+            c = 4
             for col in production.COLUMNS:
                 pcs, wt = b[col]
                 tint = tints.get(col)
@@ -1081,6 +1436,46 @@ class JobBagWidget(_Screen):
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
         super().resizeEvent(event)
         _fit_columns(self.grid)
+
+    def _show_pending(self) -> None:
+        """Jobs whose bag holds stones not yet issued to a karigar or returned."""
+        with SessionLocal() as s:
+            rows = production.jobs_with_stones_in_bag(s)
+        dlg = PendingDialog(
+            "Show Pending — stones lying in job bags",
+            "Jobs whose bag holds stones not yet issued to a karigar or returned to stock.",
+            [("job_no", "Job No"), ("sku", "SKU"), ("client", "Client"),
+             ("lines", "Lines"), ("bal_pcs", "Bal Pcs"), ("bal_wt", "Bal Wt")],
+            rows, "No bag holds any stones right now.", self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.picked:
+            self.show_job(dlg.picked["_job_id"])
+
+    def _set_setting_type(self) -> None:
+        """How the selected stone is set - the setting labour rate is read from
+        it (28 Sept R8). Usually copied from the SKU's stone line."""
+        row = self._selected_row()
+        if row is None:
+            return
+        with SessionLocal() as s:
+            types = list(s.scalars(select(SettingType).where(SettingType.is_active.is_(True))
+                                   .order_by(SettingType.name)))
+        labels = ["(none - no setting labour)"] + [f"{t.name}  ·  {t.price}/pc" for t in types]
+        current = next((i + 1 for i, t in enumerate(types)
+                        if t.id == row.line.setting_type_id), 0)
+        name = f"{row.line.particulars} {row.line.size}".strip()
+        choice, ok = QInputDialog.getItem(self, "Setting Type",
+                                          f"How is {name} set on this job?", labels,
+                                          current, False)
+        if not ok:
+            return
+        idx = labels.index(choice)
+        if not confirm_save(self, "the setting type"):
+            return
+        with SessionLocal() as s:
+            line = s.get(JobBagLine, row.line.id)
+            production.set_bag_setting_type(s, line, types[idx - 1].id if idx else None)
+            s.commit()
+        self.refresh()
 
     def _selected_row(self) -> production.BagRow | None:
         if not self._rows:
@@ -1116,6 +1511,8 @@ class JobBagWidget(_Screen):
             return
         dlg = MovementDialog(row, kind, self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        if not confirm_save(self, MovementDialog.KINDS[kind].lower()):
             return
         v = dlg.values()
         with SessionLocal() as s:
@@ -1437,6 +1834,8 @@ class JobMappingWidget(_Screen):
         if not self.job_id:
             _info(self, "Job Mapping", "Pick a job from the queue first.")
             return
+        if not confirm_save(self, "the route"):
+            return
         with SessionLocal() as s:
             job = s.get(Job, self.job_id)
             try:
@@ -1456,6 +1855,8 @@ class JobMappingWidget(_Screen):
 
     def _copy_all(self) -> None:
         if not self.job_id:
+            return
+        if not confirm_save(self, "this route on every job of the order"):
             return
         with SessionLocal() as s:
             job = s.get(Job, self.job_id)
@@ -1779,6 +2180,8 @@ class OptionsWidget(QWidget):
         outer.addStretch(1)
 
     def _save(self) -> None:
+        if not confirm_save(self, "the options"):
+            return
         with SessionLocal() as s:
             for key, cb in self.checks.items():
                 settings.set_menu_visible(s, key, cb.isChecked())
@@ -1985,6 +2388,8 @@ class StoneReturnWidget(_Screen):
             _info(self, "Save", "Show Pending first, then enter what is coming back.")
             return
         lines = self.lines()
+        if not confirm_save(self, "this return"):
+            return
         with SessionLocal() as s:
             job = s.get(Job, self.job_id)
             try:
@@ -2148,6 +2553,8 @@ class OpeningStockWidget(QWidget):
     def _add(self) -> None:
         if self.pcs.value() == 0 and self.weight.value() == 0:
             _info(self, "Opening", "Enter pieces or weight.")
+            return
+        if not confirm_save(self, "the opening balance"):
             return
         with SessionLocal() as s:
             try:

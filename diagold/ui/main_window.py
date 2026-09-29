@@ -1,28 +1,29 @@
-"""Main application window - sidebar navigation + tabbed content area.
+"""Main application window - top menu bar + tabbed content area.
 
-The navigation mirrors the client's design workbook (14 modules), but is rendered
-inside the window as a sidebar so it looks and behaves identically on macOS and
-Windows (Qt would otherwise push a menu bar into the native macOS menu bar).
+The navigation mirrors the client's design workbook (14 modules) as a menu
+bar across the top of the window, the way the legacy DIAGOLD screens are laid
+out, so every screen gets the full width of the window instead of losing a
+quarter of a laptop screen to a sidebar. The bar is drawn inside the window on both macOS and
+Windows - Qt would otherwise push it into the native macOS menu bar.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
-    QFrame,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
+    QMenuBar,
     QMessageBox,
-    QPushButton,
     QTabWidget,
-    QTreeWidget,
-    QTreeWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -34,11 +35,8 @@ from diagold.menu import MENU, MENU_BY_KEY
 from diagold.services import settings
 from diagold.services.auth import AuthError, CurrentUser, change_password
 from diagold.ui.dashboard import DashboardWidget
-from diagold.ui.registry import build_widget, has_real_screen
+from diagold.ui.registry import EXTRA_SCREENS, build_widget, has_real_screen
 from diagold.ui.style import APP_QSS
-
-_ROLE_KEY = Qt.ItemDataRole.UserRole
-_LABEL_KEY = Qt.ItemDataRole.UserRole + 1
 
 
 class MainWindow(QMainWindow):
@@ -47,106 +45,61 @@ class MainWindow(QMainWindow):
         self.user = user
         self._relogin = False
         self._tabs_by_key: dict[str, QWidget] = {}
+        self._search_targets: dict[str, str] = {}
 
         self.setWindowTitle(f"{APP_NAME} — {COMPANY_DISPLAY_NAME}")
         self.resize(1240, 800)
         self.setStyleSheet(APP_QSS)
-        if self.menuBar() is not None:
-            self.menuBar().setNativeMenuBar(False)
-            self.menuBar().hide()
 
-        root = QWidget()
-        layout = QHBoxLayout(root)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self._build_sidebar())
-        layout.addWidget(self._build_content(), 1)
-        self.setCentralWidget(root)
-
+        self._build_menubar()
+        self.setCentralWidget(self._build_content())
         self._build_statusbar()
 
         QShortcut(QKeySequence.StandardKey.Find, self,
-                  activated=lambda: self.nav_search.setFocus())
+                  activated=lambda: (self.nav_search.setFocus(), self.nav_search.selectAll()))
         # Job History is F11 in the legacy system - a habit worth keeping (UX7).
         QShortcut(QKeySequence("F11"), self,
                   activated=lambda: self._open_by_key("production_planning.job_history"))
 
         self._open_dashboard()
 
-    # -- sidebar -----------------------------------------------------
-    def _build_sidebar(self) -> QWidget:
-        side = QWidget()
-        side.setObjectName("Sidebar")
-        side.setFixedWidth(248)
-        v = QVBoxLayout(side)
-        v.setContentsMargins(0, 8, 0, 12)
-        v.setSpacing(0)
-
-        brand = QLabel("◆  Dia Gold")
+    # -- menu bar ----------------------------------------------------
+    def _build_menubar(self) -> None:
+        """Brand mark on the left, the module menus beside it, on one dark
+        strip with a gold rule underneath."""
+        strip = QWidget()
+        strip.setObjectName("TopStrip")
+        h = QHBoxLayout(strip)
+        h.setContentsMargins(14, 0, 8, 0)
+        h.setSpacing(0)
+        brand = QLabel('<span style="color:#C9A227;">◆</span>&nbsp;&nbsp;Dia Gold')
         brand.setObjectName("Brand")
-        sub = QLabel("JEWELLERY  ERP")
-        sub.setObjectName("BrandSub")
-        v.addWidget(brand)
-        v.addWidget(sub)
-
-        self.nav_search = QLineEdit()
-        self.nav_search.setObjectName("NavSearch")
-        self.nav_search.setPlaceholderText("Search menu…  (Ctrl/Cmd+F)")
-        self.nav_search.textChanged.connect(self._filter_nav)
-        v.addWidget(self.nav_search)
-
-        self.nav = QTreeWidget()
-        self.nav.setObjectName("Nav")
-        self.nav.setHeaderHidden(True)
-        self.nav.setIndentation(12)
-        self.nav.setAnimated(True)
-        self.nav.setExpandsOnDoubleClick(False)
-        self.nav.setRootIsDecorated(False)
-        self.nav.itemClicked.connect(self._on_nav_clicked)
-        self.nav.itemExpanded.connect(lambda it: self._set_group_chevron(it, True))
-        self.nav.itemCollapsed.connect(lambda it: self._set_group_chevron(it, False))
+        brand.setTextFormat(Qt.TextFormat.RichText)
+        h.addWidget(brand)
+        rule = QWidget()
+        rule.setObjectName("BrandRule")
+        rule.setFixedSize(1, 22)
+        h.addWidget(rule)
+        # Parented, and non-native before anything is added: on macOS a
+        # QMenuBar with no parent becomes the global menu bar at the top of
+        # the screen and leaves this strip empty.
+        self._menubar = QMenuBar(strip)
+        self._menubar.setNativeMenuBar(False)
+        self._menubar.setObjectName("TopMenu")
+        h.addWidget(self._menubar, 1)
+        self.setMenuWidget(strip)
         self._populate_nav()
-        v.addWidget(self.nav, 1)
-
-        # footer - account actions
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color:#3A3D4A; background:#3A3D4A; max-height:1px;")
-        v.addWidget(sep)
-        foot = QVBoxLayout()
-        foot.setContentsMargins(12, 8, 12, 0)
-        foot.setSpacing(4)
-        who = QLabel(f"\U0001F464  {self.user.full_name}")
-        who.setStyleSheet("color:#C9CCD6; padding:4px 4px; font-weight:600;")
-        foot.addWidget(who)
-        btn_pw = QPushButton("Change Password")
-        btn_pw.setObjectName("Ghost")
-        btn_pw.clicked.connect(self._change_password)
-        btn_out = QPushButton("Log Out")
-        btn_out.setObjectName("Ghost")
-        btn_out.clicked.connect(self._logout)
-        foot.addWidget(btn_pw)
-        foot.addWidget(btn_out)
-        v.addLayout(foot)
-        return side
-
-    def _set_group_chevron(self, item: QTreeWidgetItem, expanded: bool) -> None:
-        base = item.data(0, _LABEL_KEY)
-        if base:
-            item.setText(0, f"{'▾' if expanded else '▸'}  {base}")
 
     def _populate_nav(self) -> None:
-        self.nav.clear()
+        """(Re)build the menus - also called when Tools > Option changes which
+        Production-Planning items are shown."""
+        bar = self._menubar
+        bar.clear()
+        self._search_targets = {}
         for group in MENU:
-            g_item = QTreeWidgetItem(self.nav, [group.label])
-            g_item.setData(0, _ROLE_KEY, group.key)
-            g_item.setData(0, _LABEL_KEY, group.label)
-            g_item.setFlags(g_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            f = g_item.font(0)
-            f.setBold(True)
-            g_item.setFont(0, f)
-            self._set_group_chevron(g_item, False)
-            visible_children = 0
+            menu = bar.addMenu(group.label)
+            menu.setObjectName("TopMenuPopup")
+            shown = 0
             for item in group.items:
                 if not self.user.can_view(item.key):
                     continue
@@ -155,30 +108,71 @@ class MainWindow(QMainWindow):
                 label = item.label
                 if not has_real_screen(item.key):
                     label += "  ·  soon"
-                c_item = QTreeWidgetItem(g_item, [label])
-                c_item.setData(0, _ROLE_KEY, item.key)
-                c_item.setData(0, _LABEL_KEY, item.label)
-                visible_children += 1
-            if visible_children == 0:
-                g_item.setDisabled(True)
-        self.nav.expandItem(self.nav.topLevelItem(0))  # Master open by default
+                action = menu.addAction(label)
+                action.triggered.connect(
+                    lambda _c=False, k=item.key, l=item.label: self._open_screen(k, l))
+                self._search_targets[f"{item.label}  —  {group.label}"] = item.key
+                shown += 1
+            menu.setEnabled(shown > 0)
+        if hasattr(self, "nav_search"):
+            self._search_model.setStringList(sorted(self._search_targets, key=str.lower))
 
-    def _filter_nav(self, text: str) -> None:
-        term = text.strip().lower()
-        for i in range(self.nav.topLevelItemCount()):
-            g = self.nav.topLevelItem(i)
-            group_match = term in g.text(0).lower()
-            child_shown = 0
-            for j in range(g.childCount()):
-                c = g.child(j)
-                match = not term or group_match or term in c.text(0).lower()
-                c.setHidden(not match)
-                child_shown += int(match)
-            g.setHidden(bool(term) and child_shown == 0 and not group_match)
-            g.setExpanded(bool(term) and child_shown > 0)
-        if not term:
-            for i in range(self.nav.topLevelItemCount()):
-                self.nav.topLevelItem(i).setExpanded(i == 0)
+    def _build_corner(self) -> QWidget:
+        """Menu search and the account menu, at the right end of the tab row -
+        space that row has anyway, so the screen loses no height for them."""
+        box = QWidget()
+        box.setObjectName("TabCorner")
+        h = QHBoxLayout(box)
+        h.setContentsMargins(8, 2, 10, 2)
+        h.setSpacing(8)
+        self.nav_search = QLineEdit()
+        self.nav_search.setObjectName("NavSearch")
+        self.nav_search.setPlaceholderText("Go to screen…  (Ctrl/Cmd+F)")
+        self.nav_search.setFixedWidth(230)
+        self.nav_search.setClearButtonEnabled(True)
+        self._search_model = QStringListModel(sorted(self._search_targets, key=str.lower))
+        completer = QCompleter(self._search_model, self.nav_search)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.activated.connect(self._search_go)
+        self.nav_search.setCompleter(completer)
+        self.nav_search.returnPressed.connect(lambda: self._search_go(self.nav_search.text()))
+        h.addWidget(self.nav_search)
+        # The legacy screens carry an "Item Search" link top right; so does this.
+        item_search = QToolButton()
+        item_search.setObjectName("UserButton")
+        item_search.setText("Item Search")
+        item_search.clicked.connect(lambda: self._open_by_key("manufacturing.item_search"))
+        h.addWidget(item_search)
+
+        role = self.user.role_name or ("Superuser" if self.user.is_superuser else "User")
+        who = QToolButton()
+        who.setObjectName("UserButton")
+        who.setText(f"\U0001F464  {self.user.full_name}")
+        who.setToolTip(f"{self.user.username} · {role}")
+        who.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(who)
+        head = menu.addAction(f"{self.user.full_name}  ·  {role}")
+        head.setEnabled(False)
+        menu.addSeparator()
+        menu.addAction("Change Password", self._change_password)
+        menu.addAction("Log Out", self._logout)
+        who.setMenu(menu)
+        h.addWidget(who)
+        return box
+
+    def _search_go(self, text: str) -> None:
+        text = (text or "").strip()
+        key = self._search_targets.get(text)
+        if key is None and text:
+            # Typed part of a name and pressed Enter: open the only match.
+            hits = [k for label, k in self._search_targets.items()
+                    if text.lower() in label.lower()]
+            key = hits[0] if len(hits) == 1 else None
+        if key is None:
+            return
+        self._open_by_key(key)
+        self.nav_search.clear()
 
     # -- content ---------------------------------------------------
     def _build_content(self) -> QWidget:
@@ -188,40 +182,19 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
 
-        topbar = QWidget()
-        topbar.setObjectName("TopBar")
-        topbar.setFixedHeight(52)
-        h = QHBoxLayout(topbar)
-        h.setContentsMargins(20, 0, 20, 0)
-        self.crumb = QLabel("Dashboard")
-        self.crumb.setObjectName("Crumb")
-        h.addWidget(self.crumb)
-        h.addStretch(1)
-        chip = QLabel(f"{self.user.role_name or ('Superuser' if self.user.is_superuser else 'User')}")
-        chip.setObjectName("UserChip")
-        h.addWidget(chip)
-        v.addWidget(topbar)
-
         self.tabs = QTabWidget()
         self.tabs.setObjectName("Screens")
-        self.tabs.setDocumentMode(True)
+        # Not document mode: on macOS that hands the tab row to the native
+        # unified-toolbar look, which paints it black in dark mode.
+        self.tabs.setDocumentMode(False)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
         self.tabs.tabCloseRequested.connect(self._close_tab)
-        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self.tabs.setCornerWidget(self._build_corner(), Qt.Corner.TopRightCorner)
         v.addWidget(self.tabs, 1)
         return content
 
     # -- navigation actions --------------------------------------
-    def _on_nav_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        key = item.data(0, _ROLE_KEY)
-        if key is None:
-            return
-        if key in MENU_BY_KEY:  # group header - toggle expand
-            item.setExpanded(not item.isExpanded())
-            return
-        self._open_screen(key, item.data(0, _LABEL_KEY) or item.text(0))
-
     def _open_dashboard(self) -> None:
         dash = DashboardWidget(self.user)
         dash.open_requested.connect(self._open_by_key)
@@ -233,7 +206,7 @@ class MainWindow(QMainWindow):
 
     def _open_by_key(self, key: str) -> None:
         group = MENU_BY_KEY.get(key.split(".", 1)[0])
-        label = key
+        label = EXTRA_SCREENS.get(key, key)
         if group:
             for it in group.items:
                 if it.key == key:
@@ -283,10 +256,6 @@ class MainWindow(QMainWindow):
                 self.tabs.removeTab(index)
                 widget.deleteLater()
                 return
-
-    def _on_tab_changed(self, index: int) -> None:
-        if index >= 0:
-            self.crumb.setText(self.tabs.tabText(index).strip() or "Dashboard")
 
     # -- account ---------------------------------------------------
     def _build_statusbar(self) -> None:

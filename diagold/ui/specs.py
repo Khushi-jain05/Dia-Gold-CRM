@@ -1475,6 +1475,29 @@ def _fill_stone_weight(grid, row: int, pcs) -> None:
         grid.set_cell_value(row, "weight", Decimal(str(per)) * int(pcs or 0))
 
 
+def _stone_issue_pending(widget, _selected) -> None:
+    """Show Pending: jobs whose bag still needs stones; picking one opens a new
+    Stone Issue on it with those lines filled in (28 Sept R3)."""
+    from PySide6.QtWidgets import QDialog
+
+    from diagold.ui.production import PendingDialog
+    with SessionLocal() as s:
+        rows = production.pending_stone_jobs(s)
+    dlg = PendingDialog(
+        "Show Pending — stones still to issue",
+        "Jobs whose bag has not yet received every stone its SKU needs (Pnd). Open one "
+        "to issue the missing stones.",
+        [("job_no", "Job No"), ("sku", "SKU"), ("client", "Client"), ("lines", "Lines"),
+         ("pnd_pcs", "Pnd Pcs"), ("pnd_wt", "Pnd Wt")],
+        rows, "No job is waiting for stones.", widget)
+    if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.picked:
+        return
+    with SessionLocal() as s:
+        job = s.get(Job, dlg.picked["_job_id"])
+        lines = production.pending_stone_lines(s, job)
+    widget.new_with({"job_id": job.id, "lines": lines})
+
+
 def _stone_issue_summary(rows: list[dict]) -> str:
     pcs = sum(int(r.get("pcs") or 0) for r in rows)
     wt = sum(Decimal(str(r.get("weight") or 0)) for r in rows)
@@ -1502,6 +1525,7 @@ _register(CrudSpec(
     editable=False, deletable=False,
     before_save=_prepare_stone_issue,
     after_save=_stone_issue_saved,
+    extra_buttons=[("Show Pending", _stone_issue_pending)],
     form_width=1180,
     fields=[
         Field("vr_no", "Vr No", type="int", readonly=True),

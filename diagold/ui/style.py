@@ -11,8 +11,8 @@ from PySide6.QtGui import QColor, QPalette
 GOLD = "#C9A227"
 GOLD_DARK = "#A9861B"
 GOLD_SOFT = "#F3E9C6"
-INK = "#20222B"          # sidebar / headers
-INK_2 = "#2B2E39"        # sidebar hover
+INK = "#20222B"          # menu bar / headers
+INK_2 = "#2B2E39"        # menu bar hover
 CANVAS = "#F4F5F7"       # main background
 CARD = "#FFFFFF"
 BORDER = "#E2E4EA"
@@ -31,70 +31,87 @@ QMainWindow, QWidget#Content {{
     background: {CANVAS};
 }}
 
-/* ---- Sidebar ---- */
-QWidget#Sidebar {{
-    background: {INK};
-    border: none;
+/* ---- Top menu bar (the module menus, as on the legacy screen) ---- */
+QWidget#TopStrip {{
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #262935, stop:1 {INK});
+    border-bottom: 2px solid {GOLD};
 }}
 QLabel#Brand {{
     color: #FFFFFF;
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 800;
-    padding: 18px 18px 2px 18px;
+    letter-spacing: 0.5px;
+    padding: 0 14px 0 2px;
 }}
-QLabel#BrandSub {{
-    color: {GOLD};
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    padding: 0 18px 14px 18px;
-}}
-QLineEdit#NavSearch {{
-    background: {INK_2};
-    border: 1px solid #3A3D4A;
-    border-radius: 8px;
-    padding: 7px 10px;
-    color: #FFFFFF;
-    margin: 0 12px 8px 12px;
-}}
-QLineEdit#NavSearch:focus {{ border: 1px solid {GOLD}; }}
-
-QTreeWidget#Nav {{
+QWidget#BrandRule {{ background: #454959; margin-right: 6px; }}
+QMenuBar#TopMenu {{
     background: transparent;
     border: none;
-    outline: 0;
-    padding: 4px 6px;
+    font-size: 14px;
 }}
-QTreeWidget#Nav::item {{
-    color: #C9CCD6;
-    padding: 7px 6px;
-    border-radius: 7px;
-    margin: 1px 4px;
+QMenuBar#TopMenu::item {{
+    color: #D5D8E0;
+    background: transparent;
+    padding: 11px 9px;
+    margin: 0 1px;
+    font-size: 14px;
+    font-weight: 600;
+    border-bottom: 3px solid transparent;
 }}
-QTreeWidget#Nav::item:hover {{ background: {INK_2}; color: #FFFFFF; }}
-QTreeWidget#Nav::item:selected {{ background: {GOLD}; color: {INK}; font-weight: 700; }}
-QTreeWidget#Nav::branch {{ background: transparent; }}
-QTreeWidget#Nav QTreeView::branch:has-children:!has-siblings:closed,
-QTreeWidget#Nav QTreeView::branch:closed:has-children:has-siblings {{ image: none; }}
+QMenuBar#TopMenu::item:selected {{
+    color: {GOLD};
+    background: rgba(201, 162, 39, 0.12);
+    border-bottom: 3px solid {GOLD};
+}}
+QMenuBar#TopMenu::item:pressed {{
+    color: {INK};
+    background: {GOLD};
+    border-bottom: 3px solid {GOLD_DARK};
+}}
+QMenuBar#TopMenu::item:disabled {{ color: #5E6272; }}
 
-QLabel#NavGroup {{
-    color: {MUTED};
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1.5px;
-    padding: 14px 18px 4px 18px;
-}}
-
-/* ---- Top bar ---- */
-QWidget#TopBar {{
+/* ---- Drop-downs of the top menu ---- */
+QMenu#TopMenuPopup {{
     background: {CARD};
-    border-bottom: 1px solid {BORDER};
+    border: 1px solid {BORDER};
+    border-top: 3px solid {GOLD};
+    padding: 6px 4px;
+    font-size: 14px;
 }}
-QLabel#Crumb {{ font-size: 15px; font-weight: 700; }}
-QLabel#UserChip {{
-    color: {MUTED};
-    padding-right: 6px;
+QMenu#TopMenuPopup::item {{
+    color: {TEXT};
+    padding: 8px 28px 8px 14px;
+    margin: 1px 2px;
+    border-left: 3px solid transparent;
+    border-radius: 4px;
 }}
+QMenu#TopMenuPopup::item:selected {{
+    background: {GOLD_SOFT};
+    color: {INK};
+    border-left: 3px solid {GOLD};
+}}
+QMenu#TopMenuPopup::item:disabled {{ color: {MUTED}; }}
+QMenu#TopMenuPopup::separator {{ height: 1px; background: {BORDER}; margin: 4px 10px; }}
+
+/* ---- Right end of the tab row: menu search + account ---- */
+QWidget#TabCorner {{ background: transparent; }}
+QLineEdit#NavSearch {{
+    background: {CARD};
+    border: 1px solid {BORDER};
+    border-radius: 7px;
+    padding: 4px 8px;
+}}
+QLineEdit#NavSearch:focus {{ border: 1px solid {GOLD}; }}
+QToolButton#UserButton {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    padding: 4px 8px;
+    color: {TEXT};
+    font-weight: 600;
+}}
+QToolButton#UserButton:hover {{ border-color: {GOLD}; }}
+QToolButton#UserButton::menu-indicator {{ image: none; width: 0; }}
 
 /* ---- Buttons ---- */
 QPushButton {{
@@ -118,6 +135,11 @@ QPushButton#Ghost:hover {{ color: {GOLD_DARK}; }}
 
 /* ---- Tabs (open screens) ---- */
 QTabWidget#Screens::pane {{ border: none; background: {CANVAS}; }}
+QTabWidget#Screens::tab-bar {{ alignment: left; }}
+/* The tab row is painted by the style, not by macOS - in dark mode the
+   native document-mode bar would otherwise come out black. */
+QTabWidget#Screens QTabBar {{ background: {CANVAS}; }}
+QTabWidget#Screens > QTabBar {{ background: {CANVAS}; border-bottom: 1px solid {BORDER}; }}
 QTabBar::tab {{
     background: transparent;
     color: {MUTED};
