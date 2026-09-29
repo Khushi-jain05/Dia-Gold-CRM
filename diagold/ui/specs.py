@@ -1405,13 +1405,13 @@ _register(CrudSpec(
               default="Customer"),
         Field("account_id", "Customer", type="fk", fk_model=Account, fk_label=_account_label),
         Field("ref", "Ref"),
-        Field("terms", "Terms", in_list=False),
+        Field("terms", "Terms"),
         Field("currency_code", "Currency", default="INR", in_list=False),
         Field("delivery_date", "Delivery Date", type="date"),
-        Field("priority", "Priority", in_list=False,
+        Field("priority", "Priority",
               help_text="Heard as an order-time field; values and effect not yet "
                         "explained (Q9). Free text until then."),
-        Field("remark", "Remark", in_list=False),
+        Field("remark", "Remark"),
         Field("lines", "SKU Lines", type="child",
               help_text="One job is allotted per line when the order is saved. "
                         "Field rules were explained on the call but the audio was "
