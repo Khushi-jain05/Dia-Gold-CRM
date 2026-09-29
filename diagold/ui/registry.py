@@ -49,6 +49,7 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "manufacturing.mfg_transfer_day_book":
         lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
     "manufacturing.reports": lambda user: ReportsHub(user, first="pending_mfg_transfer"),
+    "sale.ready_stock": lambda user: ReportWidget(build_specs()["ready_stock"], user),
     "manufacturing.worker_statement":
         lambda user: ReportWidget(build_specs()["worker_metal_ledger"], user),
     "inventory.reports": lambda user: ReportsHub(user, first="metal_analysis"),

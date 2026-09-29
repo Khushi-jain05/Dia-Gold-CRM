@@ -285,3 +285,31 @@ def transfer_day_book(session: Session, date_from: date, date_to: date) -> list[
                 "price": _dec(l.price_per_pcs), "tag": l.tag_text,
             })
     return rows
+
+
+def ready_stock(session: Session, date_to: date) -> list[dict[str, Any]]:
+    """Ready Stock (28 Sept §4.15): every finished piece in stock on a date -
+    where it sits, what it cost, its price and tag."""
+    rows = []
+    q = (select(StockItem).where(StockItem.status == "in_stock")
+         .order_by(StockItem.stock_no))
+    for item in session.scalars(q):
+        line = session.get(MfgTransferLine, item.line_id) if item.line_id else None
+        transfer = session.get(MfgTransfer, line.transfer_id) if line else None
+        if transfer is not None and transfer.vr_date > date_to:
+            continue
+        job = session.get(Job, item.job_id)
+        sku = session.get(ProductSku, item.product_sku_id) if item.product_sku_id else None
+        client = session.get(Account, job.account_id) if job and job.account_id else None
+        loc = session.get(Location, item.location_id) if item.location_id else None
+        rows.append({
+            "stock_no": item.stock_no, "sku": sku.sku_code if sku else "",
+            "job_no": job.job_no if job else "", "_job_id": job.id if job else None,
+            "client": client.name if client else "stock", "location": loc.name if loc else "",
+            "date": transfer.vr_date if transfer else None,
+            "vrno": transfer.vr_no if transfer else "", "pcs": item.pcs,
+            "g_wt": _dec(item.gross_wt), "n_wt": _dec(item.net_wt),
+            "cost": _dec(item.cost), "price": _dec(item.price), "tag": item.tag_text,
+            "printed": "Y" if item.tag_printed else "",
+        })
+    return rows

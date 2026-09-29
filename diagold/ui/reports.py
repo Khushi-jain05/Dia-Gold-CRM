@@ -1278,6 +1278,19 @@ def build_specs() -> dict[str, ReportSpec]:
             on_activate=lambda w, r: w.open_job(r),
             note="Every piece put into ready stock in the period, with the prices stored "
                  "at transfer time."),
+        "ready_stock": ReportSpec(
+            key="ready_stock", title="Ready Stock",
+            columns=static([Col("stock_no", "STOCK NO"), Col("sku", "SKU"),
+                            Col("job_no", "JOBNO"), Col("client", "CLIENT"),
+                            Col("location", "LOCATION"), Col("date", "MF DATE"),
+                            Col("vrno", "MF VRNO"), pcs("pcs", "PCS"), wt("g_wt", "G-WT"),
+                            wt("n_wt", "N-WT"), money("cost", "COST"), money("price", "PRICE"),
+                            Col("tag", "TAG"), Col("printed", "TAG PRINTED")]),
+            query=lambda s, a, b, **_k: MF.ready_stock(s, b),
+            group_by="location", filter_column="location",
+            on_activate=lambda w, r: w.open_job(r),
+            note="Every finished piece in stock on the To date, with its cost, price and "
+                 "tag. Double-click opens the job."),
         # -- karigar ledgers (28 Sept R13 / T-04) -----------------------
         "issue_day_book": ReportSpec(
             key="issue_day_book", title="Issue Day Book",
@@ -1384,7 +1397,7 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
                   "job_stock_analysis")),
     ("Inventory", ("metal_analysis", "worker_metal_balance", "inv_metal_day_book",
                    "inv_stone_day_book")),
-    ("Manufacturing", ("pending_mfg_transfer", "mfg_transfer_day_book")),
+    ("Manufacturing", ("pending_mfg_transfer", "mfg_transfer_day_book", "ready_stock")),
     ("Karigar", ("worker_metal_ledger", "worker_stone_ledger", "worker_stone_balance",
                  "setting_labour_statement", "issue_day_book", "received_day_book")),
     ("Other", ("job_os_pct", "data_quality")),
