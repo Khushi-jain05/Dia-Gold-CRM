@@ -1,124 +1,98 @@
-# Next session — agenda (18 Sept T-14)
+# Next session — Inventory walkthrough (28 Sept T-12)
 
-Proposed slot: **Monday 21 September**, the usual time (Rohit: "when do we
-sit again? … Monday"). Rohit closed the 18 Sept call with *"Production
-Planning is complete here — do it up to here, then let's check."* So the
-first item is the check.
+Rohit closed the 28 Sept call with *"which inventory columns are needed
+first — we'll target those first"* (52:15), and said the job will be based on
+inventory. So this session is Inventory, voucher by voucher, on his legacy
+screens. Send this agenda and the question list (group message, "28 Sept"
+block) to the group before the call. Record it (`recording-checklist.md`) —
+the 28 Sept audio lost 09:30–14:00, 22:30–24:30, 36:30–41:00 and 45:50–48:30,
+so ask him to repeat anything said while a screen was loading.
 
-## -1. Live demo of v0.5.0 (25 min) — T-12, owed since Session 1
+Goal at the end of the call: a **ranked list** of the Metal and Stone
+vouchers and, for each, the columns that must exist in the first build (C-01).
 
-Share the app tab, tested five minutes before the call (recording set-up in
-`recording-checklist.md`). Walk in this order, on the sample jobs Rohit
-knows (28350, 25006, 27751):
+## 1. Five-minute demo of what 28 Sept already gave us (this build)
 
-1. **Order → Job Mapping → Job History (F11)** — the 11 Sept screens, two
-   minutes each; script in `production-planning-walkthrough.md`.
-2. **Rtn To Inv – Stone** — job 28624: Show Pending, return 2, Breakage 1;
-   Primary stock and the bag move; the Inv Rtn Stone Day Book shows both.
-3. **Job Analysis** — 25006 at 170 overdays; the late-deliveries toggle
-   (27751: 21 days). Ask: does this replace the Google Sheet? (C-04)
-4. **Process Analysis** — tick *fs* in the Show bar: one click, no
-   scrolling. Ask C-01 (open job / current process / PROD DUE).
-5. **Job Card Analysis – Stone** — opening / inward / outward / closing;
-   the red line; drill to the vouchers. Ask C-03 (opening balances).
-6. **Job Stock Analysis** — 27751 "took 21 days"; average / median.
-7. **Tools ▸ Option** — the Production-Planning switches; Reports on.
+On job **28853 / BANG-577** (seeded exactly as his Job History showed it):
 
-Then the 18 Sept questions (C-01…C-05, Q5, Q7, Q8), the 11 Sept items
-below, and the Session 1 backlog.
+1. **Job History** — Loss and Loss % beside the worker: HandMade 1.141 /
+   3.50 (read as the allowance, issued unweighed), PrePolish 1.230 / 3.77,
+   Setting −0.300 / −0.96, Final Polish 0.170 / 0.54, final setting 1.333 /
+   4.23. Receive side now has **Alw L %** and **Labour**.
+2. **Setting Labour** button — ₹2,400 on the final-setting row: Polki
+   4 + 38 pcs × ₹30, Diam 72 + 308 × ₹3. Ask **Q4** (broken unpaid?) here.
+3. **Job Card Bag** — every line balances to 0; the new **Setting** column.
+4. **Reports ▸ Karigar ▸ Worker Metal Ledger** — inward / outward / loss /
+   allowance / running balance in weight and fine. Ask **Q3** here.
+5. **MFG Price** button — the Fill Prices break-up. Ask **Q1, Q2, Q5, Q11,
+   Q12** with his Vr 1081 figures beside it.
+6. Ask **Q13**: why the akshay final-setting row (Vr 5410) has no loss.
 
-## 0. Production Planning (11 Sept items, 15 min)
+## 2. Inventory ▸ Metal (25 min)
 
-## 0. Production Planning first (25 min)
+For each item: open it, one real voucher, then ask *what is it for, who
+enters it, how often, which columns matter, what does it post to.*
 
-1. **C-01 / C-03** — Rohit names the two items in use and the three pending
-   sub-items. We untick the rest in Tools ▸ Option on the call.
-2. **C-05 re-cover (10 min)** — Order entry rules (fields, Requirement Sheet,
-   Quotation link, stock orders), Stone Issue on Job-Card, Order Day Book
-   usage, whether anything in M.R.P. is used.
-3. **C-02** — walk the Word job-sheet format and a filled example; agree which
-   fields map to which placeholders.
-4. **Layout review (T-08)** — Job Mapping, Job History, Job Card Bag, Printing
-   Options as built; see `production-planning-walkthrough.md`. Corrections
-   noted in writing.
-5. **C-04** — fix a date for the factory session; question list in
-   `factory-session-questions.md`.
-6. Q5 In-House used? · Q6 first weight-bearing step · Q7 "Back" column ·
-   Q8 scrap/dust/rejects · Q9 Priority · Q10 pre-production quotation ever?
-
-Recording: speakers set to MacBook before joining (`recording-checklist.md`).
-
----
-
-## 1. Open items to close first (15 min)
-
-These block work that is already written and waiting. Each one has code
-sitting behind it that cannot be finished until the answer lands.
-
-Closed on 14 Sept, off this list: **Q5** labour on net weight × per-gram rate
-(30 gm × ₹1,200 = ₹36,000); **Q6** tag price is just cost + 50%, the 20% is not
-part of it; **S-1** the stone price list — the office types cost and sale per
-stone and size; there is no list to import.
-
-| # | Ask | Why it blocks us |
+| Voucher | What we saw on 28 Sept | Ask |
 |---|---|---|
-| **C-01** | Access to `SERVER2\ERP` → `Diagold26`, or CSV exports of the master tables | Metal codes and several purities are placeholders. Importers are written and tested against sample exports — they need the real files. |
-| **Q7 / C-02** | The Setting Labour Chart: is the per-piece rate **₹3 or ₹30**? | A tenfold difference in karigar payouts. Nothing is assumed anywhere in the code. |
-| **Q1 / C-03** | Stone reference data: confirm the nine granular masters | Built to the granular model the client demonstrated. Sign-off needed before it is treated as final. |
-| **Q13** | The default process sequence | Answered on 11 Sept by the Job Mapping screen: the eleven-step Default group is loaded. Confirm. |
-| **Q9** | Daily Labour Rates — same behaviour as Daily Metal Rate? | Built mirroring metal rates on that assumption. |
-| **Q3 / C-04** | Staff list with roles, and which masters each may see | The rights screen is ready; only the data is missing. |
-| **Q2** | Is Item Size in scope? | The client said they could record it but do not today. |
-| **Q4** | Is setting behaviour identical across all setting types? | Affects whether the setting rate varies by type. |
-| **Q10** | Making Charge values and HSN codes — needed at go-live? | Every SKU row currently shows 0.00 and a blank HSN. |
-| **Q11** | Parts / Mould — the screen was moved through quickly | Field detail was read off the screen, not narrated. Worth a proper walkthrough. |
-| **Q12** | Are there any delivery dates at all? | No deadline was mentioned in the entire meeting. |
-| **C-06** | The fixed daily slot time | A time was proposed but is not recoverable from the recording. |
+| Purchase | Vr 185, SHRIKANT, 24KT 800 g = ₹1,24,64,400 | Salesperson / Place of Supply used? Always 24KT? |
+| Load Metal | not opened | What is it? |
+| Issue Outside / Worker | Vr 3969, RAJESH JI → CHAND KUMAR HAZRA 1.625 g | Opening / Touch-X-Ray / Create O/S flags; "Check Bal" |
+| **Issue On Tree** | not opened | Casting tree — how is metal split to jobs? |
+| Receipt | Vr 1083, TUHIN BHANDARI 132.902 g, Wastage % | Recovery Vr vs Recovery Adj. Vr |
+| Issue On Job Card | not opened | Same as issue with a job no? |
+| **Conversion** | "24KT given, 14KT / 18KT deposited" | Alloying — how are the ratios entered? |
+| **Adjustment** | not opened | When, and who approves? |
+| DayBook, Reports | — | Which reports are daily? |
+| **Worker Recovery** | not opened | Recovering loss beyond allowance? (links to Q3) |
+| **WIP Rtn** | not opened | Metal back from WIP to stock? |
+| **Bhav Cut [Lena] / [Dena]** | not opened | Rate fixing with suppliers / customers? |
+
+Also: **Metal Analysis** (negative closings — **Q6**: block, warn or allow?)
+and **Worker Ledger** (CHAND KUMAR HAZRA — the one row at 6.0% allowed loss:
+why different?).
+
+## 3. Inventory ▸ Stone (20 min)
+
+Purchase, Load Stone, Issue Outside / Worker, Receipt (Vr 113, "Read
+Cert/Lot Here", Show O/S), Issue On Job Card (Vr 13277 on job 28985),
+**Extra Issue On Job Card** (**Q8** — asked at 36:25, answer lost), WIP Rtn,
+Day Book, Reports. Ask **Q14**: can stones go back to stock from the job bag
+without first going to a karigar?
+
+## 4. The rest of the Inventory menu (10 min)
+
+Parts / Mould, Physical Stock, Stock Transfer, Ready Item Receipt — one line
+each: used or not.
+
+## 5. Manufacturing leftovers (10 min)
+
+- **Q7** — "Pending For Qc To Ready Transfer": is QC a step, who does it?
+- Waxing, Repair Issue, Extra Issue, Stamping / Engraving List — used?
+- **Q9** — separate pages vs one page.
+- **C-05** — exports: open job cards, job bags, worker metal balances,
+  location balances, stock with stock numbers.
+
+## 6. Close (5 min)
+
+Read back the ranked voucher list. Agree the next date. Ask again for any
+date or milestone — none has been agreed in four sessions.
 
 ---
 
-## 2. Master module — progress demo (10 min)
+### Draft inventory model to show (T-01, for discussion — not built)
 
-Show what is working, not a finished-module claim. See
-[`master-demo-script.md`](master-demo-script.md).
+Built only after this session answers C-01, so it can be corrected on the
+call rather than in code:
 
----
-
-## 3. SKU walkthrough (20 min)
-
-Questions to put to the client, screen by screen:
-
-**Structure**
-- How is a SKU code built? Is it generated or typed?
-- Does one SKU carry many metal / stone variants, or is each variant its own SKU?
-- What is the relationship between a SKU, a mould, and a design?
-
-**Weights and stones**
-- Which weights are entered by hand and which are derived?
-- How are stones attached — by packet, by size, or by count?
-- Where does the wax weight from the mould feed in?
-
-**Costing**
-- At what point does a SKU acquire a cost — at creation, or per quotation?
-- Which of metal / labour / setting / stone are fixed on the SKU and which vary per order?
-
-**Copying**
-- The legacy rights list has an "Allow SKU Copy" flag. When is a SKU copied, and what carries over?
-
----
-
-## 4. Quotation walkthrough (20 min)
-
-- What does a quotation start from — a SKU, a mould, or a blank line?
-- Which rate applies: the day's metal rate, or one fixed at quotation time?
-- How does the margin set attach — per customer, per quotation, or globally?
-- Is there an approval step before a quotation becomes an order?
-- What must the printed quotation show?
-- Client-wise pricing: the Tools menu has Client Wise Stone / Labour / Setting Price. Are these in use?
-
----
-
-## 5. Agree next steps (5 min)
-
-- Confirm the daily slot time and that the shared group is live
-- Agree what "done" means for SKU and Quotation before building starts
+- **Location** (master, exists) — Primary, RAJESH JI, REPAIR RECEIPT …
+- **Account** (master, exists) — supplier, karigar, client.
+- **Metal** (master, exists) — title / purity; base GOLD or ALLOY.
+- **Movement** (one row per voucher line): date, voucher type + no,
+  location from / to, account, metal or stone SKU + size, pcs, weight,
+  fine weight (stored at posting, never recomputed), carats, value.
+- **Balances** — location and worker, always the running sum of movements,
+  with drill-down to the voucher. The stone side already works this way
+  (`StockMovement`, Job Card Analysis – Stone).
+- **Negative balances** — a setting: block / warn / allow (default warn
+  until Q6 is answered).

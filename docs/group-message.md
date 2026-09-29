@@ -6,9 +6,14 @@ with the reason behind each item is the Open Points page.
 
 ---
 
-**Dia Gold CRM — open items (as of 20 Sept)**
+**Dia Gold CRM — open items (as of 29 Sept)**
 
 Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping and Job History`).
+
+**Answered 28 Sept on your screens — thank you, recorded**
+- **M-2 (setting labour)** Both figures were right: **Diamond ₹3, Polki ₹30 per piece**, held on the Setting Type. On job 28853 (BANG-577) pieces set × rate gives exactly the ₹2,400 on your final-setting row — the new app now reproduces it.
+- **Labour on net weight** — seen as "Price On: NetWt" on your transfer.
+- **Tag price** — "Margin %" 50 on Mfg Ready Stock Transfer is cost × 1.5; the new price engine reproduces your Vr 1081 to the paisa (₹3,05,330.12).
 
 **Answered 14 Sept — thank you, recorded**
 - **M-5 (labour)** Labour = net weight × per-gram rate — your example 30 gm × ₹1,200 = ₹36,000. That is how the software already works; it is now confirmed, not assumed.
@@ -16,6 +21,22 @@ Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping
 - **M-5 (margin)** Tag price is just cost + 50%. The "20% less" is not part of the tag price — recorded that way; the discount field stays optional and off.
 
 **Next sitting** — Rohit ji, you asked "when do we sit again?" and mentioned Monday. We propose **Monday 21 Sept, the usual slot**. Agenda: (1) live demo of the new app — v0.5.0, the whole Production-Planning part built "up to here" as you said, for your check; (2) the five points below; (3) the Word job-sheet format.
+
+**Production → Manufacturing → Inventory (28 Sept) — needed next**
+- **28 Sep C-01** The **Inventory session**: go through Inventory ▸ Metal and Inventory ▸ Stone voucher by voucher, and tell us which ones (and which columns) you need first. You said "job will be based on inventory" — this is what we build next.
+- **28 Sep C-02 / Q1, Q5** Pricing: (a) is "Margin %" always cost + that %? (b) where does the **20%** you mentioned apply — a discount to the customer? (c) the exact rule that prints ₹3,05,330 as **"305"** on the tag; (d) repair jobs — tag price 0?
+- **28 Sep C-03 / Q3** **Allowed loss %** — where does it come from: the process, the karigar or the job? And is the karigar charged for **all** loss or only what is **above** the allowance? (Your worker ledger credits the allowance, so we have set "only above" for now.)
+- **28 Sep Q2** Labour on NSE-2495 was 1,200 × **12.752** g, but the piece's net weight is **12.700**. Which step's net weight does labour use?
+- **28 Sep Q4** Setting labour: stones that come back **broken** — unpaid? (That is what gives ₹2,400.)
+- **28 Sep Q6** **Negative stock** (Primary 24KT Gold −1,030 g in Metal Analysis) — should the new system block it, warn, or allow?
+- **28 Sep Q7** "Pending For **QC** To Ready Transfer" — is QC a separate step? Who does it, what is recorded?
+- **28 Sep Q8, C-04** One line each on: **Extra Issue**, Issue On Tree, Conversion, Adjustment, Worker Recovery, WIP Rtn, Bhav Cut [Lena]/[Dena], Waxing, Stamping/Engraving List.
+- **28 Sep Q9** Our screens are separate pages (Job Card Bag, Job History …); yours are one page. Are separate pages fine?
+- **28 Sep Q11** The metal rate 8,680.67 = 14,713 × 0.590. Is 14,713 that day's 24K rate from Daily Metal Rate, or a separate valuation rate? (Purchases on 23 Sept were at 15,570–15,598.)
+- **28 Sep Q12** Does the **setting labour** paid to the karigar go into "Setting Amount" on the Mfg transfer? (It read 0.00 on Vr 1081.)
+- **28 Sep Q13** Job 28853: the second final-setting row (akshay, Vr 5390 → 5410) shows **no loss** though net went 30.177 → 30.257, and the job total 3.574 leaves it out. Why is that row skipped?
+- **28 Sep Q14** Can stones go **back to stock straight from the job bag** without first going to a karigar (extra stones received)? If never, we will block it.
+- **28 Sep C-05** Exports now also of **transactions**: open job cards, job bags, worker metal balances, location balances, stock with stock numbers.
 
 **Production Planning reports (18 Sept) — five one-line answers**
 - **18 Sep C-01** Two definitions behind the analysis reports: (a) an **open job** — does it exclude cancelled ones, and does it end at the final receipt or at MFG transfer? (b) a job's **current process** — the last step issued and not received, or the next step not yet started? (c) **PROD DUE** — the order's delivery date, or a separate production date?
@@ -36,7 +57,6 @@ Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping
 
 **Master (3 Sept) — still open**
 - **M-1** Access to `SERVER2\ERP → Diagold26`, or exports of Metals / Locations / Items / Stones / Accounts.
-- **M-2** Setting labour per piece — **₹3 or ₹30**?
 - **M-3** Sign-off on the nine stone masters.
 - **M-4** Staff list + which screens each person may open.
 - **M-5** Confirm the default process order — we have loaded the 11-step route from the 11 Sept screen.
