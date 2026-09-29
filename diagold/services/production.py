@@ -61,6 +61,7 @@ STONE_GROUP_LABELS: dict[str, str] = {"DIA": "DIAMOND", "POLKI": "POLKI", "CS": 
 OTHER_GROUP = "OTHER"
 
 ZERO = Decimal("0")
+D2 = Decimal("0.01")
 D3 = Decimal("0.001")
 D4 = Decimal("0.0001")
 
@@ -533,6 +534,11 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
         rej_wt=_dec(extra.get("rej_wt")), scrap=_dec(extra.get("scrap")),
         dust=_dec(extra.get("dust")), remark=extra.get("remark") or "",
         allow_loss_pct=allow, user_id=user_id,
+        mt_price=_dec(extra.get("mt_price")), mt_amt=_dec(extra.get("mt_amt")),
+        manual_price=_dec(extra.get("manual_price")),
+        manual_amt=_dec(extra.get("manual_amt")),
+        rej_type=(extra.get("rej_type") or "")[:24],
+        price_on=extra.get("price_on") or "NetWt", ref_no=(extra.get("ref_no") or "")[:40],
     )
     session.add(v)
     if job.status in ("pending", "mapped"):
@@ -1337,8 +1343,50 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
             "order_no": order.order_no if order else "",
             "order_date": order.order_date if order else None, "ref_no": order.ref if order else "",
             "allow": default_allow_loss_pct(session, step, issue),
+            "size": _order_line_size(session, job),
+            "mt_price": metal_price(session, job.metal_id) or None,
+            "price_on": issue.price_on if issue and issue.price_on else "NetWt",
+            "extra": _dec(issue.extra) or None if issue else None,
+            "finding": _dec(issue.finding) or None if issue else None,
+            "mould": _dec(issue.mould) or None if issue else None,
         })
+        row = rows[-1]
+        row["mt_amt"] = ((row["mt_price"] * row["net"]).quantize(D2)
+                         if row["mt_price"] and row["net"] else None)
     return rows
+
+
+def _order_line_size(session: Session, job: Job) -> str:
+    if not job.order_id:
+        return ""
+    line = session.scalar(select(OrderLine).where(OrderLine.order_id == job.order_id,
+                                                  OrderLine.sno == job.line_sno))
+    return line.size if line else ""
+
+
+def metal_price(session: Session, metal_id: int | None, on_date: date | None = None) -> Decimal:
+    """Mt Price on an issue / receive line: the metal's rate per gram for the
+    day - the day's fine (24K) rate x the metal's purity, the way the MFG
+    transfer prices metal (8,680.67 = 14,713 x 0.590)."""
+    if not metal_id:
+        return ZERO
+    from diagold.services import mfg_pricing, rates
+    metal = session.get(Metal, metal_id)
+    info = rates.rate_for(session, metal_id, on_date or date.today())
+    if not info.found:
+        return ZERO
+    return (_dec(info.rate) * mfg_pricing.title_of(metal) / 1000).quantize(D2)
+
+
+def worker_metal_balance(session: Session, worker_id: int,
+                         on_date: date | None = None) -> tuple[Decimal, Decimal]:
+    """Mt Bal on the voucher: the karigar's closing metal balance (weight,
+    fine) from the Worker Metal Ledger."""
+    on_date = on_date or date.today()
+    rows = worker_metal_ledger(session, on_date, on_date, worker_id=worker_id)
+    if not rows:
+        return ZERO, ZERO
+    return _dec(rows[-1]["bal_wt"]), _dec(rows[-1]["bal_fine"])
 
 
 def post_multi_voucher(session: Session, kind: str, worker_id: int | None,
@@ -1358,29 +1406,9 @@ def post_multi_voucher(session: Session, kind: str, worker_id: int | None,
         raise ProductionError("Tick at least one job.")
     vr_no = next_number(session, JobVoucher.vr_no)
     for ln in lines:
-        if ln.get("allow") not in (None, "") or ln.get("stones") or ln.get("metal") \
-                or ln.get("rej_pcs") or ln.get("rej_wt") or ln.get("stone_wt"):
-            _post_line_full(session, kind, worker_id, ln, vr_no, vr_date=vr_date,
-                            vr_time=vr_time, allow_loss_pct=allow_loss_pct, user_id=user_id,
-                            remark=ln.get("remark") or "")
-            continue
-        job = session.get(Job, ln["job_id"])
-        step = session.get(JobStep, ln["step_id"])
-        who = worker_id
-        if kind == "receive":
-            out = open_issue(session, step)
-            if out is None:
-                raise ProductionError(f"Job {job.job_no}: nothing is out on this step - "
-                                      "issue it before receiving it back.")
-            who = out.worker_id
-        try:
-            post_voucher(session, job, step, kind, who, vr_date=vr_date, vr_time=vr_time,
-                         pcs=ln.get("pcs") or job.pcs, gross_wt=ln.get("gross"),
-                         net_wt=ln.get("net"), vr_no=vr_no, user_id=user_id,
-                         allow_loss_pct=allow_loss_pct if kind == "issue" else None,
-                         scrap=ln.get("scrap"), dust=ln.get("dust"))
-        except ProductionError as exc:
-            raise ProductionError(f"Job {job.job_no}: {exc}") from exc
+        _post_line_full(session, kind, worker_id, ln, vr_no, vr_date=vr_date,
+                        vr_time=vr_time, allow_loss_pct=allow_loss_pct, user_id=user_id,
+                        remark=ln.get("remark") or "")
     return vr_no
 
 
@@ -1403,8 +1431,12 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
         if kind == "receive":
             for line_id, pcs in (ln.get("stones") or {}).items():
                 bag_move(session, lines[line_id], "back", pcs, worker_id=who, mv_date=vr_date)
-        extra = {k: ln.get(k) for k in ("scrap", "dust", "rej_pcs", "rej_wt", "stone_wt")}
+        extra = {k: ln.get(k) for k in ("scrap", "dust", "rej_pcs", "rej_wt", "stone_wt",
+                                        "extra", "finding", "mould", "mt_price", "mt_amt",
+                                        "manual_price", "manual_amt", "rej_type", "price_on",
+                                        "ref_no")}
         if kind == "issue" and ln.get("metal"):
+            # F5 metal is the line's extra metal; the column shows its total.
             extra["extra"] = sum((_dec(m["weight"]) for m in ln["metal"]), ZERO)
         allow = ln.get("allow")
         v = post_voucher(session, job, step, kind, who, vr_date=vr_date, vr_time=vr_time,

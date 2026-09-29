@@ -49,12 +49,15 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "manufacturing.mfg_transfer_day_book":
         lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
     "manufacturing.reports": lambda user: ReportsHub(user, first="pending_mfg_transfer"),
+    "manufacturing.worker_statement":
+        lambda user: ReportWidget(build_specs()["worker_metal_ledger"], user),
     "inventory.reports": lambda user: ReportsHub(user, first="metal_analysis"),
 }
 
 # Screens reached from a button rather than the workbook's menu - the legacy
 # "Item Search" link sits at the top right of every screen.
 EXTRA_SCREENS: dict[str, str] = {"manufacturing.item_search": "Item Search",
+                                  "manufacturing.worker_statement": "Worker Metal Ledger",
                                   **inventory_ui.sub_labels()}
 # Menu items that open a submenu rather than a screen (Inventory ▸ Metal ▸ …).
 SUBMENUS = {parent: [(inventory_ui.sub_key(parent, k), label) for k, label in items]

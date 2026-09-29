@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -709,46 +709,81 @@ class ProcessVoucherWidget(_Screen):
                                .order_by(Account.name)):
                 self.worker.addItem(w.name, w.id)
         self.process.currentIndexChanged.connect(lambda _i: self._process_changed())
+        if not issue:
+            # A receipt may come from any karigar; picking one narrows Show
+            # Pending to what that karigar holds and shows his Mt Bal.
+            self.worker.insertItem(0, "(any karigar)", None)
+            self.worker.setCurrentIndex(0)
+        self.worker.currentIndexChanged.connect(lambda _i: self._worker_changed())
+        self.mt_bal = QLabel("")
+        self.mt_bal.setObjectName("Muted")
+        self.vr_ref = QLineEdit()
+        self.vr_ref.setPlaceholderText("RefNo")
+        self.vr_ref.setMaximumWidth(110)
         for w in (QLabel("Vr No"), self.vr, QLabel("Date"), self.date, self.time,
-                  QLabel("Process"), self.process):
+                  QLabel("Process"), self.process, QLabel("Account"), self.worker,
+                  self.mt_bal, self.vr_ref):
             self.toolbar.addWidget(w)
-        if issue:
-            self.toolbar.addWidget(QLabel("Account"))
-            self.toolbar.addWidget(self.worker)
         self.toolbar.addStretch(1)
+        self.photo = QLabel("no photo")
+        self.photo.setObjectName("ImageSlot")
+        self.photo.setFixedSize(64, 64)
+        self.photo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.photo.setToolTip("Photo of the selected line - click to enlarge")
+        self._photo_path = ""
+        self.photo.mousePressEvent = lambda _e: self._enlarge_photo()
+        self.toolbar.addWidget(self.photo)
         self.button("Show Pending", self.show_pending, primary=True)
         self.button("Save", self.save)
         self.button("F3 Stone", self.f3, secondary=True)
         if issue:
+            self.button("F4 Finding", lambda: self._edit_cell("finding"), secondary=True)
             self.button("F5 Metal", self.f5, secondary=True)
+            self.button("F7 Mould", lambda: self._edit_cell("mould"), secondary=True)
         self.button("Remove Line", self.remove_line, secondary=True)
         self.button("Print Voucher", self.print_voucher, secondary=True)
+        self.button("Statement",
+                    lambda: self.open_requested.emit("manufacturing.worker_statement"),
+                    secondary=True)
         self.button("Day Book", lambda: self.open_requested.emit(
             "manufacturing.issue_day_book" if issue else "manufacturing.received_day_book"),
             secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
         QShortcut(QKeySequence("F3"), self, activated=self.f3)
         if issue:
+            QShortcut(QKeySequence("F4"), self, activated=lambda: self._edit_cell("finding"))
             QShortcut(QKeySequence("F5"), self, activated=self.f5)
+            QShortcut(QKeySequence("F7"), self, activated=lambda: self._edit_cell("mould"))
 
+        # The legacy grid, column for column (28 Sept §4.4). Green = typed.
         self.cols: list[tuple[str, str, bool]] = [
             ("job_no", "JobNo", False), ("sku", "SKU", False), ("c_ref", "C-Ref", False),
-            ("metal", "Metal", False), ("colour", "Col", False), ("pcs", "Pcs", True),
-            ("gross", "GrossWt", True), ("net", "NetWt", True)]
+            ("metal", "Metal", False), ("colour", "Col", False), ("size", "Size", False),
+            ("pcs", "Pcs", True), ("gross", "GrossWt", True), ("net", "NetWt", True),
+            ("mt_price", "Mt\nPrice", True), ("mt_amt", "Mt\nAmt", False)]
         if issue:
-            self.cols += [("stone_wt", "Issue\nSt Wt", True)]
+            self.cols += [("manual_price", "Manual\nPrice", True),
+                          ("stone_wt", "Issue\nSt Wt", True),
+                          ("extra", "Issue\nExtraMt", True),
+                          ("finding", "Issue\nFinding", True),
+                          ("mould", "Issue\nMouldWt", True),
+                          ("allow", "Allow\nLoss %", True),
+                          ("price_on", "L Price\nOn", False), ("f3f5", "F3 / F5", False)]
         else:
-            self.cols += [("worker", "From", False), ("rej_pcs", "Rej\nPcs", True),
-                          ("rej_wt", "Rej Wt", True), ("scrap", "Scrap", True),
-                          ("dust", "Dust", True)]
-        self.cols += [("allow", "Allow\nLoss %", True), ("f3f5", "F3 / F5", False),
-                      ("order_no", "OrderNo", False), ("order_date", "Date", False),
+            self.cols += [("worker", "From", False), ("rej_type", "Rej.\nType", True),
+                          ("rej_pcs", "Rej/Can\nPcs", True), ("rej_wt", "Rej Wt", True),
+                          ("scrap", "Scrap", True), ("dust", "Dust", True),
+                          ("allow", "Allow\nLoss %", True),
+                          ("manual_price", "Manual\nPrice", True),
+                          ("manual_amt", "Manual\nAmt", True), ("f3f5", "F3", False)]
+        self.cols += [("order_no", "OrderNo", False), ("order_date", "Date", False),
                       ("ref_no", "RefNo", False), ("client", "Client", False)]
         self.grid = _table([h for _k, h, _e in self.cols], ledger=True)
         self.grid.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
                                   | QAbstractItemView.EditTrigger.EditKeyPressed
                                   | QAbstractItemView.EditTrigger.AnyKeyPressed)
         self.grid.itemChanged.connect(self._edited)
+        self.grid.itemSelectionChanged.connect(self._line_selected)
         self.outer.addWidget(self.grid, 1)
         self.narration = QLineEdit()
         self.narration.setPlaceholderText("Narration")
@@ -782,11 +817,61 @@ class ProcessVoucherWidget(_Screen):
         with SessionLocal() as s:
             self.vr.setText(str(production.next_number(s, JobVoucher.vr_no)))
         self._render()
+        self._worker_changed()
+
+    def _worker_changed(self) -> None:
+        wid = self.worker.currentData()
+        if not wid:
+            self.mt_bal.setText("")
+            return
+        with SessionLocal() as s:
+            wt, fine = production.worker_metal_balance(s, wid, _pydate(self.date))
+        self.mt_bal.setText(f"Mt Bal {wt:.3f} g / fine {fine:.3f}")
+
+    def _line_selected(self) -> None:
+        rows = self.grid.selectionModel().selectedRows()
+        path = ""
+        if rows and rows[0].row() < len(self.lines):
+            with SessionLocal() as s:
+                job = s.get(Job, self.lines[rows[0].row()]["_job_id"])
+                sku = job.product_sku if job else None
+                path = (sku.image_finished or sku.image_design) if sku else ""
+        pix = QPixmap(path) if path else QPixmap()
+        self._photo_path = path if not pix.isNull() else ""
+        if pix.isNull():
+            self.photo.setPixmap(QPixmap())
+            self.photo.setText("no photo")
+        else:
+            self.photo.setText("")
+            self.photo.setPixmap(pix.scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio,
+                                            Qt.TransformationMode.SmoothTransformation))
+
+    def _enlarge_photo(self) -> None:
+        if not self._photo_path:
+            return
+        from diagold.ui.production import show_in_dialog
+        big = QLabel()
+        big.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        big.setPixmap(QPixmap(self._photo_path).scaled(
+            720, 720, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+        show_in_dialog(self, big, "Photo", (760, 760))
+
+    def _edit_cell(self, key: str) -> None:
+        """F4 / F7: jump to the line's Finding / Mould weight to type it."""
+        r = self._selected()
+        if r is None:
+            return
+        c = [k for k, _h, _e in self.cols].index(key)
+        self.grid.setCurrentCell(r, c)
+        self.grid.editItem(self.grid.item(r, c))
 
     # -- lines ----------------------------------------------------------
     def show_pending(self) -> None:
         with SessionLocal() as s:
-            rows = production.pending_steps(s, self.kind, self.process.currentData())
+            rows = production.pending_steps(s, self.kind, self.process.currentData(),
+                                            worker_id=self.worker.currentData()
+                                            if self.kind == "receive" else None)
         have = {l["_job_id"] for l in self.lines}
         rows = [r for r in rows if r["_job_id"] not in have]
         dlg = QDialog(self)
@@ -819,7 +904,7 @@ class ProcessVoucherWidget(_Screen):
             if lst.item(i).checkState() == Qt.CheckState.Checked:
                 r = dict(lst.item(i).data(Qt.ItemDataRole.UserRole))
                 if self.kind == "receive":
-                    r["gross"] = r["net"] = None     # typed from the scale
+                    r["gross"] = r["net"] = r["mt_amt"] = None     # typed from the scale
                 r["stones"], r["metal_lines"] = {}, []
                 self.lines.append(r)
         self._render()
@@ -841,13 +926,19 @@ class ProcessVoucherWidget(_Screen):
                     v = " · ".join(parts)
                 elif key == "allow" and ln.get(key) is not None:
                     v = f"{Decimal(str(ln[key])):.2f}"
+                elif key == "extra" and ln.get("metal_lines"):
+                    v = sum(Decimal(str(m["weight"])) for m in ln["metal_lines"])
                 else:
                     v = ln.get(key)
                 wb = ln.get("weight_bearing", True)
-                edit = editable and (wb or key in ("pcs",))
+                edit = editable and (wb or key in ("pcs", "rej_type", "manual_price",
+                                                   "manual_amt"))
+                if key == "extra" and ln.get("metal_lines"):
+                    edit = False        # F5 metal is the extra metal on this line
                 it = _item(v if v is not None else "", TINT_RECEIVE if edit else None,
                            right=key not in ("sku", "c_ref", "metal", "colour", "worker",
-                                             "client", "ref_no", "f3f5"))
+                                             "client", "ref_no", "f3f5", "size",
+                                             "rej_type", "price_on"))
                 flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
                 if edit:
                     flags |= Qt.ItemFlag.ItemIsEditable
@@ -863,10 +954,23 @@ class ProcessVoucherWidget(_Screen):
         r, c = it.row(), it.column()
         key = self.cols[c][0]
         text = it.text().replace(",", "").strip()
+        ln = self.lines[r]
         if key in ("pcs", "rej_pcs"):
-            self.lines[r][key] = int(text) if text.isdigit() else 0
+            ln[key] = int(text) if text.isdigit() else 0
+        elif key == "rej_type":
+            ln[key] = it.text().strip()
         else:
-            self.lines[r][key] = _num(text)
+            ln[key] = _num(text)
+        # Amounts follow the net weight and the price, as on the legacy grid.
+        if key in ("net", "mt_price", "manual_price"):
+            net = Decimal(str(ln.get("net") or 0))
+            if ln.get("mt_price") is not None:
+                ln["mt_amt"] = (Decimal(str(ln["mt_price"])) * net).quantize(Decimal("0.01"))
+            if ln.get("manual_price") is not None and self.kind == "receive":
+                ln["manual_amt"] = (Decimal(str(ln["manual_price"])) * net).quantize(
+                    Decimal("0.01"))
+            self._render()
+            self.grid.selectRow(r)
 
     def _selected(self) -> int | None:
         rows = self.grid.selectionModel().selectedRows()
@@ -925,6 +1029,11 @@ class ProcessVoucherWidget(_Screen):
                 "rej_wt": ln.get("rej_wt"), "scrap": ln.get("scrap"), "dust": ln.get("dust"),
                 "allow": ln.get("allow"), "stones": ln.get("stones") or {},
                 "metal": ln.get("metal_lines") or [], "remark": self.narration.text().strip(),
+                "extra": ln.get("extra"), "finding": ln.get("finding"),
+                "mould": ln.get("mould"), "mt_price": ln.get("mt_price"),
+                "mt_amt": ln.get("mt_amt"), "manual_price": ln.get("manual_price"),
+                "manual_amt": ln.get("manual_amt"), "rej_type": ln.get("rej_type"),
+                "price_on": ln.get("price_on") or "NetWt", "ref_no": self.vr_ref.text().strip(),
             })
         with SessionLocal() as s:
             try:
@@ -941,6 +1050,7 @@ class ProcessVoucherWidget(_Screen):
         n = len(self.lines)
         self.lines = []
         self.narration.clear()
+        self.vr_ref.clear()
         self.refresh()
         self.totals.setText(f"Saved Vr {vr}: {n} job(s). Print Voucher prints it.")
 

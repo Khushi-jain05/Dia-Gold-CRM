@@ -215,6 +215,17 @@ class JobVoucher(Base, PKMixin, TimestampMixin):
     # stored when the step is received so a later rate change never rewrites
     # it (28 Sept R8 / T-05). Zero on every other receive.
     labour: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    # The rest of the legacy "Issue To / Received From" line (28 Sept §4.4):
+    # metal price and amount at the day's rate, a manual price / amount typed
+    # over it, the rejection type on a receipt, what labour is priced on
+    # (NetWt on every voucher seen) and the voucher's own reference number.
+    mt_price: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    mt_amt: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    manual_price: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    manual_amt: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    rej_type: Mapped[str] = mapped_column(String(24), default="")
+    price_on: Mapped[str] = mapped_column(String(8), default="NetWt")
+    ref_no: Mapped[str] = mapped_column(String(40), default="")
     remark: Mapped[str] = mapped_column(String(200), default="")
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
