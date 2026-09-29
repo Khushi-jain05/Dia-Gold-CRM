@@ -1065,15 +1065,21 @@ class FormDialog(QDialog):
                 self.session.add(child.model(**{child.fk_attr: obj.id}, **row))
 
 
-def fill_width(table: QTableWidget) -> None:
+def fill_width(table, max_width: int | None = None) -> None:
     """Size columns to their contents, then share any spare width among them
     in proportion, so a list always spans its box - no blank strip to the
     right of the last column - and re-fits when a column is added or the
-    window is resized."""
+    window is resized. Works on any table view; ``max_width`` caps a column
+    before the sharing (a long remark must not push the rest off screen)."""
     header = table.horizontalHeader()
     header.setStretchLastSection(False)
     table.resizeColumnsToContents()
-    cols = [c for c in range(table.columnCount()) if not table.isColumnHidden(c)]
+    count = table.model().columnCount() if table.model() is not None else 0
+    cols = [c for c in range(count) if not table.isColumnHidden(c)]
+    if max_width:
+        for c in cols:
+            if table.columnWidth(c) > max_width:
+                table.setColumnWidth(c, max_width)
     if not cols:
         return
     used = sum(table.columnWidth(c) for c in cols)
@@ -1094,13 +1100,13 @@ class _AutoFit(QObject):
     is shown or resized and when rows come or go, batched to one pass after
     the event loop settles so a bulk fill is fitted once, not per row."""
 
-    def __init__(self, table: QTableWidget):
+    def __init__(self, table, max_width: int | None = None):
         super().__init__(table)
         self.table = table
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setInterval(0)
-        self.timer.timeout.connect(lambda: fill_width(self.table))
+        self.timer.timeout.connect(lambda: fill_width(self.table, max_width))
         table.installEventFilter(self)
         m = table.model()
         for sig in (m.rowsInserted, m.rowsRemoved, m.modelReset,
@@ -1113,10 +1119,10 @@ class _AutoFit(QObject):
         return False
 
 
-def auto_fit(table: QTableWidget) -> QTableWidget:
+def auto_fit(table, max_width: int | None = None):
     """Make ``table`` always fill its width (see :class:`_AutoFit`)."""
     if not table.findChild(_AutoFit):
-        _AutoFit(table)
+        _AutoFit(table, max_width)
     return table
 
 class CrudWidget(QWidget):

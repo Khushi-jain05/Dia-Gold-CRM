@@ -55,6 +55,7 @@ from PySide6.QtWidgets import (
 
 from diagold.db.session import SessionLocal
 from diagold.services import documents, settings
+from diagold.ui.crud import auto_fit, fill_width
 from diagold.services import inventory as INV
 from diagold.services import manufacturing as MF
 from diagold.services import production as P
@@ -458,6 +459,9 @@ class _OptionsDialog(QDialog):
 # --------------------------------------------------------------------------
 # the report widget
 # --------------------------------------------------------------------------
+REPORT_COL_MAX = 260     # px - a long remark is capped, the user can drag it wider
+
+
 class ReportWidget(QWidget):
     open_requested = Signal(str)
 
@@ -590,7 +594,10 @@ class ReportWidget(QWidget):
         self.view.verticalHeader().setVisible(False)
         self.view.verticalHeader().setDefaultSectionSize(26)
         self.view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        self.view.horizontalHeader().setStretchLastSection(True)
+        # Columns fit their contents and share the spare width, so the grid
+        # spans its box even when the last column is hidden (stretching the
+        # last section left a blank strip then). A long remark stays capped.
+        auto_fit(self.view, REPORT_COL_MAX)
         self.view.doubleClicked.connect(self._activate)
         # F10 does what a double-click does - "Show JB" on the legacy pending
         # grid (28 Sept §4.8, UX4).
@@ -865,13 +872,9 @@ class ReportWidget(QWidget):
             display.append(("total", self._sum_row(rows, first_key, f"TOTAL ({len(rows)})")))
         self.model.row_numbers = self.row_numbers
         self.model.load(cols, display)
-        self.view.resizeColumnsToContents()
         # A long remark must not push every other column off the screen; the
         # user can still drag a column wider.
-        header = self.view.horizontalHeader()
-        for c in range(self.model.columnCount()):
-            if header.sectionSize(c) > 260:
-                header.resizeSection(c, 260)
+        fill_width(self.view, REPORT_COL_MAX)
         parts = [f"{len(rows)} row(s)"]
         if len(rows) != len(self._raw):
             parts.append(f"of {len(self._raw)}")

@@ -217,6 +217,8 @@ QTableView QTableCornerButton::section {{
     border-bottom: 1px solid {BORDER};
 }}
 QTableWidget::item {{ padding: 6px 8px; }}
+/* Report grids: room between the text and the cell border. */
+QTableView::item {{ padding: 3px 10px; }}
 /* The wide ledgers (Job Card Bag, Job History): twenty-odd columns have to
    share a laptop screen, so cells and header sections carry less padding and
    the two-line header is centred over its numbers. */
