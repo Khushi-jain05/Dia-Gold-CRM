@@ -35,7 +35,7 @@ from diagold.menu import MENU, MENU_BY_KEY
 from diagold.services import settings
 from diagold.services.auth import AuthError, CurrentUser, change_password
 from diagold.ui.dashboard import DashboardWidget
-from diagold.ui.registry import EXTRA_SCREENS, build_widget, has_real_screen
+from diagold.ui.registry import EXTRA_SCREENS, SUBMENUS, build_widget, has_real_screen
 from diagold.ui.style import APP_QSS
 
 
@@ -105,6 +105,19 @@ class MainWindow(QMainWindow):
                     continue
                 if not settings.menu_visible(item.key):
                     continue  # switched off in Tools > Option (T-07)
+                if item.key in SUBMENUS:
+                    # Inventory ▸ Metal ▸ Purchase … - hover opens the submenu.
+                    sub = menu.addMenu(item.label)
+                    sub.setObjectName("TopMenuPopup")
+                    for key, sub_label in SUBMENUS[item.key]:
+                        text = sub_label if has_real_screen(key) else f"{sub_label}  ·  soon"
+                        act = sub.addAction(text)
+                        act.triggered.connect(
+                            lambda _c=False, k=key: self._open_by_key(k))
+                        self._search_targets[
+                            f"{EXTRA_SCREENS.get(key, sub_label)}  —  {group.label}"] = key
+                    shown += 1
+                    continue
                 label = item.label
                 if not has_real_screen(item.key):
                     label += "  ·  soon"

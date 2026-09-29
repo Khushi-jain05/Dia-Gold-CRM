@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QWidget
 from diagold.menu import MENU_BY_KEY
 from diagold.services.auth import CurrentUser
 from diagold.ui.crud import CrudWidget
-from diagold.ui.inventory import InventoryHub
+from diagold.ui import inventory as inventory_ui
 from diagold.ui.manufacturing import ItemSearchWidget, MfgTransferWidget
 from diagold.ui.permissions import PermissionMatrixWidget
 from diagold.ui.placeholder import PlaceholderWidget
@@ -43,14 +43,16 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "manufacturing.mfg_transfer_day_book":
         lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
     "manufacturing.reports": lambda user: ReportsHub(user, first="pending_mfg_transfer"),
-    "inventory.metal": lambda user: InventoryHub("metal", user),
-    "inventory.stone": lambda user: InventoryHub("stone", user),
     "inventory.reports": lambda user: ReportsHub(user, first="metal_analysis"),
 }
 
 # Screens reached from a button rather than the workbook's menu - the legacy
 # "Item Search" link sits at the top right of every screen.
-EXTRA_SCREENS: dict[str, str] = {"manufacturing.item_search": "Item Search"}
+EXTRA_SCREENS: dict[str, str] = {"manufacturing.item_search": "Item Search",
+                                  **inventory_ui.sub_labels()}
+# Menu items that open a submenu rather than a screen (Inventory ▸ Metal ▸ …).
+SUBMENUS = {parent: [(inventory_ui.sub_key(parent, k), label) for k, label in items]
+            for parent, items in inventory_ui.SUBMENUS.items()}
 
 
 def _group_label(menu_key: str) -> str:
@@ -71,6 +73,8 @@ def _item_label(menu_key: str) -> str:
 def build_widget(menu_key: str, user: CurrentUser) -> QWidget:
     if menu_key in _CUSTOM:
         return _CUSTOM[menu_key](user)
+    if menu_key.rsplit(".", 1)[0] in SUBMENUS:
+        return inventory_ui.build_screen(menu_key, user)
 
     spec = SPECS.get(menu_key)
     if spec is not None:
@@ -84,4 +88,6 @@ def build_widget(menu_key: str, user: CurrentUser) -> QWidget:
 
 
 def has_real_screen(menu_key: str) -> bool:
-    return menu_key in _CUSTOM or menu_key in SPECS
+    if menu_key.rsplit(".", 1)[0] in SUBMENUS:
+        return menu_key.rsplit(".", 1)[1] not in inventory_ui.PENDING_EXPLANATION
+    return menu_key in _CUSTOM or menu_key in SPECS or menu_key in SUBMENUS

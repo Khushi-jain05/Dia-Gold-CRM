@@ -1,7 +1,7 @@
 """Inventory ▸ Metal and Inventory ▸ Stone (28 Sept §4.11-4.12, T-01).
 
-Each is a hub like the legacy sub-menu: the voucher list on the left, the
-chosen voucher's screen on the right. Purchase, Issue Outside / Worker and
+Each is a submenu of the top menu, like the legacy sub-menu; every voucher
+opens in its own tab. Purchase, Issue Outside / Worker and
 Receipt are built on one voucher table (see services.inventory); Stone ▸
 Issue On Job Card is the Production-Planning screen itself. Items the client
 has not yet explained (Issue On Tree, Conversion, Bhav Cut …, C-04) open a
@@ -12,17 +12,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QSplitter,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from diagold.db.models import Account, InvVoucher, InvVoucherLine, Location, Metal, StoneSku
 from diagold.services import inventory as INV
@@ -196,90 +186,69 @@ _UNEXPLAINED = ("Opened on the 28 Sept call but not explained, so it is not buil
                 "says what it does and what it posts, it becomes a voucher like the others.")
 
 
-class InventoryHub(QWidget):
-    """Inventory ▸ Metal / Stone: the legacy sub-menu as a list beside the screen."""
+# Inventory ▸ Metal and Inventory ▸ Stone open as submenus of the top menu,
+# in the legacy order - each voucher in its own full-width tab, so every
+# column of its grid is in view (29 Sept: the side list squeezed them).
+SUBMENUS: dict[str, list[tuple[str, str]]] = {
+    "inventory.metal": [
+        ("metal_purchase", "Purchase"), ("_load", "Load Metal"),
+        ("metal_issue", "Issue Outside / Worker"), ("_tree", "Issue On Tree"),
+        ("metal_receipt", "Receipt"), ("_jobcard", "Issue On Job Card"),
+        ("_conv", "Conversion"), ("_adj", "Adjustment"), ("_daybook", "DayBook"),
+        ("_recov", "Worker Recovery"), ("_wip", "WIP Rtn"), ("_lena", "Bhav Cut [Lena]"),
+        ("_dena", "Bhav Cut [Dena]"), ("_reports", "Reports"),
+    ],
+    "inventory.stone": [
+        ("stone_purchase", "Purchase"), ("_load", "Load Stone"),
+        ("stone_issue", "Issue Outside / Worker"), ("stone_receipt", "Receipt"),
+        ("_jobcard", "Issue On Job Card"), ("_extra", "Extra Issue On Job Card"),
+        ("_wip", "WIP Rtn"), ("_daybook", "Day Book"), ("_reports", "Reports"),
+    ],
+}
+# Sub-screens that are only a note until the client explains them (C-04).
+PENDING_EXPLANATION = {"_load", "_tree", "_conv", "_adj", "_recov", "_wip", "_lena",
+                       "_dena", "_extra"}
 
-    open_requested = Signal(str)
 
-    def __init__(self, material: str, user=None, parent=None):
-        super().__init__(parent)
-        self.user = user
-        self.job_id = None
-        self._built: dict[str, QWidget] = {}
-        if material == "metal":
-            items = [("metal_purchase", "Purchase"), ("_load", "Load Metal"),
-                     ("metal_issue", "Issue Outside / Worker"), ("_tree", "Issue On Tree"),
-                     ("metal_receipt", "Receipt"), ("_jobcard", "Issue On Job Card"),
-                     ("_conv", "Conversion"), ("_adj", "Adjustment"),
-                     ("_daybook", "DayBook"), ("_recov", "Worker Recovery"),
-                     ("_wip", "WIP Rtn"), ("_lena", "Bhav Cut [Lena]"),
-                     ("_dena", "Bhav Cut [Dena]"), ("_reports", "Reports")]
-        else:
-            items = [("stone_purchase", "Purchase"), ("_load", "Load Stone"),
-                     ("stone_issue", "Issue Outside / Worker"),
-                     ("stone_receipt", "Receipt"), ("_jobcard", "Issue On Job Card"),
-                     ("_extra", "Extra Issue On Job Card"), ("_wip", "WIP Rtn"),
-                     ("_daybook", "Day Book"), ("_reports", "Reports")]
-        self.material = material
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        split = QSplitter(Qt.Orientation.Horizontal)
-        self.list = QListWidget()
-        self.list.setObjectName("ReportList")
-        self.list.setMaximumWidth(260)
-        head = QListWidgetItem(("METAL" if material == "metal" else "STONE"))
-        head.setFlags(Qt.ItemFlag.NoItemFlags)
-        f = head.font()
-        f.setBold(True)
-        head.setFont(f)
-        self.list.addItem(head)
+def sub_key(parent: str, key: str) -> str:
+    return f"{parent}.{key}"
+
+
+def sub_labels() -> dict[str, str]:
+    """menu key -> tab label, e.g. inventory.metal.metal_purchase -> Metal Purchase."""
+    out = {}
+    for parent, items in SUBMENUS.items():
+        head = "Metal" if parent.endswith("metal") else "Stone"
         for key, label in items:
-            it = QListWidgetItem(label)
-            it.setData(Qt.ItemDataRole.UserRole, key)
-            self.list.addItem(it)
-        self.list.currentItemChanged.connect(self._pick)
-        split.addWidget(self.list)
-        self.stack = QStackedWidget()
-        split.addWidget(self.stack)
-        split.setStretchFactor(1, 1)
-        split.setSizes([220, 1000])
-        lay.addWidget(split)
-        self.list.setCurrentRow(1)
+            out[sub_key(parent, key)] = f"{head} {label}"
+    return out
 
-    def _pick(self, current, _prev) -> None:
-        if current is None:
-            return
-        key = current.data(Qt.ItemDataRole.UserRole)
-        if not key:
-            return
-        if key not in self._built:
-            self._built[key] = self._build(key, current.text())
-            self.stack.addWidget(self._built[key])
-        self.stack.setCurrentWidget(self._built[key])
 
-    def _build(self, key: str, label: str) -> QWidget:
-        if key in INV.VOUCHER_TYPES:
-            return CrudWidget(voucher_spec(key), rights=getattr(self.user, "rights", None))
-        if key == "_jobcard" and self.material == "stone":
-            from diagold.ui.specs import SPECS
-            return CrudWidget(SPECS["production_planning.stone_issue"],
-                              rights=getattr(self.user, "rights", None))
-        if key == "_daybook":
-            from diagold.ui.reports import ReportWidget, build_specs
-            return ReportWidget(build_specs()[f"inv_{self.material}_day_book"], self.user)
-        if key == "_reports":
-            from diagold.ui.reports import ReportsHub
-            hub = ReportsHub(self.user, first="metal_analysis" if self.material == "metal"
-                             else "job_card_analysis_stone")
-            hub.open_requested.connect(self.open_requested.emit)
-            return hub
-        if key == "_jobcard":
-            return _NotYet(label, "Metal against a job card is issued with the job step "
-                                  "itself (Job History ▸ + Issue, or Show Pending for several "
-                                  "jobs on one voucher). A separate metal voucher against a "
-                                  "job card waits for the client to say how it differs "
-                                  "(28 Sept C-04).")
-        if key == "_extra":
-            return _NotYet(label, "Asked at 36:25 on the 28 Sept call; the answer was not "
-                                  "audible (Q8). " + _UNEXPLAINED)
-        return _NotYet(label, _UNEXPLAINED)
+def build_screen(menu_key: str, user=None) -> QWidget:
+    """The screen for one Inventory sub-menu item."""
+    parent, key = menu_key.rsplit(".", 1)
+    material = "metal" if parent.endswith("metal") else "stone"
+    label = dict(SUBMENUS[parent])[key]
+    rights = getattr(user, "rights", None)
+    if key in INV.VOUCHER_TYPES:
+        return CrudWidget(voucher_spec(key), rights=rights)
+    if key == "_jobcard" and material == "stone":
+        from diagold.ui.specs import SPECS
+        return CrudWidget(SPECS["production_planning.stone_issue"], rights=rights)
+    if key == "_daybook":
+        from diagold.ui.reports import ReportWidget, build_specs
+        return ReportWidget(build_specs()[f"inv_{material}_day_book"], user)
+    if key == "_reports":
+        from diagold.ui.reports import ReportsHub
+        return ReportsHub(user, first="metal_analysis" if material == "metal"
+                          else "job_card_analysis_stone")
+    if key == "_jobcard":
+        return _NotYet(label, "Metal against a job card is issued with the job step "
+                              "itself (Job History ▸ + Issue, or Show Pending for several "
+                              "jobs on one voucher). A separate metal voucher against a "
+                              "job card waits for the client to say how it differs "
+                              "(28 Sept C-04).")
+    if key == "_extra":
+        return _NotYet(label, "Asked at 36:25 on the 28 Sept call; the answer was not "
+                              "audible (Q8). " + _UNEXPLAINED)
+    return _NotYet(label, _UNEXPLAINED)
