@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 from diagold.menu import MENU_BY_KEY
 from diagold.services.auth import CurrentUser
 from diagold.ui.crud import CrudWidget
+from diagold.ui.inventory import InventoryHub
 from diagold.ui.manufacturing import ItemSearchWidget, MfgTransferWidget
 from diagold.ui.permissions import PermissionMatrixWidget
 from diagold.ui.placeholder import PlaceholderWidget
@@ -42,6 +43,9 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "manufacturing.mfg_transfer_day_book":
         lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
     "manufacturing.reports": lambda user: ReportsHub(user, first="pending_mfg_transfer"),
+    "inventory.metal": lambda user: InventoryHub("metal", user),
+    "inventory.stone": lambda user: InventoryHub("stone", user),
+    "inventory.reports": lambda user: ReportsHub(user, first="metal_analysis"),
 }
 
 # Screens reached from a button rather than the workbook's menu - the legacy

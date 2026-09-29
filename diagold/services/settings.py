@@ -39,6 +39,8 @@ FLAGS: dict[str, tuple[str, bool]] = {
     "pp.return_other_classes": ("Return to Inventory: show Metal / Mould / Finding classes", False),
     # 28 Sept Q3: off = the karigar owes only loss beyond the allowed %, as
     # the legacy Worker Ledger shows; on = every gram lost is owed.
+    # Negative stock (28 Sept Q6) is a three-way choice, kept as the setting
+    # "inventory.negative_stock" = block / warn / allow (default warn).
     # Legacy asks "Save? Yes / No" before every save; staff expect it.
     "ui.confirm_save": ("Ask \"Save? Yes / No\" before every save", True),
     "loss.charge_all": ("Worker ledger: karigar is charged for ALL loss, not only the excess "

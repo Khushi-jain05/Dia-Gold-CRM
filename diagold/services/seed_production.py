@@ -97,6 +97,7 @@ def seed_production(session: Session) -> None:
     _seed_sample_jobs(session)
     _seed_report_samples(session)
     _seed_setting_prices(session)
+    _seed_inventory_metals(session)
     _seed_bang577(session)
     session.flush()
 
@@ -587,4 +588,32 @@ def _seed_bang577(session: Session) -> None:
     production.post_voucher(session, job, steps[10], "receive", jagdish.id, vr_date=d28,
                             vr_time="15:51", pcs=1, gross_wt="33.701", net_wt="30.257",
                             vr_no=3086, allow_loss_pct=0)
+    session.flush()
+
+
+# Heads read off the legacy Metal Analysis (28 Sept §4.14) that the metal
+# master did not carry - without 24KT there is nothing to buy. Title in parts
+# per 1000 and base as the screen showed them; added only where no head of
+# that name exists, so the client's own master always wins.
+_ANALYSIS_HEADS: tuple[tuple[str, str, str], ...] = (
+    ("24KT Gold", "1000", "GOLD"),
+    ("24KT CASTING", "995", "GOLD"),
+    ("22KT CASTING", "922.5", "GOLD"),
+    ("22KT WIRE", "916", "GOLD"),
+    ("ALLOY14KT", "595", "ALLOY"),
+    ("ALLOY18KT", "760", "ALLOY"),
+)
+
+
+def _seed_inventory_metals(session: Session) -> None:
+    from diagold.services.seed import metal_code
+    names = {n.lower() for n in session.scalars(select(Metal.name)) if n}
+    taken = {c for c in session.scalars(select(Metal.code)) if c}
+    for name, title, base in _ANALYSIS_HEADS:
+        if name.lower() in names:
+            continue
+        session.add(Metal(code=metal_code(name, taken), name=name, print_on_tag=title,
+                          base_metal=base, purity_fineness=Decimal(title), colour="Y",
+                          hsn_code="7108" if name.startswith("24KT") else "7113",
+                          is_active=True))
     session.flush()

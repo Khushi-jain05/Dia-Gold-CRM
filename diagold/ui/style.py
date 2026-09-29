@@ -154,7 +154,7 @@ QTabBar::close-button {{ background: transparent; padding: 2px; }}
 QTabBar::close-button:hover {{ background: {BORDER}; border-radius: 6px; }}
 
 /* ---- Tables ---- */
-QTableWidget, QTreeWidget {{
+QTableWidget, QTreeWidget, QTableView {{
     background: {CARD};
     border: 1px solid {BORDER};
     border-radius: 10px;

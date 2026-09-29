@@ -441,6 +441,11 @@ class StockMovement(Base, PKMixin):
     ref_kind: Mapped[str] = mapped_column(String(16), default="")   # stone_issue / inv_return / bag
     ref_no: Mapped[int | None] = mapped_column(nullable=True)      # the voucher number
     remark: Mapped[str] = mapped_column(String(200), default="")
+    # Inventory vouchers (28 Sept T-01): the party on the other side - the
+    # supplier of a purchase, the karigar a metal issue went to - and the fine
+    # weight at posting, stored so a later title change never rewrites it.
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    fine_wt: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
 
     KINDS = ("opening", "inward", "outward", "return", "breakage", "adjust")
 

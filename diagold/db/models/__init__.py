@@ -44,6 +44,7 @@ from diagold.db.models.master import (
     StoneShape,
     StoneSize,
 )
+from diagold.db.models.inventory import InvVoucher, InvVoucherLine
 from diagold.db.models.manufacturing import (
     DeletionLog,
     MfgTransfer,
@@ -143,6 +144,8 @@ __all__ = [
     "StockMovement",
     "StoneIssue",
     "StoneIssueLine",
+    "InvVoucher",
+    "InvVoucherLine",
     "DeletionLog",
     "MfgTransfer",
     "MfgTransferLine",

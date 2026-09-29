@@ -1,0 +1,368 @@
+"""Inventory - metal and stone vouchers, their postings, and the ledgers read
+from them (28 Sept R1 / R13 / R14, T-01, T-10).
+
+Rules (from the 28 Sept notes):
+
+* Every voucher line posts one stock-ledger row; location and worker balances
+  are always the running sum of those rows - never typed.
+* Fine weight = weight x the metal's title, stored at posting time.
+* Voucher numbers run per voucher type.
+* Going below zero at a location is a setting - block, warn or allow - and
+  defaults to WARN, because the legacy Metal Analysis already carries
+  negative closings (Primary 24KT Gold -1,030.359 g) that migration must
+  accept (28 Sept Q6).
+* Deleting a voucher reverses its postings and writes a DeletionLog row.
+
+What Load Metal, Issue On Tree, Conversion, Adjustment, Worker Recovery, WIP
+Rtn and Bhav Cut do was not explained (C-04); those stay placeholders.
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from diagold.db.models import (
+    Account,
+    DeletionLog,
+    InvVoucher,
+    InvVoucherLine,
+    Location,
+    Metal,
+    StockMovement,
+    StoneSku,
+)
+from diagold.services import costing, production, settings
+from diagold.services.production import ProductionError
+
+ZERO = Decimal("0")
+D3 = Decimal("0.001")
+D4 = Decimal("0.0001")
+
+
+@dataclass(frozen=True)
+class VoucherType:
+    key: str
+    title: str
+    material: str          # metal / stone
+    direction: int         # +1 into the location, -1 out of it
+    party: str             # what the Account is: supplier / worker
+    legacy: str            # VrType as the legacy ledgers print it
+
+
+VOUCHER_TYPES: dict[str, VoucherType] = {v.key: v for v in (
+    VoucherType("metal_purchase", "Metal Purchase", "metal", +1, "supplier", "MP"),
+    VoucherType("metal_issue", "Metal Issue Outside / Worker", "metal", -1, "worker", "MI"),
+    VoucherType("metal_receipt", "Metal Receipt", "metal", +1, "worker", "MR"),
+    VoucherType("stone_purchase", "Stone Purchase", "stone", +1, "supplier", "SP"),
+    VoucherType("stone_issue", "Stone Issue Outside / Worker", "stone", -1, "worker", "SI"),
+    VoucherType("stone_receipt", "Stone Receipt", "stone", +1, "worker", "SR"),
+)}
+
+NEGATIVE_SETTING = "inventory.negative_stock"
+NEGATIVE_MODES = ("block", "warn", "allow")
+
+
+def _dec(value: Any) -> Decimal:
+    if value is None or value == "":
+        return ZERO
+    return value if isinstance(value, Decimal) else Decimal(str(value))
+
+
+def negative_mode(session: Session) -> str:
+    mode = settings.get_setting(session, NEGATIVE_SETTING, "warn")
+    return mode if mode in NEGATIVE_MODES else "warn"
+
+
+def next_vr_no(session: Session, vr_type: str) -> int:
+    nos = session.scalars(select(InvVoucher.vr_no).where(InvVoucher.vr_type == vr_type)).all()
+    return (max(nos) + 1) if nos else 1
+
+
+# --------------------------------------------------------------------------
+# Line arithmetic
+# --------------------------------------------------------------------------
+def line_fine(session: Session, metal_id: int | None, weight: Any) -> Decimal:
+    metal = session.get(Metal, metal_id) if metal_id else None
+    return (costing.fine_metal_weight(metal, weight) if metal else ZERO).quantize(D4)
+
+
+def line_amount(material: str, pcs: Any, weight: Any, price: Any, unit: str) -> Decimal:
+    """Metal: weight x price per gram. Stone: carats (or pieces) x price."""
+    qty = _dec(pcs) if (unit or "").lower().startswith("pc") else _dec(weight)
+    return (qty * _dec(price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def fill_line(session: Session, vr_type: str, row: dict[str, Any]) -> None:
+    """Derived columns on one line, recomputed before every save."""
+    vt = VOUCHER_TYPES[vr_type]
+    if vt.material == "metal":
+        row["fine_wt"] = line_fine(session, row.get("metal_id"), row.get("weight"))
+        row["unit"] = row.get("unit") or "Gms"
+        if vr_type == "metal_receipt":
+            pct = _dec(row.get("wastage_pct"))
+            if pct and not _dec(row.get("wastage_wt")):
+                row["wastage_wt"] = (_dec(row.get("weight")) * pct / 100).quantize(D3)
+    else:
+        row["unit"] = row.get("unit") or "Cts"
+        sku = session.get(StoneSku, row.get("stone_sku_id")) if row.get("stone_sku_id") else None
+        if sku is not None:
+            row["size"] = row.get("size") or sku.size or ""
+            row["s_type"] = row.get("s_type") or sku.stone_type or ""
+            if not _dec(row.get("price")):
+                row["price"] = _dec(sku.cost_price) or _dec(sku.sale_price)
+    row["amount"] = line_amount(vt.material, row.get("pcs"), row.get("weight"),
+                                row.get("price"), row.get("unit") or "")
+
+
+def check_lines(session: Session, vr_type: str, account_id: int | None,
+                rows: list[dict[str, Any]]) -> str | None:
+    """A sentence to refuse the save with, or None."""
+    vt = VOUCHER_TYPES[vr_type]
+    if not account_id:
+        return f"Choose the {'supplier' if vt.party == 'supplier' else 'worker / party'}."
+    real = [r for r in rows if _dec(r.get("weight")) or int(r.get("pcs") or 0)]
+    if not real:
+        return "Enter at least one line with a weight (or pieces)."
+    for n, r in enumerate(real, start=1):
+        if _dec(r.get("weight")) < 0 or int(r.get("pcs") or 0) < 0:
+            return f"Line {n}: weight and pieces cannot be negative."
+        if not r.get("location_id"):
+            return f"Line {n}: choose the location."
+        if vt.material == "metal" and not r.get("metal_id"):
+            return f"Line {n}: choose the metal."
+        if vt.material == "stone" and not (r.get("stone_sku_id") or r.get("particulars")):
+            return f"Line {n}: choose the stone SKU (or describe the stone)."
+    return None
+
+
+def shortfalls(session: Session, vr_type: str, rows: list[dict[str, Any]],
+               is_opening: bool = False) -> list[str]:
+    """Lines that would take a location below zero."""
+    vt = VOUCHER_TYPES[vr_type]
+    if vt.direction > 0 or is_opening:
+        return []
+    need: dict[tuple, list[Any]] = {}
+    for r in rows:
+        if not r.get("location_id"):
+            continue
+        ref = r.get("metal_id") if vt.material == "metal" else r.get("stone_sku_id")
+        size = "" if vt.material == "metal" else (r.get("size") or "")
+        text = "" if ref else (r.get("particulars") or "")
+        key = (r["location_id"], ref, size, text)
+        acc = need.setdefault(key, [0, ZERO])
+        acc[0] += int(r.get("pcs") or 0)
+        acc[1] += _dec(r.get("weight"))
+    out = []
+    for (loc_id, ref, size, text), (pcs, wt) in need.items():
+        have_pcs, have_wt = production.stock_balance(session, loc_id, vt.material, ref, size, text)
+        if wt > have_wt or (vt.material == "stone" and pcs > have_pcs):
+            loc = session.get(Location, loc_id)
+            name = (session.get(Metal, ref).name if vt.material == "metal" and ref else
+                    session.get(StoneSku, ref).sku_code if ref else text)
+            out.append(f"{loc.name if loc else '?'} holds {have_wt} of {name}; this takes "
+                       f"{wt} - it goes to {have_wt - wt}.")
+    return out
+
+
+# --------------------------------------------------------------------------
+# Posting
+# --------------------------------------------------------------------------
+def post_voucher(session: Session, v: InvVoucher) -> None:
+    """Post a saved voucher's lines to the stock ledger."""
+    vt = VOUCHER_TYPES[v.vr_type]
+    mode = negative_mode(session)
+    short = shortfalls(session, v.vr_type, [
+        {"location_id": l.location_id, "metal_id": l.metal_id, "stone_sku_id": l.stone_sku_id,
+         "size": l.size, "particulars": l.particulars, "pcs": l.pcs, "weight": l.weight}
+        for l in v.lines], v.is_opening)
+    if short and mode == "block":
+        raise ProductionError("Not enough stock:\n" + "\n".join(short))
+    if v.is_opening and vt.direction < 0:
+        # ASSUMPTION: an Opening issue records what a karigar already held when
+        # the system started - no location is reduced (28 Sept C-04).
+        return
+    for l in v.lines:
+        wt, pcs = _dec(l.weight), int(l.pcs or 0)
+        if not wt and not pcs:
+            continue
+        ref = l.metal_id if vt.material == "metal" else l.stone_sku_id
+        sku = session.get(StoneSku, l.stone_sku_id) if l.stone_sku_id else None
+        size = "" if vt.material == "metal" else (l.size or (sku.size if sku else "") or "")
+        production.adjust_stock(
+            session, l.location_id, vt.material, ref, vt.direction * pcs, vt.direction * wt,
+            size=size, ref_text="" if ref else (l.particulars or ""),
+            what=l.particulars or "", kind="inward" if vt.direction > 0 else "outward",
+            mv_date=v.vr_date, ref_kind=v.vr_type, ref_no=v.vr_no, remark=l.remark or "",
+            allow_negative=mode != "block", account_id=v.account_id,
+            fine_wt=vt.direction * _dec(l.fine_wt),
+            value=(vt.direction * _dec(l.amount)) if _dec(l.amount) else None,
+        )
+
+
+def delete_voucher(session: Session, v: InvVoucher, *, user_id: int | None = None) -> None:
+    """Reverse a voucher's postings and keep the whole voucher in the log."""
+    vt = VOUCHER_TYPES[v.vr_type]
+    moves = session.scalars(select(StockMovement).where(
+        StockMovement.ref_kind == v.vr_type, StockMovement.ref_no == v.vr_no)).all()
+    for m in moves:
+        row = production.stock_row(session, m.location_id, m.material_class, m.ref_id,
+                                   m.size, m.ref_text)
+        if row is not None:
+            row.pcs = int(row.pcs) - int(m.pcs)
+            row.weight = (_dec(row.weight) - _dec(m.weight)).quantize(D4)
+            if vt.direction > 0 and (row.pcs < 0 or _dec(row.weight) < 0) \
+                    and negative_mode(session) == "block":
+                raise ProductionError(
+                    f"{vt.title} {v.vr_no} cannot be deleted - what it brought in has "
+                    "already gone out again.")
+        session.delete(m)
+
+    def image(obj) -> dict[str, Any]:
+        return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+
+    session.add(DeletionLog(
+        user_id=user_id, kind=v.vr_type, ref=f"{vt.title} {v.vr_no}",
+        before_json=json.dumps({"voucher": image(v), "lines": [image(l) for l in v.lines]},
+                               default=str)))
+    session.flush()
+
+
+# --------------------------------------------------------------------------
+# Reports
+# --------------------------------------------------------------------------
+def metal_analysis(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Location x metal: opening / inward / outward / closing weight, fine and
+    base (GOLD / ALLOY), as the legacy Metal Analysis (28 Sept §4.14)."""
+    acc: dict[tuple[int, int | None], dict[str, Decimal]] = {}
+    for m in session.scalars(select(StockMovement).where(
+            StockMovement.material_class == "metal", StockMovement.mv_date <= date_to)):
+        a = acc.setdefault((m.location_id, m.ref_id), {k: ZERO for k in (
+            "opening", "inward", "outward", "fine")})
+        w = _dec(m.weight)
+        if m.mv_date < date_from or m.kind == "opening":
+            a["opening"] += w
+        elif w >= 0:
+            a["inward"] += w
+        else:
+            a["outward"] += -w
+        a["fine"] += _dec(m.fine_wt)
+    rows = []
+    for (loc_id, metal_id), a in acc.items():
+        loc = session.get(Location, loc_id)
+        metal = session.get(Metal, metal_id) if metal_id else None
+        closing = a["opening"] + a["inward"] - a["outward"]
+        rows.append({
+            "location": loc.name if loc else "?", "_location_id": loc_id,
+            "_metal_id": metal_id, "type": "Actual", "metal": metal.name if metal else "?",
+            "title": (costing.purity_fraction(metal) * 1000).quantize(Decimal("0.1"))
+            if metal else ZERO,
+            "opening": a["opening"].quantize(D3), "inward": a["inward"].quantize(D3),
+            "outward": a["outward"].quantize(D3), "closing": closing.quantize(D3),
+            "fine": a["fine"].quantize(D3), "base": (metal.base_metal if metal else "") or "",
+            "_negative": closing < 0,
+        })
+    rows.sort(key=lambda r: (r["location"].lower(), r["metal"].lower()))
+    return rows
+
+
+def location_ledger(session: Session, location_id: int, material: str, ref_id: int | None,
+                    date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """One location's movements of one metal (or stone), with running closing."""
+    q = (select(StockMovement)
+         .where(StockMovement.location_id == location_id,
+                StockMovement.material_class == material,
+                StockMovement.mv_date <= date_to)
+         .order_by(StockMovement.mv_date, StockMovement.id))
+    if ref_id:
+        q = q.where(StockMovement.ref_id == ref_id)
+    bal, rows, opened = ZERO, [], False
+    for m in session.scalars(q):
+        w = _dec(m.weight)
+        if m.mv_date < date_from:
+            bal += w
+            continue
+        if not opened:
+            rows.append({"date": None, "vrno": "", "vrtype": "OPENING", "particulars": "",
+                         "job_no": "", "inward": None, "outward": None, "closing": bal})
+            opened = True
+        bal += w
+        acct = session.get(Account, m.account_id) if m.account_id else None
+        vt = VOUCHER_TYPES.get(m.ref_kind)
+        rows.append({
+            "date": m.mv_date, "vrno": m.ref_no or "",
+            "vrtype": vt.legacy if vt else (m.ref_kind or m.kind).upper(),
+            "particulars": acct.name if acct else (m.remark or ""),
+            "job_no": "", "inward": w if w > 0 else None, "outward": -w if w < 0 else None,
+            "closing": bal.quantize(D3),
+        })
+    return rows
+
+
+def worker_balances(session: Session, date_to: date) -> list[dict[str, Any]]:
+    """Worker Balance (Metal) from Inventory: issued to each karigar less
+    received back and wastage allowed, in weight and fine, per metal."""
+    acc: dict[tuple[int, int], dict[str, Decimal]] = {}
+    q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
+         .where(InvVoucher.vr_type.in_(("metal_issue", "metal_receipt")),
+                InvVoucher.vr_date <= date_to))
+    for line, v in session.execute(q):
+        if not v.account_id or not line.metal_id:
+            continue
+        a = acc.setdefault((v.account_id, line.metal_id), {k: ZERO for k in (
+            "issued", "received", "wastage", "fine")})
+        w = _dec(line.weight)
+        if v.vr_type == "metal_issue":
+            a["issued"] += w
+            a["fine"] += _dec(line.fine_wt)
+        else:
+            a["received"] += w
+            a["wastage"] += _dec(line.wastage_wt)
+            metal = session.get(Metal, line.metal_id)
+            a["fine"] -= _dec(line.fine_wt) + costing.fine_metal_weight(metal, line.wastage_wt)
+    rows = []
+    for (acct_id, metal_id), a in acc.items():
+        acct = session.get(Account, acct_id)
+        metal = session.get(Metal, metal_id)
+        bal = a["issued"] - a["received"] - a["wastage"]
+        rows.append({"worker": acct.name if acct else "?", "metal": metal.name if metal else "?",
+                     "issued": a["issued"].quantize(D3), "received": a["received"].quantize(D3),
+                     "wastage": a["wastage"].quantize(D3), "balance": bal.quantize(D3),
+                     "fine": a["fine"].quantize(D3), "_negative": bal < 0})
+    rows.sort(key=lambda r: (r["worker"].lower(), r["metal"].lower()))
+    return rows
+
+
+def day_book(session: Session, date_from: date, date_to: date,
+             material: str | None = None) -> list[dict[str, Any]]:
+    """Every Inventory voucher line in the period."""
+    rows = []
+    q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
+         .where(InvVoucher.vr_date >= date_from, InvVoucher.vr_date <= date_to)
+         .order_by(InvVoucher.vr_date, InvVoucher.vr_type, InvVoucher.vr_no,
+                   InvVoucherLine.sno))
+    for line, v in session.execute(q):
+        vt = VOUCHER_TYPES.get(v.vr_type)
+        if vt is None or (material and vt.material != material):
+            continue
+        acct = session.get(Account, v.account_id) if v.account_id else None
+        loc = session.get(Location, line.location_id) if line.location_id else None
+        if vt.material == "metal":
+            metal = session.get(Metal, line.metal_id) if line.metal_id else None
+            item = metal.name if metal else ""
+        else:
+            sku = session.get(StoneSku, line.stone_sku_id) if line.stone_sku_id else None
+            item = (sku.sku_code if sku else line.particulars) or ""
+        rows.append({
+            "date": v.vr_date, "vrtype": vt.legacy, "voucher": vt.title, "vrno": v.vr_no,
+            "account": acct.name if acct else "", "location": loc.name if loc else "",
+            "item": item, "size": line.size, "pcs": line.pcs, "weight": _dec(line.weight),
+            "fine": _dec(line.fine_wt), "price": _dec(line.price), "amount": _dec(line.amount),
+            "wastage": _dec(line.wastage_wt) or None,
+        })
+    return rows

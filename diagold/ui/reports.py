@@ -55,6 +55,7 @@ from PySide6.QtWidgets import (
 
 from diagold.db.session import SessionLocal
 from diagold.services import documents, settings
+from diagold.services import inventory as INV
 from diagold.services import manufacturing as MF
 from diagold.services import production as P
 from diagold.services import reports as R
@@ -1045,6 +1046,23 @@ def _drill_stock(widget: ReportWidget, row: dict) -> None:
     show_in_dialog(widget, w, spec.title, (1100, 600))
 
 
+def _drill_metal(widget: ReportWidget, row: dict) -> None:
+    """One location's ledger for one metal - the legacy Metal Analysis drill."""
+    d0, d1 = widget.dates()
+    with SessionLocal() as s:
+        rows = INV.location_ledger(s, row["_location_id"], "metal", row["_metal_id"], d0, d1)
+    spec = ReportSpec(
+        key="metal_drill", title=f"{row['location']} · {row['metal']} — ledger",
+        columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("vrtype", "VRTYPE"),
+                        Col("particulars", "PARTICULARS"),
+                        Col("inward", "INWARD", "measure", 3, total=True),
+                        Col("outward", "OUTWARD", "measure", 3, total=True),
+                        Col("closing", "CLOSING", "measure", 3)]),
+        query=lambda _s, _a, _b, **_k: rows, date_mode="none")
+    from diagold.ui.production import show_in_dialog
+    show_in_dialog(widget, ReportWidget(spec, widget.user), spec.title, (980, 560))
+
+
 def build_specs() -> dict[str, ReportSpec]:
     from diagold.services.production import order_day_book
 
@@ -1178,6 +1196,55 @@ def build_specs() -> dict[str, ReportSpec]:
             footer=R.lead_time_footer, on_activate=lambda w, r: w.open_job(r),
             note="DAYS = STOCK DT − ORD DT; blank while the job is open. STOCK DT is the "
                  "receipt of the last route step (MFG transfer once that module exists - Q8)."),
+        # -- inventory (28 Sept §4.11-4.14, T-01 / T-10) -----------------
+        "metal_analysis": ReportSpec(
+            key="metal_analysis", title="Metal Analysis",
+            columns=static([Col("location", "LOCATION"), Col("type", "TYPE"),
+                            Col("metal", "METAL"), Col("title", "TITLE", "measure", 1),
+                            Col("opening", "WEIGHT", "measure", 3, "OPENING", True),
+                            Col("inward", "WEIGHT", "measure", 3, "INWARD", True),
+                            Col("outward", "WEIGHT", "measure", 3, "OUTWARD", True),
+                            Col("closing", "WEIGHT", "measure", 3, "CLOSING", True),
+                            Col("fine", "FINE", "measure", 3, "CLOSING", True),
+                            Col("base", "BASE")]),
+            query=lambda s, a, b, **_k: INV.metal_analysis(s, a, b),
+            negative_key="_negative", on_activate=_drill_metal,
+            note="Metal held at each location, from the Inventory vouchers. CLOSING = "
+                 "OPENING + INWARD − OUTWARD; FINE = weight × title, stored when posted. "
+                 "Negative closings are red (28 Sept Q6). Double-click a line for its "
+                 "ledger."),
+        "worker_metal_balance": ReportSpec(
+            key="worker_metal_balance", title="Worker Balance (Metal)",
+            columns=static([Col("worker", "WORKER"), Col("metal", "METAL"),
+                            wt("issued", "ISSUED"), wt("received", "RECEIVED"),
+                            wt("wastage", "WASTAGE"), wt("balance", "BALANCE"),
+                            wt("fine", "FINE")]),
+            query=lambda s, a, b, **_k: INV.worker_balances(s, b),
+            negative_key="_negative", group_by="worker", filter_column="worker",
+            note="What each karigar holds from Inventory ▸ Metal: issued − received − "
+                 "wastage allowed, as of the To date. Metal that moves with a job step is in "
+                 "the Worker Metal Ledger."),
+        "inv_metal_day_book": ReportSpec(
+            key="inv_metal_day_book", title="Metal Day Book",
+            columns=static([Col("date", "DATE"), Col("vrtype", "VRTYPE"), Col("vrno", "VRNO"),
+                            Col("account", "ACCOUNT"), Col("location", "LOCATION"),
+                            Col("item", "METAL"), pcs("pcs", "PCS"), wt("weight", "WEIGHT"),
+                            wt("fine", "FINE"), Col("price", "PRICE", "measure", 2),
+                            money("amount", "AMOUNT"), wt("wastage", "WASTAGE")]),
+            query=lambda s, a, b, **_k: INV.day_book(s, a, b, "metal"),
+            group_by="vrtype", filter_column="vrtype",
+            note="Every Inventory ▸ Metal voucher line: MP purchase, MI issue, MR receipt."),
+        "inv_stone_day_book": ReportSpec(
+            key="inv_stone_day_book", title="Stone Day Book",
+            columns=static([Col("date", "DATE"), Col("vrtype", "VRTYPE"), Col("vrno", "VRNO"),
+                            Col("account", "ACCOUNT"), Col("location", "LOCATION"),
+                            Col("item", "SSKU"), Col("size", "SIZE"), pcs("pcs", "PCS"),
+                            wt("weight", "WEIGHT"), Col("price", "PRICE", "measure", 2),
+                            money("amount", "AMOUNT")]),
+            query=lambda s, a, b, **_k: INV.day_book(s, a, b, "stone"),
+            group_by="vrtype", filter_column="vrtype",
+            note="Every Inventory ▸ Stone voucher line: SP purchase, SI issue, SR receipt. "
+                 "Stone issued on job cards is in the Production Planning day books."),
         # -- manufacturing (28 Sept §4.8-4.10) ----------------------------
         "pending_mfg_transfer": ReportSpec(
             key="pending_mfg_transfer", title="Pending for MFG Transfer",
@@ -1247,6 +1314,8 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Outstanding", ("inv_rtn_os_stone", "job_os_stone")),
     ("Analysis", ("job_analysis", "process_analysis", "job_card_analysis_stone",
                   "job_stock_analysis")),
+    ("Inventory", ("metal_analysis", "worker_metal_balance", "inv_metal_day_book",
+                   "inv_stone_day_book")),
     ("Manufacturing", ("pending_mfg_transfer", "mfg_transfer_day_book")),
     ("Karigar", ("worker_metal_ledger",)),
     ("Other", ("job_os_pct", "data_quality")),

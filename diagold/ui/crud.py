@@ -201,6 +201,13 @@ class CrudSpec:
     # lookup staff rely on for orders and vouchers (UX5). Defaults to the
     # current financial year.
     date_field: str = ""
+    # Several screens over one table (Metal Purchase / Issue / Receipt are all
+    # Inventory vouchers): the list shows only rows with these values, and a
+    # save writes them.
+    fixed: dict[str, Any] = field(default_factory=dict)
+    # A soft rule: return a sentence and the user is asked whether to save
+    # anyway (a location going below zero, 28 Sept Q6), or None.
+    warn: Callable[[dict, dict[str, list[dict]], Any], str | None] | None = None
 
 
 class ImageSlot(QWidget):
@@ -957,12 +964,20 @@ class FormDialog(QDialog):
                 QMessageBox.warning(self, "Cannot save", error)
                 return
 
+        values.update(self.spec.fixed)
         # Derived fields are recalculated here, never typed.
         if self.spec.before_save is not None:
             try:
                 self.spec.before_save(values, children, self.session)
             except Exception as exc:  # noqa: BLE001 - surface, do not crash
                 QMessageBox.critical(self, "Could not calculate", str(exc))
+                return
+
+        if self.spec.warn is not None:
+            message = self.spec.warn(values, children, self.session)
+            if message and QMessageBox.question(
+                    self, "Check before saving", f"{message}\n\nSave anyway?"
+            ) != QMessageBox.StandardButton.Yes:
                 return
 
         # Catch a duplicate key before the database does, so the message can
@@ -1207,6 +1222,8 @@ class CrudWidget(QWidget):
         term = self.search.text().strip()
         with SessionLocal() as session:
             stmt = select(self.spec.model)
+            for name, value in self.spec.fixed.items():
+                stmt = stmt.where(getattr(self.spec.model, name) == value)
             if term:
                 cols = [
                     c for c in inspect(self.spec.model).columns
@@ -1263,6 +1280,12 @@ class CrudWidget(QWidget):
         if self._rows and self.spec.detail_panels:
             self.table.selectRow(0)
         self._refresh_details()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt name
+        # A list filled before it was first shown (a hub builds it off screen)
+        # was sized with the default font; size it again with the real one.
+        super().showEvent(event)
+        self.table.resizeColumnsToContents()
 
     def _selected(self) -> Any | None:
         rows = self.table.selectionModel().selectedRows()
