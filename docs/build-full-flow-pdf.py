@@ -253,26 +253,26 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
     ["POLKI Bal <b>0</b>. <b>Stones in Job Cards</b> / <b>Bag Balance Report</b> → report khulte hain, Export CSV.",
      "(Ya yahi kaam Production Planning ▸ Inv Return – Stone → Show Pending se.)"],
 ) + part("H. Reports — sab link hai ki nahi") + step(
-    "Inventory ▸ Reports ▸ Metal Analysis (FY)", [],
+    "Inventory ▸ Metal ▸ Reports ▸ Metal Analysis (FY)", [],
     ["RAJESH JI · 14KT 590: Inward <b>252.800</b> (demo 201 + purchase 50 + receipt 1.800), "
      "Outward <b>3.625</b> (demo 1.625 + issue 2.000), Closing <b>249.175</b>.",
      "Primary · 24KT Gold: <b>800.000</b>. Row pe double-click → us location ka ledger."],
 ) + step(
-    "Reports ▸ Worker Balance (Metal)", [],
+    "Reports ▸ Inventory ▸ Worker Balance (Metal)", [],
     ["CHAND KUMAR HAZRA · 14KT 590: <b>0.745 g</b> (demo 0.590 + aapka 0.155) — ye sirf Inventory vouchers se."],
 ) + step(
-    "Manufacturing ▸ Reports ▸ Worker Metal Ledger", [],
+    "Manufacturing ▸ Reports ▸ Karigar ▸ Worker Metal Ledger", [],
     ["CHAND KUMAR HAZRA rows: MI 1.625 · MR 1.000 · MI <b>2.000</b> · MR <b>1.800</b> (Alw 2.5% = 0.045) · "
      "ISS 15.000 · ISS 13.500 · <b>ISS 13.500</b> · RTN 14.800 · RTN 13.200 · <b>RTN 13.200 (loss 0.300)</b>.",
      "Closing <b>1.545 g</b>. Manufacturing ▸ Issue pe Account CHAND chuno → <b>Mt Bal 1.545 g</b> — dono same.",
      "RAHUL JI: ISS 13.200 · RTN 13.000 · Loss 0.200 · Alw 3.5% = 0.455 · Balance <b>−0.255</b> "
      "(allowance asli loss se zyada tha, isliye karigar ka balance minus — legacy ledger bhi aise hi dikhata hai)."],
 ) + step(
-    "Manufacturing ▸ Reports ▸ Worker Stone Ledger / Worker Balance (Stone)", [],
+    "Manufacturing ▸ Reports ▸ Karigar ▸ Worker Stone Ledger / Worker Balance (Stone)", [],
     ["rakesh sarkar, aapke job pe: ISS POLKI 12-14 <b>10</b> · ISS EMERALD PEAR <b>5</b> · BACK POLKI <b>2</b> · "
      "SET POLKI <b>8</b> · SET EMERALD <b>5</b> (Setting receive hote hi jo wapas nahi aaye wo 'set' maane jaate hain)."],
 ) + step(
-    "Manufacturing ▸ Reports ▸ Setting Labour Statement (is mahine)", [],
+    "Manufacturing ▸ Reports ▸ Karigar ▸ Setting Labour Statement (is mahine)", [],
     ["rakesh sarkar: aapke job ki lines — POLKI 12-14 · Polki · issued 10 · back 2 · set 8 · 30 → <b>240.00</b>; "
      "EMERALD · — · set 5 · 0.00."],
 ) + step(
@@ -291,6 +291,9 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
 ) + step(
     "UI checks", [],
     ["Sidebar nahi — sab module top menu me; Inventory ▸ Metal / Stone submenu.",
+     "<b>Reports</b> menu me sections submenu ban ke (Day Books ▸, Inventory ▸, Karigar ▸ …); har report apne "
+     "tab me full width khulta hai — left me report list nahi. Production Planning / Manufacturing / "
+     "Inventory ▸ Reports bhi aise hi.",
      "Har tab ke × pe hover → dark background pe safed × (Close Tab).",
      "<b>Go to screen…</b> (Ctrl/Cmd+F) me 'job his' type → Job History khulta hai.",
      "Manufacturing / Inventory ke 'to be explained' items (Waxing, Extra Issue, Bhav Cut …) ek note kholte hain — "
