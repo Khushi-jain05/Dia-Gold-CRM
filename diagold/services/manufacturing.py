@@ -70,6 +70,17 @@ def last_gross(session: Session, job: Job) -> Decimal:
     return _dec(v.gross_wt) if v is not None else ZERO
 
 
+def job_rejections(session: Session, job: Job) -> tuple[int, Decimal]:
+    """Rej Pcs / Rej Wt on the transfer line: everything rejected on the
+    job's receipts."""
+    pcs, wt = 0, ZERO
+    for v in session.scalars(select(JobVoucher).where(JobVoucher.job_id == job.id,
+                                                      JobVoucher.kind == "receive")):
+        pcs += int(v.rej_pcs or 0)
+        wt += _dec(v.rej_wt)
+    return pcs, wt
+
+
 def pending_rows(session: Session) -> list[dict[str, Any]]:
     """Pending For Mfg Transfer, with the legacy grid's columns."""
     rows = []
@@ -149,7 +160,8 @@ def post_transfer(session: Session, lines: list[dict[str, Any]], *,
             manual_amount=p.manual_amount, total=p.total, margin_pct=p.margin_pct,
             margin_amount=p.margin_amount, price_per_pcs=p.price_per_pcs,
             total_value=p.total_value, tag_price=p.tag_price, tag_text=p.tag_text,
-            is_repair=bool(spec.get("is_repair")),
+            is_repair=bool(spec.get("is_repair")), stamp=(spec.get("stamp") or "")[:32],
+            rej_pcs=job_rejections(session, job)[0], rej_wt=job_rejections(session, job)[1],
             stones_json=json.dumps([{**asdict(s), "amount": str(s.amount)} for s in p.stones],
                                    default=str),
         )

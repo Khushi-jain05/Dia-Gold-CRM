@@ -206,6 +206,12 @@ def price_line(*, net_wt: Any, title: Any, fine_rate: Any,
 # --------------------------------------------------------------------------
 # Filling a job from the masters
 # --------------------------------------------------------------------------
+def fine_with_loss(fine_wt: Any, loss_pct: Any) -> Decimal:
+    """"Fine With Loss" on the transfer line: the fine weight grossed up by
+    the job's loss % - the gold the piece consumed, not just what is in it."""
+    return (_dec(fine_wt) * (1 + _dec(loss_pct) / 100)).quantize(Decimal("0.001"))
+
+
 def title_of(metal: Metal | None) -> Decimal:
     """A metal head's title in parts per 1000, whatever notation it is stored in."""
     return (costing.purity_fraction(metal) * Decimal("1000")) if metal else ZERO

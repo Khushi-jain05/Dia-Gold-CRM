@@ -59,16 +59,21 @@ EDIT_TINT = TINT_RECEIVE
 
 # key, header, editable
 COLS: list[tuple[str, str, bool]] = [
-    ("job_no", "Job No", False), ("sku", "SKU", False), ("metal", "Metal", False),
-    ("title", "Title", False), ("loss_pct", "Loss%", False), ("pcs", "Pcs", False),
-    ("gross_wt", "G-Wt", False), ("net_wt", "N-Wt", False), ("fine_wt", "FineWt", False),
+    ("location", "Location", False), ("job_no", "Job No", False), ("sku", "SKU", False),
+    ("c_ref", "C-Ref", False), ("metal", "Metal", False), ("title", "Title", False),
+    ("loss_pct", "Loss%", False), ("colour", "Col", False), ("size", "Size", False),
+    ("pcs", "Pcs", False), ("gross_wt", "G-Wt", False), ("net_wt", "N-Wt", False),
+    ("fine_wt", "FineWt", False), ("fine_loss", "Fine With\nLoss", False),
+    ("rej_pcs", "Rej\nPcs", False), ("rej_wt", "Rej\nWt", False),
     ("metal_rate", "Metal\nRate", False), ("metal_amount", "Metal\nAmount", False),
     ("stone_amount", "Stone\nAmount", False), ("setting_amount", "Setting\nAmount", False),
+    ("ex_metal_amount", "Ex Metal\nAmt", False), ("finding_labour", "Finding\nLabour", False),
     ("labour_rate", "Labour\nPrice", False), ("labour_weight", "Labour\nWt", True),
     ("labour", "Labour", False), ("manual_amount", "Manual\nAmount", True),
     ("total", "Total\nAmount", False), ("margin_pct", "Margin\n%", True),
     ("margin_amount", "Margin\nAmount", False), ("price_per_pcs", "Price\nPer Pcs", False),
-    ("tag_text", "Tag\nPrice", False), ("is_repair", "Repair\n(tag 0)", True),
+    ("total_value", "Total\nValue", False), ("tag_text", "Tag\nPrice", False),
+    ("is_repair", "Repair\n(tag 0)", True), ("stamp", "Stamp", True),
 ]
 _IDX = {k: i for i, (k, _h, _e) in enumerate(COLS)}
 
@@ -311,6 +316,8 @@ class MfgTransferWidget(_Screen):
         self.button("Remove Line", self.remove_line, secondary=True)
         self.button("Cost Break-up", self.show_breakup, secondary=True)
         self.button("Tag List", self.tag_list, secondary=True)
+        self.button("Print", self.print_transfer, secondary=True)
+        self.button("Excel", self.export_excel, secondary=True)
         self.button("Item Search",
                     lambda: self.open_requested.emit("manufacturing.item_search"),
                     secondary=True)
@@ -362,6 +369,7 @@ class MfgTransferWidget(_Screen):
             "manual_amount": _num(cell("manual_amount")) or 0,
             "margin_pct": _num(cell("margin_pct")),
             "is_repair": bool(rep and rep.checkState() == Qt.CheckState.Checked),
+            "stamp": cell("stamp").strip(),
         }
 
     def fill_prices(self, keep_overrides: bool = True) -> None:
@@ -384,8 +392,16 @@ class MfgTransferWidget(_Screen):
                 job = s.get(Job, jid)
                 metal = s.get(Metal, job.metal_id) if job.metal_id else None
                 _tot, pct, _n = production.job_loss_total(s, job)
-                meta[jid] = (job.job_no, job.product_sku.sku_code if job.product_sku else "",
-                             metal.name if metal else "", pct, mfg.last_gross(s, job))
+                rej_pcs, rej_wt = mfg.job_rejections(s, job)
+                meta[jid] = {
+                    "job_no": job.job_no,
+                    "sku": job.product_sku.sku_code if job.product_sku else "",
+                    "metal": metal.name if metal else "", "loss_pct": pct,
+                    "gross_wt": mfg.last_gross(s, job), "c_ref": job.c_ref,
+                    "colour": job.colour, "size": production._order_line_size(s, job),
+                    "location": mfg.READY_LOCATION, "rej_pcs": rej_pcs or "",
+                    "rej_wt": rej_wt or "",
+                }
         self._render(meta, overrides)
 
     def _render(self, meta: dict, overrides: dict) -> None:
@@ -394,13 +410,18 @@ class MfgTransferWidget(_Screen):
         totals = {"total": Decimal("0"), "price": Decimal("0"), "net": Decimal("0")}
         for jid in self._job_ids:
             p = self._results[jid]
-            job_no, sku, metal, loss_pct, gross = meta[jid]
+            m = meta[jid]
             r = self.grid.rowCount()
             self.grid.insertRow(r)
             vals = {
-                "job_no": job_no, "sku": sku, "metal": metal, "title": f"{p.title:.0f}",
-                "loss_pct": loss_pct, "pcs": p.pcs, "gross_wt": gross, "net_wt": p.net_wt,
-                "fine_wt": p.fine_wt, "metal_rate": f"{p.metal_rate:,.2f}",
+                **m, "title": f"{p.title:.0f}", "pcs": p.pcs, "net_wt": p.net_wt,
+                "fine_wt": p.fine_wt,
+                "fine_loss": mfg_pricing.fine_with_loss(p.fine_wt, m["loss_pct"]),
+                "ex_metal_amount": f"{p.ex_metal_amount:,.2f}",
+                "finding_labour": f"{p.finding_labour:,.2f}",
+                "total_value": f"{p.total_value:,.2f}",
+                "stamp": overrides.get(jid, {}).get("stamp", ""),
+                "metal_rate": f"{p.metal_rate:,.2f}",
                 "metal_amount": f"{p.metal_amount:,.2f}",
                 "stone_amount": f"{p.stone_amount:,.2f}",
                 "setting_amount": f"{p.setting_amount:,.2f}",
@@ -420,7 +441,8 @@ class MfgTransferWidget(_Screen):
                 else:
                     bold = key in ("total", "price_per_pcs", "tag_text")
                     it = _item(vals[key], EDIT_TINT if editable else None,
-                               right=key not in ("sku", "metal"), bold=bold)
+                               right=key not in ("sku", "metal", "location", "c_ref",
+                                                 "colour", "size", "stamp"), bold=bold)
                     flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
                     if editable:
                         flags |= Qt.ItemFlag.ItemIsEditable
@@ -489,6 +511,77 @@ class MfgTransferWidget(_Screen):
         self.refresh()
         self.totals.setText(f"Saved Vr {vr}: Stock No {', '.join(map(str, nos))} in Primary.")
         TagListDialog(tid, self).exec()
+
+    def _grid_rows(self) -> tuple[list[str], list[list[str]]]:
+        heads = [h.replace("\n", " ") for _k, h, _e in COLS]
+        rows = []
+        for r in range(self.grid.rowCount()):
+            row = []
+            for c, (key, _h, _e) in enumerate(COLS):
+                it = self.grid.item(r, c)
+                if key == "is_repair":
+                    row.append("Y" if it and it.checkState() == Qt.CheckState.Checked else "")
+                else:
+                    row.append(it.text() if it else "")
+            rows.append(row)
+        return heads, rows
+
+    def export_excel(self) -> None:
+        """Excel: the grid as it stands, as a CSV Excel opens."""
+        if not self.grid.rowCount():
+            _info(self, "Excel", "Nothing on the grid to export - Show Pending first.")
+            return
+        import csv
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(self, "Excel", f"mfg_transfer_{self.vr.text()}.csv",
+                                              "CSV (*.csv)")
+        if not path:
+            return
+        heads, rows = self._grid_rows()
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(heads)
+            w.writerows(rows)
+        _info(self, "Excel", f"Saved {path}")
+
+    def print_transfer(self) -> None:
+        """Print the grid (before saving) or, when it is empty, the last
+        saved transfer, to PDF."""
+        from diagold.services import documents
+        if self.grid.rowCount():
+            heads, rows = self._grid_rows()
+            title = f"MFG Ready Stock Transfer — Vr {self.vr.text()} (not saved)"
+        else:
+            tid = self._last_transfer
+            with SessionLocal() as s:
+                if tid is None:
+                    tid = s.scalar(select(func.max(MfgTransfer.id)))
+                if tid is None:
+                    _info(self, "Print", "No MFG transfer has been saved yet.")
+                    return
+                t = s.get(MfgTransfer, tid)
+                heads = ["Sno", "Job No", "SKU", "Pcs", "G-Wt", "N-Wt", "FineWt", "Metal Amt",
+                         "Stone Amt", "Labour", "Total", "Margin %", "Price/Pcs", "Tag",
+                         "Stamp"]
+                rows = []
+                for l in t.lines:
+                    job = s.get(Job, l.job_id)
+                    rows.append([str(l.sno), str(job.job_no),
+                                 job.product_sku.sku_code if job.product_sku else "",
+                                 str(l.pcs), f"{l.gross_wt:.3f}", f"{l.net_wt:.3f}",
+                                 f"{l.fine_wt:.3f}", f"{l.metal_amount:,.2f}",
+                                 f"{l.stone_amount:,.2f}", f"{l.labour:,.2f}",
+                                 f"{l.total:,.2f}", f"{l.margin_pct:g}",
+                                 f"{l.price_per_pcs:,.2f}", l.tag_text, l.stamp or ""])
+                title = (f"MFG Ready Stock Transfer — Vr {t.vr_no} dt {t.vr_date:%d-%m-%Y}"
+                         + (f" · Ref {t.ref_no}" if t.ref_no else ""))
+        html = (f"<h2>{title}</h2><table border=1 cellspacing=0 cellpadding=3>"
+                "<tr>" + "".join(f"<th>{h}</th>" for h in heads) + "</tr>"
+                + "".join("<tr>" + "".join(f"<td>{v}</td>" for v in row) + "</tr>"
+                          for row in rows) + "</table>")
+        path = documents.PRINT_DIR / f"mfg_transfer_{datetime.now():%Y%m%d-%H%M%S}.pdf"
+        documents.to_pdf(html, path)
+        _info(self, "Print", f"Saved {path}")
 
     def tag_list(self) -> None:
         tid = self._last_transfer
