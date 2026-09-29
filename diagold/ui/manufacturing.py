@@ -170,42 +170,42 @@ def _stones_of(result: mfg_pricing.TransferPrice) -> list[dict]:
 class TagListDialog(QDialog):
     """Bar-code tag list for the pieces a transfer created (28 Sept §4.10):
     print all or the ticked ones, with or without the tag price, one tag per
-    piece if wanted, or write a text file for the label printer."""
+    piece if wanted, the stone detail on the tag, straight to a chosen
+    printer, or a text file for the label printer; more pieces can be pulled
+    in from a text file of Stock IDs (TXT Import)."""
 
-    def __init__(self, transfer_id: int, parent=None):
+    def __init__(self, transfer_id: int | None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Tag List")
-        self.setMinimumSize(860, 420)
+        self.setMinimumSize(960, 440)
         lay = QVBoxLayout(self)
         self.items: list[dict] = []
+        self.title = "Tag List"
         with SessionLocal() as s:
-            t = s.get(MfgTransfer, transfer_id)
-            self.title = f"Tag List — MFG Transfer Vr {t.vr_no}" if t else "Tag List"
-            for it in (mfg.stock_for_transfer(s, t) if t else []):
-                job = s.get(Job, it.job_id)
-                self.items.append({
-                    "id": it.id, "stock_no": it.stock_no,
-                    "sku": job.product_sku.sku_code if job and job.product_sku else "",
-                    "c_ref": job.c_ref if job else "", "pcs": it.pcs,
-                    "gross": it.gross_wt, "net": it.net_wt,
-                    "price": f"{Decimal(str(it.price)):,.2f}", "tag": it.tag_text,
-                })
+            t = s.get(MfgTransfer, transfer_id) if transfer_id else None
+            if t is not None:
+                self.title = f"Tag List — MFG Transfer Vr {t.vr_no}"
+                self._add_items(s, mfg.stock_for_transfer(s, t))
         lay.addWidget(QLabel(f"<b>{self.title}</b> — the Stock No is the bar code."))
         opts = QHBoxLayout()
         self.o_price = QCheckBox("Print Tag Price")
         self.o_price.setChecked(True)
         self.o_cref = QCheckBox("C-Ref Barcode")
+        self.o_detail = QCheckBox("Detail")
+        self.o_detail.setToolTip("Put the stone detail (Dia / Polki / CS carats) on the tag")
         self.o_pcs = QCheckBox("Pcs Wise Tag Print")
-        for w in (self.o_price, self.o_cref, self.o_pcs):
+        for w in (self.o_price, self.o_cref, self.o_detail, self.o_pcs):
             w.toggled.connect(lambda _on: self._fill())
             opts.addWidget(w)
         opts.addStretch(1)
         lay.addLayout(opts)
         self.grid = _table(["", "Sno", "Bar Code", "SKU", "Pcs", "Gross", "Net", "Price/Pcs",
-                            "Tag"])
+                            "Tag", "Detail"])
         lay.addWidget(self.grid, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        for label, fn in (("Clear Tag List", self._clear), ("Create Txt", self._txt),
+        for label, fn in (("TXT Import (Stock ID)", self._txt_import),
+                          ("Clear Tag List", self._clear), ("Create Txt", self._txt),
+                          ("Select Printer", self._to_printer),
                           ("Print Selected", lambda: self._print(True)),
                           ("Print All", lambda: self._print(False))):
             b = buttons.addButton(label, QDialogButtonBox.ButtonRole.ActionRole)
@@ -213,6 +213,76 @@ class TagListDialog(QDialog):
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
         self._fill()
+
+    def _add_items(self, s, stock_items) -> None:
+        have = {i["id"] for i in self.items}
+        for it in stock_items:
+            if it.id in have:
+                continue
+            job = s.get(Job, it.job_id)
+            groups = mfg.item_detail(s, it)["stone_groups"]
+            detail = " · ".join(f"{g} {w:.2f}ct" for g, (w, _a) in groups.items() if w)
+            self.items.append({
+                "id": it.id, "stock_no": it.stock_no,
+                "sku": job.product_sku.sku_code if job and job.product_sku else "",
+                "c_ref": job.c_ref if job else "", "pcs": it.pcs,
+                "gross": it.gross_wt, "net": it.net_wt,
+                "price": f"{Decimal(str(it.price)):,.2f}", "tag": it.tag_text,
+                "detail": detail,
+            })
+
+    def _txt_import(self) -> None:
+        """Add the pieces named in a text file of Stock IDs (one or many per
+        line, any separator) - the legacy "TXT Import (Stock ID)"."""
+        import re
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "TXT Import (Stock ID)", "",
+                                              "Text (*.txt *.csv);;All files (*)")
+        if not path:
+            return
+        with open(path, encoding="utf-8", errors="ignore") as fh:
+            nos = {int(n) for n in re.findall(r"\d+", fh.read())}
+        self.import_stock_ids(nos)
+
+    def import_stock_ids(self, nos: set[int]) -> int:
+        with SessionLocal() as s:
+            found = list(s.scalars(select(StockItem).where(StockItem.stock_no.in_(nos))
+                                   .order_by(StockItem.stock_no)))
+            before = len(self.items)
+            self._add_items(s, found)
+        self._fill()
+        added = len(self.items) - before
+        missing = len(nos) - len(found)
+        _info(self, "TXT Import", f"Added {added} piece(s) to the tag list."
+              + (f" {missing} Stock ID(s) were not found." if missing else ""))
+        return added
+
+    def _to_printer(self) -> None:
+        """Select Printer: print the ticked tags (or all) on a chosen printer."""
+        from PySide6.QtGui import QTextDocument
+        from PySide6.QtPrintSupport import QPrintDialog, QPrinter
+        rows = self._picked(True) or self._picked(False)
+        if not rows:
+            _info(self, "Print", "The tag list is empty.")
+            return
+        printer = QPrinter()
+        if QPrintDialog(printer, self).exec() != QDialog.DialogCode.Accepted:
+            return
+        doc = QTextDocument()
+        doc.setHtml(self._html(rows))
+        doc.print_(printer)
+        self._mark_printed(rows)
+
+    def _cols(self) -> list[int]:
+        return list(range(1, 9)) + ([9] if self.o_detail.isChecked() else [])
+
+    def _html(self, rows: list[int]) -> str:
+        cols = self._cols()
+        head = "".join(f"<th>{self.grid.horizontalHeaderItem(c).text()}</th>" for c in cols)
+        body = "".join("<tr>" + "".join(f"<td>{self.grid.item(r, c).text()}</td>"
+                                         for c in cols) + "</tr>" for r in rows)
+        return (f"<h3>{self.title}</h3><table border=1 cellspacing=0 cellpadding=3>"
+                f"<tr>{head}</tr>{body}</table>")
 
     def _rows(self) -> list[dict]:
         out = []
@@ -234,10 +304,10 @@ class TagListDialog(QDialog):
                                           and it["c_ref"] else "")
             vals = [n, code, it["sku"], 1 if self.o_pcs.isChecked() else it["pcs"],
                     it["gross"], it["net"], it["price"],
-                    it["tag"] if self.o_price.isChecked() else ""]
+                    it["tag"] if self.o_price.isChecked() else "", it["detail"]]
             for c, v in enumerate(vals, start=1):
-                self.grid.setItem(r, c, _item(v, right=c not in (3,)))
-        self.grid.resizeColumnsToContents()
+                self.grid.setItem(r, c, _item(v, right=c not in (3, 9)))
+        self.grid.setColumnHidden(9, not self.o_detail.isChecked())
 
     def _clear(self) -> None:
         self.items = []
@@ -253,11 +323,12 @@ class TagListDialog(QDialog):
             _info(self, "Print", "Tick the tags to print first." if selected
                   else "The tag list is empty.")
             return
-        t = _table([self.grid.horizontalHeaderItem(c).text() for c in range(1, 9)])
+        cols = self._cols()
+        t = _table([self.grid.horizontalHeaderItem(c).text() for c in cols])
         for r in rows:
             t.insertRow(t.rowCount())
-            for c in range(1, 9):
-                t.setItem(t.rowCount() - 1, c - 1, _item(self.grid.item(r, c).text()))
+            for i, c in enumerate(cols):
+                t.setItem(t.rowCount() - 1, i, _item(self.grid.item(r, c).text()))
         _print_table(self, self.title, t, "tag_list")
         self._mark_printed(rows)
 
@@ -271,10 +342,12 @@ class TagListDialog(QDialog):
         path = documents.PRINT_DIR / f"tags_{datetime.now():%Y%m%d-%H%M%S}.txt"
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
-            fh.write("BARCODE\tSKU\tPCS\tGROSS\tNET\tTAG\n")
+            detail = self.o_detail.isChecked()
+            fh.write("BARCODE\tSKU\tPCS\tGROSS\tNET\tTAG" + ("\tDETAIL" if detail else "")
+                     + "\n")
+            cols = (2, 3, 4, 5, 6, 8) + ((9,) if detail else ())
             for r in rows:
-                fh.write("\t".join(self.grid.item(r, c).text() for c in (2, 3, 4, 5, 6, 8))
-                         + "\n")
+                fh.write("\t".join(self.grid.item(r, c).text() for c in cols) + "\n")
         self._mark_printed(rows)
         _info(self, "Create Txt", f"Saved {path}")
 

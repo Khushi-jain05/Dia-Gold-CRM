@@ -272,7 +272,11 @@ def job_stones(session: Session, job: Job) -> list[StoneCost]:
         out.append(StoneCost(
             label=f"{row.line.particulars} {row.line.size}".strip(), pcs=pcs,
             weight=wt, unit="pcs" if unit.lower().startswith("pc") else "ct",
-            price=price, s_type=row.line.s_type or "",
+            # With no S Type typed on the bag line, the Stone master's group
+            # (DIAMOND / POLKI / COLOR STONE) names it, so Item Search and
+            # the tag detail can still sum by kind.
+            price=price, s_type=row.line.s_type or production.stone_group_label(
+                session, row.line.stone_sku_id, row.line.particulars),
         ))
     return out
 
