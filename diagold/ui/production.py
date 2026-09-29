@@ -58,6 +58,7 @@ from diagold.db.models import (
     Job,
     JobBagLine,
     JobComment,
+    JobStep,
     JobVoucher,
     Location,
     ManufacturingProcess,
@@ -407,7 +408,20 @@ class JobHeaderCard(QFrame):
         self.photo.setObjectName("ImageSlot")
         self.photo.setFixedSize(96, 96)
         self.photo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._photo_path = ""
+        # The product photo enlarges on click, as on the legacy screens (UX5).
+        self.photo.mousePressEvent = lambda _e: self._enlarge()
         lay.addWidget(self.photo)
+
+    def _enlarge(self) -> None:
+        if not self._photo_path:
+            return
+        big = QLabel()
+        big.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        big.setPixmap(QPixmap(self._photo_path).scaled(
+            720, 720, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+        show_in_dialog(self, big, "Photo", (760, 760))
 
     def clear(self) -> None:
         for v in self.values.values():
@@ -439,6 +453,10 @@ class JobHeaderCard(QFrame):
             self.values[k].setText(v or "—")
         path = (sku.image_finished or sku.image_design) if sku else ""
         pix = QPixmap(path) if path else QPixmap()
+        self._photo_path = path if not pix.isNull() else ""
+        self.photo.setCursor(Qt.CursorShape.PointingHandCursor if self._photo_path
+                             else Qt.CursorShape.ArrowCursor)
+        self.photo.setToolTip("Click to enlarge" if self._photo_path else "")
         if not pix.isNull():
             self.photo.setText("")
             self.photo.setPixmap(pix.scaled(96, 96, Qt.AspectRatioMode.KeepAspectRatio,
@@ -699,6 +717,81 @@ class VoucherDialog(QDialog):
         self.accept()
 
 
+def voucher_view(parent: QWidget, voucher_id: int) -> None:
+    """Drill-down from Job History (28 Sept R6 / T-09): the voucher behind a
+    cell - every job on that voucher number, the stones that went with it, the
+    loss and labour - with Print."""
+    with SessionLocal() as s:
+        v = s.get(JobVoucher, voucher_id)
+        if v is None:
+            return
+        kind = "Issue To" if v.kind == "issue" else "Received From"
+        step = s.get(JobStep, v.step_id)
+        proc = s.get(ManufacturingProcess, step.process_id) if step else None
+        worker = s.get(Account, v.worker_id)
+        title = (f"{kind} {proc.name if proc else ''} — Vr {v.vr_no} · "
+                 f"{_s(v.vr_date)} {v.vr_time} · {worker.name if worker else ''}")
+        same = s.scalars(select(JobVoucher).where(JobVoucher.vr_no == v.vr_no,
+                                                  JobVoucher.kind == v.kind,
+                                                  JobVoucher.vr_date == v.vr_date)
+                         .order_by(JobVoucher.id)).all()
+        lines = _table(["Job No", "SKU", "Process", "Worker", "Pcs", "G-Wt", "N-Wt",
+                        "Stone", "Extra", "Finding", "Mould", "Scrap", "Dust", "Allow %",
+                        "Loss", "Loss %", "Labour", "Remark"])
+        stones = _table(["Job No", "Stone", "Size", "Setting Type", "Issued", "Back", "Set",
+                         "Rate / pc", "Labour"])
+        for x in same:
+            job = s.get(Job, x.job_id)
+            st = s.get(JobStep, x.step_id)
+            pr = s.get(ManufacturingProcess, st.process_id) if st else None
+            wk = s.get(Account, x.worker_id)
+            issue = x if x.kind == "issue" else (s.get(JobVoucher, x.issue_id) if x.issue_id
+                                                 else None)
+            receive = x if x.kind == "receive" else None
+            d = production.loss_detail(pr, issue, receive) if receive and st and \
+                st.weight_bearing else None
+            r = lines.rowCount()
+            lines.insertRow(r)
+            vals = [job.job_no if job else "", job.product_sku.sku_code if job and
+                    job.product_sku else "", pr.name if pr else "", wk.name if wk else "",
+                    x.pcs, x.gross_wt, x.net_wt, x.stone_wt, x.extra, x.finding, x.mould,
+                    x.scrap, x.dust, x.allow_loss_pct, d.loss if d else "",
+                    f"{d.loss_pct:.2f}" if d else "",
+                    f"{Decimal(str(x.labour)):,.2f}" if x.labour else "", x.remark]
+            for c, val in enumerate(vals):
+                lines.setItem(r, c, _item(val, TINT_ISSUE if x.kind == "issue" else TINT_RECEIVE,
+                                          right=c >= 4 and c != 17))
+            if issue is not None:
+                for l in production.setting_labour_lines(s, issue, x.vr_date):
+                    r2 = stones.rowCount()
+                    stones.insertRow(r2)
+                    for c, val in enumerate([job.job_no if job else "", l.line.particulars,
+                                             l.line.size, l.setting_type or "—", l.issued,
+                                             l.back, l.set_pcs, f"{l.rate:,.2f}",
+                                             f"{l.amount:,.2f}"]):
+                        stones.setItem(r2, c, _item(val, right=c >= 4))
+    lines.resizeColumnsToContents()
+    stones.resizeColumnsToContents()
+    lines.setMaximumHeight(60 + 34 * max(len(same), 1))
+    box = QWidget()
+    lay = QVBoxLayout(box)
+    head = QLabel(f"<b>{title}</b> — {len(same)} job(s) on this voucher")
+    head.setWordWrap(True)
+    lay.addWidget(head)
+    lay.addWidget(lines)
+    lay.addWidget(QLabel("<b>Stones with the karigar on this step</b>"
+                         if stones.rowCount() else "No stones went with this step."))
+    if stones.rowCount():
+        lay.addWidget(stones)
+    pr_btn = QPushButton("Print Voucher")
+    pr_btn.clicked.connect(lambda: _print_table(box, title, lines, f"voucher_{v.kind}_{v.vr_no}"))
+    row = QHBoxLayout()
+    row.addStretch(1)
+    row.addWidget(pr_btn)
+    lay.addLayout(row)
+    show_in_dialog(parent, box, title, (1100, 520))
+
+
 class PendingDialog(QDialog):
     """Show Pending: the jobs pending for this screen, and nothing else - if
     nothing is pending the list says so (28 Sept R3 / UX3). Double-click or
@@ -939,8 +1032,9 @@ class JobHistoryWidget(_Screen):
                     secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
 
-        legend = QLabel("Loss (issued net − received net − scrap − dust) and Loss % (of the "
-                        "issued net) are beside the worker; a loss in italics went out "
+        legend = QLabel("Double-click a pink cell for its issue voucher, a green cell for its "
+                        "receipt.  Loss (issued net − received net − scrap − dust) and Loss % "
+                        "(of the issued net) are beside the worker; a loss in italics went out "
                         "unweighed and is read as the allowance. Issue columns are tinted pink and receive columns green, so "
                         "the whole step reads across one row.  F11 opens this screen.  Update "
                         "opens the route in Job Mapping; Stone Return opens the return "
@@ -961,6 +1055,10 @@ class JobHistoryWidget(_Screen):
         # inner scroll area nobody noticed hid the stone lines).
         self.grid.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.frozen = _FrozenColumns(self.grid, 4)
+        # Double-click a pink (issue) cell for the issue voucher, a green
+        # (receive) cell for the receipt (28 Sept R6 / UX2).
+        self.grid.cellDoubleClicked.connect(self._drill)
+        self.frozen.doubleClicked.connect(lambda i: self._drill(i.row(), i.column()))
 
         self.stone_box = QGroupBox("Stones on this job")
         sl = QVBoxLayout(self.stone_box)
@@ -1006,7 +1104,10 @@ class JobHistoryWidget(_Screen):
             job = s.get(Job, self.job_id)
             self.header.set_job(s, job)
             self._row_steps: list[int] = []
+            self._row_vouchers: list[tuple[int | None, int | None]] = []
             for row in production.history_rows(s, job):
+                self._row_vouchers.append((row.issue.id if row.issue else None,
+                                           row.receive.id if row.receive else None))
                 r = self.grid.rowCount()
                 self.grid.insertRow(r)
                 self._row_steps.append(row.step.id)
@@ -1090,6 +1191,17 @@ class JobHistoryWidget(_Screen):
                 self.comments.setText("<b>Comments</b><br>" + "<br>".join(lines))
             else:
                 self.comments.setText("")
+
+    def _drill(self, row: int, col: int) -> None:
+        if not self.job_id or row >= len(getattr(self, "_row_vouchers", [])):
+            return
+        issue_id, receive_id = self._row_vouchers[row]
+        receive_side = col >= 4 + len(ISSUE_COLS)
+        vid = receive_id if receive_side and receive_id else issue_id
+        if vid is None:
+            _info(self, "Job History", "Nothing has been issued on this step yet.")
+            return
+        voucher_view(self, vid)
 
     @staticmethod
     def _fit_height(table: QTableWidget, min_rows: int = 1) -> None:
