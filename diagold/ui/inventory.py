@@ -157,8 +157,44 @@ def voucher_spec(vr_type: str) -> CrudSpec:
                                             "unit": "Gms" if metal else "Cts"},
                               fields=line_fields)),
     ]
+    def print_voucher(widget, selected) -> None:
+        """Print the selected voucher to PDF (28 Sept T-01: every voucher prints)."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from diagold.db.session import SessionLocal
+        from diagold.services import documents
+        if selected is None:
+            QMessageBox.information(widget, "Print", "Select a voucher first.")
+            return
+        with SessionLocal() as s:
+            v = s.get(InvVoucher, selected.id)
+            acct = s.get(Account, v.account_id) if v.account_id else None
+            rows = []
+            for l in v.lines:
+                loc = s.get(Location, l.location_id) if l.location_id else None
+                item = (s.get(Metal, l.metal_id).name if l.metal_id else
+                        s.get(StoneSku, l.stone_sku_id).sku_code if l.stone_sku_id
+                        else l.particulars)
+                rows.append(f"<tr><td>{l.sno}</td><td>{loc.name if loc else ''}</td>"
+                            f"<td>{item}</td><td>{l.size or ''}</td><td align=right>{l.pcs}</td>"
+                            f"<td align=right>{_dec(l.weight):.3f}</td>"
+                            f"<td align=right>{_dec(l.fine_wt):.3f}</td>"
+                            f"<td align=right>{_dec(l.price):,.2f}</td>"
+                            f"<td align=right>{_dec(l.amount):,.2f}</td></tr>")
+            html = (f"<h2>{vt.title} — Vr {v.vr_no}</h2>"
+                    f"<p>Date {v.vr_date:%d-%m-%Y} · {acct.name if acct else ''}"
+                    f"{' · Ref ' + v.ref_no if v.ref_no else ''}</p>"
+                    "<table border=1 cellspacing=0 cellpadding=4><tr><th>#</th><th>Location"
+                    "</th><th>Item</th><th>Size</th><th>Pcs</th><th>Weight</th><th>Fine</th>"
+                    "<th>Price</th><th>Amount</th></tr>" + "".join(rows) + "</table>"
+                    f"<p>{v.remark or ''}</p>")
+            path = documents.PRINT_DIR / f"{vr_type}_{v.vr_no}.pdf"
+        documents.to_pdf(html, path)
+        QMessageBox.information(widget, "Print", f"Saved {path}")
+
     return CrudSpec(
         key=f"inventory.{vr_type}", title=vt.title, model=InvVoucher, fields=head,
+        extra_buttons=[("Print", print_voucher)],
         order_by="-vr_no", date_field="vr_date", search_hint="Search by ref, narration…",
         editable=False, before_save=prepare, after_save=saved, validate=validate,
         warn=warn, before_delete=before_delete, fixed={"vr_type": vr_type},

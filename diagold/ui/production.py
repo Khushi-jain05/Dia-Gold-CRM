@@ -2560,6 +2560,18 @@ class OptionsWidget(QWidget):
             row.addWidget(self.negative)
             row.addStretch(1)
             fl.addLayout(row)
+            # 28 Sept Q5: how the tag prints the price (3,05,330.12 -> "305").
+            from diagold.services import mfg_pricing
+            row2 = QHBoxLayout()
+            row2.addWidget(QLabel("Tag price on the tag"))
+            self.tag_rule = QComboBox()
+            for key, (label, _fn) in mfg_pricing.TAG_FORMATTERS.items():
+                self.tag_rule.addItem(label, key)
+            cur = settings.get_setting(s, mfg_pricing.TAG_DISPLAY_SETTING, "thousands")
+            self.tag_rule.setCurrentIndex(max(self.tag_rule.findData(cur), 0))
+            row2.addWidget(self.tag_rule)
+            row2.addStretch(1)
+            fl.addLayout(row2)
         outer.addWidget(fbox)
         bar = QHBoxLayout()
         b = QPushButton("Save")
@@ -2579,6 +2591,7 @@ class OptionsWidget(QWidget):
             for key, cb in self.flags.items():
                 settings.set_flag(s, key, cb.isChecked())
             settings.set_setting(s, "inventory.negative_stock", self.negative.currentData())
+            settings.set_setting(s, "pricing.tag_display", self.tag_rule.currentData())
             s.commit()
         self.nav_changed.emit()
         _info(self, "Options", "Saved. The menu has been updated.")
