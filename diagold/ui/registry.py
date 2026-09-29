@@ -21,7 +21,7 @@ from diagold.ui.production import (
     PrintingOptionsWidget,
     StoneReturnWidget,
 )
-from diagold.ui.reports import ReportsHub, ReportWidget, build_specs
+from diagold.ui.reports import SECTIONS, ReportWidget, build_specs
 from diagold.ui.specs import SPECS
 
 # Menu keys that get a real screen but not via a plain CrudSpec.
@@ -33,8 +33,8 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "production_planning.printing_options": lambda user: PrintingOptionsWidget(user),
     "production_planning.inv_return": lambda user: StoneReturnWidget(user),
     "production_planning.opening_stone": lambda user: OpeningStockWidget(user),
-    "production_planning.day_book": lambda user: ReportsHub(user, first="order_day_book"),
-    "production_planning.reports": lambda user: ReportsHub(user),
+    "production_planning.day_book":
+        lambda user: ReportWidget(build_specs()["order_day_book"], user),
     "tools.option": lambda user: OptionsWidget(user),
     "manufacturing.mfg_transfer": lambda user: MfgTransferWidget(user),
     "manufacturing.item_search": lambda user: ItemSearchWidget(user),
@@ -48,16 +48,44 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
         lambda user: ReportWidget(build_specs()["pending_mfg_transfer"], user),
     "manufacturing.mfg_transfer_day_book":
         lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
-    "manufacturing.reports": lambda user: ReportsHub(user, first="pending_mfg_transfer"),
     "sale.ready_stock": lambda user: ReportWidget(build_specs()["ready_stock"], user),
     "manufacturing.worker_statement":
         lambda user: ReportWidget(build_specs()["worker_metal_ledger"], user),
-    "inventory.reports": lambda user: ReportsHub(user, first="metal_analysis"),
 }
+
+# Reports open from the top menu, one report per tab, the way Inventory ▸
+# Metal ▸ … does - there is no list down the side any more. Each report has
+# the screen key "report.<spec key>"; a menu item listed here opens a submenu
+# of report sections (a section with no title puts its reports straight in).
+REPORT_PREFIX = "report."
+_SECTIONS = dict(SECTIONS)
+REPORT_MENUS: dict[str, list[tuple[str | None, tuple[str, ...]]]] = {
+    "reports.all_reports": list(SECTIONS),
+    "production_planning.reports": [(t, _SECTIONS[t]) for t in (
+        "Day Books", "Outstanding", "Analysis", "Other")],
+    "manufacturing.reports": [(t, _SECTIONS[t]) for t in ("Manufacturing", "Karigar")],
+    "inventory.reports": [(t, _SECTIONS[t]) for t in ("Inventory", "Karigar")],
+    "inventory.metal._reports": [(None, (
+        "metal_analysis", "worker_metal_balance", "inv_metal_day_book",
+        "worker_metal_ledger"))],
+    "inventory.stone._reports": [(None, (
+        "job_card_analysis_stone", "inv_stone_day_book", "inv_rtn_os_stone",
+        "worker_stone_ledger", "worker_stone_balance"))],
+}
+
+
+def report_key(spec_key: str) -> str:
+    return REPORT_PREFIX + spec_key
+
+
+def report_title(spec_key: str) -> str:
+    return build_specs()[spec_key].title
 
 # Screens reached from a button rather than the workbook's menu - the legacy
 # "Item Search" link sits at the top right of every screen.
-EXTRA_SCREENS: dict[str, str] = {"manufacturing.item_search": "Item Search",
+EXTRA_SCREENS: dict[str, str] = {**{report_key(k): report_title(k)
+                                     for _t, keys in SECTIONS for k in keys},
+                                  "manufacturing.item_search": "Item Search",
                                   "manufacturing.worker_statement": "Worker Metal Ledger",
                                   **inventory_ui.sub_labels()}
 # Menu items that open a submenu rather than a screen (Inventory ▸ Metal ▸ …).
@@ -81,6 +109,11 @@ def _item_label(menu_key: str) -> str:
 
 
 def build_widget(menu_key: str, user: CurrentUser) -> QWidget:
+    if menu_key.startswith(REPORT_PREFIX):
+        return ReportWidget(build_specs()[menu_key[len(REPORT_PREFIX):]], user)
+    if menu_key in REPORT_MENUS:
+        # Opened by key rather than from the menu: the first report of it.
+        return ReportWidget(build_specs()[REPORT_MENUS[menu_key][0][1][0]], user)
     if menu_key in _CUSTOM:
         return _CUSTOM[menu_key](user)
     if menu_key.rsplit(".", 1)[0] in SUBMENUS:
@@ -98,6 +131,8 @@ def build_widget(menu_key: str, user: CurrentUser) -> QWidget:
 
 
 def has_real_screen(menu_key: str) -> bool:
+    if menu_key.startswith(REPORT_PREFIX) or menu_key in REPORT_MENUS:
+        return True
     if menu_key.rsplit(".", 1)[0] in SUBMENUS:
         return menu_key.rsplit(".", 1)[1] not in inventory_ui.PENDING_EXPLANATION
     return menu_key in _CUSTOM or menu_key in SPECS or menu_key in SUBMENUS

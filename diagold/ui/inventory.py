@@ -275,9 +275,11 @@ def build_screen(menu_key: str, user=None) -> QWidget:
         from diagold.ui.reports import ReportWidget, build_specs
         return ReportWidget(build_specs()[f"inv_{material}_day_book"], user)
     if key == "_reports":
-        from diagold.ui.reports import ReportsHub
-        return ReportsHub(user, first="metal_analysis" if material == "metal"
-                          else "job_card_analysis_stone")
+        # Normally a submenu of reports (see registry.REPORT_MENUS); opened by
+        # key it shows the first of them.
+        from diagold.ui.reports import ReportWidget, build_specs
+        return ReportWidget(build_specs()["metal_analysis" if material == "metal"
+                                          else "job_card_analysis_stone"], user)
     if key == "_jobcard":
         return _NotYet(label, "Metal against a job card is issued with the job step "
                               "itself (Job History ▸ + Issue, or Show Pending for several "

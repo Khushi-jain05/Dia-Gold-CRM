@@ -35,7 +35,8 @@ from diagold.menu import MENU, MENU_BY_KEY
 from diagold.services import settings
 from diagold.services.auth import AuthError, CurrentUser, change_password
 from diagold.ui.dashboard import DashboardWidget
-from diagold.ui.registry import EXTRA_SCREENS, SUBMENUS, build_widget, has_real_screen
+from diagold.ui.registry import (EXTRA_SCREENS, REPORT_MENUS, SUBMENUS, build_widget,
+                                 has_real_screen, report_key)
 from diagold.ui.style import APP_QSS
 
 
@@ -105,11 +106,25 @@ class MainWindow(QMainWindow):
                     continue
                 if not settings.menu_visible(item.key):
                     continue  # switched off in Tools > Option (T-07)
+                if item.key in REPORT_MENUS:
+                    # Reports ▸ Karigar ▸ Worker Metal Ledger … - each report
+                    # opens in its own tab; the top-level Reports menu lists
+                    # its sections directly.
+                    target = menu if item.key == "reports.all_reports" else menu.addMenu(item.label)
+                    target.setObjectName("TopMenuPopup")
+                    self._add_report_menu(target, REPORT_MENUS[item.key], group.label)
+                    shown += 1
+                    continue
                 if item.key in SUBMENUS:
                     # Inventory ▸ Metal ▸ Purchase … - hover opens the submenu.
                     sub = menu.addMenu(item.label)
                     sub.setObjectName("TopMenuPopup")
                     for key, sub_label in SUBMENUS[item.key]:
+                        if key in REPORT_MENUS:
+                            rep = sub.addMenu(sub_label)
+                            rep.setObjectName("TopMenuPopup")
+                            self._add_report_menu(rep, REPORT_MENUS[key], group.label)
+                            continue
                         text = sub_label if has_real_screen(key) else f"{sub_label}  ·  soon"
                         act = sub.addAction(text)
                         act.triggered.connect(
@@ -129,6 +144,21 @@ class MainWindow(QMainWindow):
             menu.setEnabled(shown > 0)
         if hasattr(self, "nav_search"):
             self._search_model.setStringList(sorted(self._search_targets, key=str.lower))
+
+    def _add_report_menu(self, menu, sections, group_label: str) -> None:
+        """One submenu per report section (or the reports straight in, for a
+        section with no title); every report opens in its own tab."""
+        for title, keys in sections:
+            target = menu
+            if title:
+                target = menu.addMenu(title)
+                target.setObjectName("TopMenuPopup")
+            for k in keys:
+                key = report_key(k)
+                label = EXTRA_SCREENS.get(key, k)
+                act = target.addAction(label)
+                act.triggered.connect(lambda _c=False, kk=key: self._open_by_key(kk))
+                self._search_targets[f"{label}  —  {group_label} report"] = key
 
     def _build_corner(self) -> QWidget:
         """Menu search and the account menu, at the right end of the tab row -
