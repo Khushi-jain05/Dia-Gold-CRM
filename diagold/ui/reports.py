@@ -93,7 +93,7 @@ class ReportSpec:
     on_activate: Callable[["ReportWidget", dict], None] | None = None
     negative_key: str | None = None
     date_mode: str = "range"
-    # "fy": the financial year; "week": today to today + 7, as the legacy
+    # "fy": the financial year; "month": this month so far; "week": today to today + 7, as the legacy
     # analysis reports open (overdays are counted as of the From date).
     date_default: str = "fy"
     note: str = ""
@@ -499,6 +499,9 @@ class ReportWidget(QWidget):
         if spec.date_default == "week":
             from datetime import timedelta
             fy0, fy1 = date.today(), date.today() + timedelta(days=7)
+        elif spec.date_default == "month":
+            # The month so far - a settlement is run for one month.
+            fy0, fy1 = date.today().replace(day=1), date.today()
         self.d_from = QDateEdit(QDate(fy0.year, fy0.month, fy0.day))
         self.d_to = QDateEdit(QDate(fy1.year, fy1.month, fy1.day))
         for d in (self.d_from, self.d_to):
@@ -1271,6 +1274,21 @@ def build_specs() -> dict[str, ReportSpec]:
             note="Every piece put into ready stock in the period, with the prices stored "
                  "at transfer time."),
         # -- karigar ledgers (28 Sept R13 / T-04) -----------------------
+        "setting_labour_statement": ReportSpec(
+            key="setting_labour_statement", title="Setting Labour Statement",
+            columns=static([Col("worker", "WORKER"), Col("month", "MONTH"), Col("date", "DATE"),
+                            Col("vrno", "VRNO"), Col("job_no", "JOBNO"), Col("stone", "STONE"),
+                            Col("setting_type", "SETTING TYPE"), pcs("issued", "ISSUED"),
+                            pcs("back", "BACK"), pcs("set_pcs", "SET PCS"),
+                            Col("rate", "RATE / PC", "measure", 2),
+                            money("amount", "AMOUNT")]),
+            query=lambda s, a, b, **_k: P.setting_labour_statement(s, a, b),
+            group_by="worker", filter_column="worker", date_default="month",
+            on_activate=lambda w, r: w.open_job(r),
+            note="What each karigar is owed for setting: pieces set (issued − back) × the "
+                 "setting type's rate on the receive date. Pick the month in From / To; the "
+                 "subtotal per karigar is the settlement. Broken pieces that came back are "
+                 "unpaid (to confirm, 28 Sept Q4)."),
         "worker_metal_ledger": ReportSpec(
             key="worker_metal_ledger", title="Worker Metal Ledger",
             columns=static([Col("worker", "WORKER"), Col("date", "DATE"), Col("vrno", "VRNO"),
@@ -1317,7 +1335,7 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Inventory", ("metal_analysis", "worker_metal_balance", "inv_metal_day_book",
                    "inv_stone_day_book")),
     ("Manufacturing", ("pending_mfg_transfer", "mfg_transfer_day_book")),
-    ("Karigar", ("worker_metal_ledger",)),
+    ("Karigar", ("worker_metal_ledger", "setting_labour_statement")),
     ("Other", ("job_os_pct", "data_quality")),
 )
 

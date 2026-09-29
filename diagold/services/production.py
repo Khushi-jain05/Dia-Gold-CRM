@@ -1218,6 +1218,37 @@ def set_bag_setting_type(session: Session, line: JobBagLine,
         refresh_setting_labour(session, receive)
 
 
+def setting_labour_statement(session: Session, date_from: date, date_to: date,
+                             worker_id: int | None = None) -> list[dict[str, Any]]:
+    """Month-end karigar settlement (28 Sept R8 / T-05, 3 Sept R8): every
+    receive in the period that earned setting labour, line by line - pieces
+    set by setting type, the rate applied on the receive date, the amount.
+    Grouped by karigar, the subtotals are what each is owed."""
+    q = (select(JobVoucher).where(JobVoucher.kind == "receive", JobVoucher.labour > 0,
+                                  JobVoucher.vr_date >= date_from,
+                                  JobVoucher.vr_date <= date_to)
+         .order_by(JobVoucher.vr_date, JobVoucher.vr_no))
+    if worker_id:
+        q = q.where(JobVoucher.worker_id == worker_id)
+    rows = []
+    for rcv in session.scalars(q):
+        issue = session.get(JobVoucher, rcv.issue_id) if rcv.issue_id else None
+        if issue is None:
+            continue
+        job = session.get(Job, rcv.job_id)
+        worker = session.get(Account, rcv.worker_id)
+        for l in setting_labour_lines(session, issue, rcv.vr_date):
+            rows.append({
+                "worker": worker.name if worker else "?", "month": rcv.vr_date.strftime("%Y-%m"),
+                "date": rcv.vr_date, "vrno": rcv.vr_no, "job_no": job.job_no if job else "",
+                "_job_id": job.id if job else None,
+                "stone": f"{l.line.particulars} {l.line.size}".strip(),
+                "setting_type": l.setting_type or "—", "issued": l.issued, "back": l.back,
+                "set_pcs": l.set_pcs, "rate": l.rate, "amount": l.amount,
+            })
+    return rows
+
+
 def refresh_setting_labour(session: Session, receive: JobVoucher) -> Decimal:
     """Store the setting labour on a receive, at the rate in force on its date."""
     issue = session.get(JobVoucher, receive.issue_id) if receive.issue_id else None
