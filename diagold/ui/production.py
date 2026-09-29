@@ -2169,6 +2169,19 @@ class OptionsWidget(QWidget):
                 cb.setChecked(settings.flag(key, default, s))
                 self.flags[key] = cb
                 fl.addWidget(cb)
+            # 28 Sept Q6: what Inventory does when a voucher takes a location
+            # below zero.
+            row = QHBoxLayout()
+            row.addWidget(QLabel("Inventory: when a location would go below zero"))
+            self.negative = QComboBox()
+            for mode, text in (("warn", "Warn, then allow (default)"),
+                               ("block", "Block the save"), ("allow", "Allow silently")):
+                self.negative.addItem(text, mode)
+            current = settings.get_setting(s, "inventory.negative_stock", "warn")
+            self.negative.setCurrentIndex(max(self.negative.findData(current), 0))
+            row.addWidget(self.negative)
+            row.addStretch(1)
+            fl.addLayout(row)
         outer.addWidget(fbox)
         bar = QHBoxLayout()
         b = QPushButton("Save")
@@ -2187,6 +2200,7 @@ class OptionsWidget(QWidget):
                 settings.set_menu_visible(s, key, cb.isChecked())
             for key, cb in self.flags.items():
                 settings.set_flag(s, key, cb.isChecked())
+            settings.set_setting(s, "inventory.negative_stock", self.negative.currentData())
             s.commit()
         self.nav_changed.emit()
         _info(self, "Options", "Saved. The menu has been updated.")
