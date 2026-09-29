@@ -1565,6 +1565,120 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
     return rows
 
 
+def voucher_day_book(session: Session, kind: str, date_from: date,
+                     date_to: date) -> list[dict[str, Any]]:
+    """Issue Day Book / Received Day Book (28 Sept §4.8): every job-step issue
+    (or receive) in the period."""
+    rows = []
+    procs: dict[int, ManufacturingProcess | None] = {}
+    q = (select(JobVoucher).where(JobVoucher.kind == kind, JobVoucher.vr_date >= date_from,
+                                  JobVoucher.vr_date <= date_to)
+         .order_by(JobVoucher.vr_date, JobVoucher.vr_time, JobVoucher.vr_no, JobVoucher.id))
+    for v in session.scalars(q):
+        job = session.get(Job, v.job_id)
+        step = session.get(JobStep, v.step_id)
+        proc = procs.setdefault(step.process_id, session.get(ManufacturingProcess,
+                                                            step.process_id)) if step else None
+        worker = session.get(Account, v.worker_id)
+        row = {
+            "date": v.vr_date, "time": v.vr_time, "vrno": v.vr_no,
+            "process": proc.name if proc else "", "worker": worker.name if worker else "",
+            "job_no": job.job_no if job else "", "_job_id": job.id if job else None,
+            "sku": job.product_sku.sku_code if job and job.product_sku else "",
+            "pcs": v.pcs, "g_wt": _dec(v.gross_wt) if v.gross_wt is not None else None,
+            "n_wt": _dec(v.net_wt) if v.net_wt is not None else None,
+            "stone_wt": _dec(v.stone_wt) or None,
+        }
+        if kind == "receive":
+            issue = session.get(JobVoucher, v.issue_id) if v.issue_id else None
+            d = loss_detail(proc, issue, v) if step and step.weight_bearing else None
+            row.update({"loss": d.loss if d else None, "loss_pct": d.loss_pct if d else None,
+                        "alw_pct": d.allow_pct if d else None,
+                        "scrap": _dec(v.scrap) or None, "dust": _dec(v.dust) or None,
+                        "labour": _dec(v.labour) or None})
+        rows.append(row)
+    return rows
+
+
+def worker_stone_ledger(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Worker Stone Ledger (28 Sept §4.15): stones a karigar holds - issued
+    from a job bag (ISS) or on an Inventory stone issue (SI), less what came
+    back (BACK / SR) and what was set into the piece (SET, when the step is
+    received) - in pieces and carats, running per karigar."""
+    from diagold.db.models import InvVoucher, InvVoucherLine
+    events: list[tuple] = []
+    for m in session.scalars(select(JobBagMovement).where(
+            JobBagMovement.kind.in_(("iss", "back")), JobBagMovement.worker_id.is_not(None),
+            JobBagMovement.mv_date <= date_to)):
+        line = session.get(JobBagLine, m.line_id)
+        job = session.get(Job, line.job_id) if line else None
+        sign = 1 if m.kind == "iss" else -1
+        events.append((m.mv_date, 0, m.id, m.worker_id, "ISS" if sign > 0 else "BACK",
+                       sign * int(m.pcs or 0), sign * _dec(m.weight),
+                       f"{line.particulars} {line.size}".strip() if line else "",
+                       job.job_no if job else "", job.id if job else None, None))
+    # Stones set into the piece leave the karigar with the piece, when the
+    # step is received back: "SET", pieces = issued - back on that step.
+    linked = {m.ref_id for m in session.scalars(select(JobBagMovement).where(
+        JobBagMovement.ref_kind == VOUCHER_REF))}
+    for rcv in session.scalars(select(JobVoucher).where(
+            JobVoucher.kind == "receive", JobVoucher.issue_id.in_(linked),
+            JobVoucher.vr_date <= date_to)):
+        issue = session.get(JobVoucher, rcv.issue_id)
+        job = session.get(Job, rcv.job_id)
+        for l in setting_labour_lines(session, issue, rcv.vr_date):
+            per = (_dec(sum((_dec(m.weight) for m in l.line.movements
+                             if m.kind == "iss" and m.ref_id == issue.id), ZERO))
+                   - _dec(sum((_dec(m.weight) for m in l.line.movements
+                               if m.kind == "back" and m.ref_id == issue.id), ZERO)))
+            if l.set_pcs <= 0 and per <= 0:
+                continue
+            events.append((rcv.vr_date, 2, rcv.id * 1000 + l.line.id, issue.worker_id, "SET",
+                           -l.set_pcs, -per, f"{l.line.particulars} {l.line.size}".strip(),
+                           job.job_no if job else "", job.id if job else None, rcv.vr_no))
+    q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
+         .where(InvVoucher.vr_type.in_(("stone_issue", "stone_receipt")),
+                InvVoucher.vr_date <= date_to, InvVoucher.account_id.is_not(None)))
+    for line, v in session.execute(q):
+        sign = 1 if v.vr_type == "stone_issue" else -1
+        sku = session.get(StoneSku, line.stone_sku_id) if line.stone_sku_id else None
+        events.append((v.vr_date, 1, line.id, v.account_id, "SI" if sign > 0 else "SR",
+                       sign * int(line.pcs or 0), sign * _dec(line.weight),
+                       (sku.sku_code if sku else line.particulars) or "", line.job_no or "",
+                       None, v.vr_no))
+    events.sort(key=lambda e: e[:3])
+    bal: dict[int, list] = {}
+    names: dict[int, str] = {}
+    rows = []
+    for when, _o, _i, wid, vtype, pcs, wt, stone, job_no, job_id, vr_no in events:
+        b = bal.setdefault(wid, [0, ZERO])
+        b[0] += pcs
+        b[1] += wt
+        if when < date_from:
+            continue
+        if wid not in names:
+            a = session.get(Account, wid)
+            names[wid] = a.name if a else "?"
+        rows.append({"worker": names[wid], "date": when, "vrtype": vtype, "vrno": vr_no or "",
+                     "stone": stone, "job_no": job_no, "_job_id": job_id,
+                     "in_pcs": pcs if pcs > 0 else None, "in_wt": wt if wt > 0 else None,
+                     "out_pcs": -pcs if pcs < 0 else None, "out_wt": -wt if wt < 0 else None,
+                     "bal_pcs": b[0], "bal_wt": b[1].quantize(D3)})
+    return rows
+
+
+def worker_stone_balance(session: Session, date_to: date) -> list[dict[str, Any]]:
+    """Worker Balance (Stone): what each karigar holds now, by stone."""
+    acc: dict[tuple[str, str], list] = {}
+    for r in worker_stone_ledger(session, date(1900, 1, 1), date_to):
+        a = acc.setdefault((r["worker"], r["stone"]), [0, ZERO])
+        a[0] += (r["in_pcs"] or 0) - (r["out_pcs"] or 0)
+        a[1] += (r["in_wt"] or ZERO) - (r["out_wt"] or ZERO)
+    return [{"worker": w, "stone": st, "pcs": p, "weight": wt.quantize(D3),
+             "_negative": p < 0 or wt < 0}
+            for (w, st), (p, wt) in sorted(acc.items()) if p or wt]
+
+
 def job_loss_total(session: Session, job: Job) -> tuple[Decimal, Decimal | None, int]:
     """Total loss on a job, as a % of its latest net weight, and the number of
     steps it covers. On job 28853 the legacy total row reads 3.574 / 11.81 -

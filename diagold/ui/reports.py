@@ -26,7 +26,7 @@ from PySide6.QtCore import (
     QThread,
     Signal,
 )
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -592,6 +592,10 @@ class ReportWidget(QWidget):
         self.view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.view.horizontalHeader().setStretchLastSection(True)
         self.view.doubleClicked.connect(self._activate)
+        # F10 does what a double-click does - "Show JB" on the legacy pending
+        # grid (28 Sept §4.8, UX4).
+        QShortcut(QKeySequence("F10"), self.view,
+                  activated=lambda: self._activate(self.view.currentIndex()))
         outer.addWidget(self.view, 1)
 
         foot = QHBoxLayout()
@@ -1257,10 +1261,11 @@ def build_specs() -> dict[str, ReportSpec]:
                             Col("client", "CLIENT"), Col("completed", "FINISHED ON"),
                             money("st_value", "JB ST VALUE")]),
             query=lambda s, a, b, **_k: MF.pending_rows(s), date_mode="none",
-            on_activate=lambda w, r: w.open_job(r),
+            on_activate=lambda w, r: w.open_job(r, "production_planning.job_card_bag"),
             note="Jobs whose last route step has been received and that are not yet in "
                  "ready stock. Transfer them in Manufacturing ▸ MFG Transfer (Show Pending). "
-                 "If nothing is pending the list is empty. Double-click opens Job History."),
+                 "If nothing is pending the list is empty. Double-click (or F10, as in the legacy) "
+                 "shows the job's bag."),
         "mfg_transfer_day_book": ReportSpec(
             key="mfg_transfer_day_book", title="MFG Transfer Day Book",
             columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("job_no", "JOBNO"),
@@ -1274,6 +1279,51 @@ def build_specs() -> dict[str, ReportSpec]:
             note="Every piece put into ready stock in the period, with the prices stored "
                  "at transfer time."),
         # -- karigar ledgers (28 Sept R13 / T-04) -----------------------
+        "issue_day_book": ReportSpec(
+            key="issue_day_book", title="Issue Day Book",
+            columns=static([Col("date", "DATE"), Col("time", "TIME"), Col("vrno", "VRNO"),
+                            Col("process", "PROCESS"), Col("worker", "WORKER"),
+                            Col("job_no", "JOBNO"), Col("sku", "SKU"), pcs("pcs", "PCS"),
+                            wt("g_wt", "G-WT"), wt("n_wt", "N-WT"), wt("stone_wt", "STONE")]),
+            query=lambda s, a, b, **_k: P.voucher_day_book(s, "issue", a, b),
+            group_by="process", filter_column="process",
+            on_activate=lambda w, r: w.open_job(r),
+            note="Every job step issued to a karigar in the period."),
+        "received_day_book": ReportSpec(
+            key="received_day_book", title="Received Day Book",
+            columns=static([Col("date", "DATE"), Col("time", "TIME"), Col("vrno", "VRNO"),
+                            Col("process", "PROCESS"), Col("worker", "WORKER"),
+                            Col("job_no", "JOBNO"), Col("sku", "SKU"), pcs("pcs", "PCS"),
+                            wt("g_wt", "G-WT"), wt("n_wt", "N-WT"), wt("scrap", "SCRAP"),
+                            wt("dust", "DUST"), wt("loss", "LOSS WT"),
+                            Col("loss_pct", "LOSS %", "measure", 2),
+                            Col("alw_pct", "ALW L %", "measure", 2),
+                            money("labour", "LABOUR")]),
+            query=lambda s, a, b, **_k: P.voucher_day_book(s, "receive", a, b),
+            group_by="process", filter_column="process",
+            on_activate=lambda w, r: w.open_job(r),
+            note="Every job step received back in the period, with its loss and labour."),
+        "worker_stone_ledger": ReportSpec(
+            key="worker_stone_ledger", title="Worker Stone Ledger",
+            columns=static([Col("worker", "WORKER"), Col("date", "DATE"), Col("vrtype", "VRTYPE"),
+                            Col("vrno", "VRNO"), Col("stone", "STONE"), Col("job_no", "JOBNO"),
+                            pcs("in_pcs", "IN PCS"), wt("in_wt", "IN WT"),
+                            pcs("out_pcs", "OUT PCS"), wt("out_wt", "OUT WT"),
+                            Col("bal_pcs", "BAL PCS", "measure", 0),
+                            Col("bal_wt", "BAL WT", "measure", 3)]),
+            query=lambda s, a, b, **_k: P.worker_stone_ledger(s, a, b),
+            group_by="worker", filter_column="worker",
+            on_activate=lambda w, r: w.open_job(r),
+            note="Stones with each karigar: ISS from a job bag and SI on an Inventory stone "
+                 "issue in; BACK to the bag, SET into the piece (on the step's receipt) and SR "
+                 "on a stone receipt out."),
+        "worker_stone_balance": ReportSpec(
+            key="worker_stone_balance", title="Worker Balance (Stone)",
+            columns=static([Col("worker", "WORKER"), Col("stone", "STONE"), pcs("pcs", "PCS"),
+                            wt("weight", "WEIGHT")]),
+            query=lambda s, a, b, **_k: P.worker_stone_balance(s, b),
+            group_by="worker", filter_column="worker", negative_key="_negative",
+            note="Stones each karigar holds as of the To date."),
         "setting_labour_statement": ReportSpec(
             key="setting_labour_statement", title="Setting Labour Statement",
             columns=static([Col("worker", "WORKER"), Col("month", "MONTH"), Col("date", "DATE"),
@@ -1335,7 +1385,8 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Inventory", ("metal_analysis", "worker_metal_balance", "inv_metal_day_book",
                    "inv_stone_day_book")),
     ("Manufacturing", ("pending_mfg_transfer", "mfg_transfer_day_book")),
-    ("Karigar", ("worker_metal_ledger", "setting_labour_statement")),
+    ("Karigar", ("worker_metal_ledger", "worker_stone_ledger", "worker_stone_balance",
+                 "setting_labour_statement", "issue_day_book", "received_day_book")),
     ("Other", ("job_os_pct", "data_quality")),
 )
 
