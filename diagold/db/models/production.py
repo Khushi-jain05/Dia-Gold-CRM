@@ -126,7 +126,9 @@ class Job(Base, PKMixin, TimestampMixin):
     completed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     remark: Mapped[str] = mapped_column(String(200), default="")
 
-    STATUSES = ("pending", "mapped", "in_progress", "complete", "cancelled")
+    # complete = last route step received = Pending for MFG Transfer;
+    # transferred = priced into ready stock by an MFG transfer (28 Sept R2).
+    STATUSES = ("pending", "mapped", "in_progress", "complete", "transferred", "cancelled")
 
     steps: Mapped[list["JobStep"]] = relationship(
         back_populates="job", cascade="all, delete-orphan",
@@ -203,6 +205,16 @@ class JobVoucher(Base, PKMixin, TimestampMixin):
     rej_wt: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
     scrap: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
     dust: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
+    # Allowed loss % on this line (28 Sept R5). Defaults from the process
+    # master and may be overridden per line; a receive defaults to its issue's
+    # figure. Blank on rows posted before the field existed - read as the
+    # process's figure. Where the default should really come from (process,
+    # karigar or job) is open (28 Sept Q3 / C-03).
+    allow_loss_pct: Mapped[float | None] = mapped_column(Numeric(9, 4), nullable=True)
+    # Setting labour earned on this receive: pieces set x setting-type rate,
+    # stored when the step is received so a later rate change never rewrites
+    # it (28 Sept R8 / T-05). Zero on every other receive.
+    labour: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     remark: Mapped[str] = mapped_column(String(200), default="")
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
@@ -297,6 +309,13 @@ class JobBagLine(Base, PKMixin):
     particulars: Mapped[str] = mapped_column(String(120), default="")
     size: Mapped[str] = mapped_column(String(24), default="")
     s_type: Mapped[str] = mapped_column(String(32), default="")
+    # How the stone is set (Polki, Diam, ...) - the per-piece setting rate is
+    # read from this, never from the stone name (28 Sept R8). Copied from the
+    # SKU's stone line when the bag is seeded; blank = no setting labour
+    # (daank on job 28853).
+    setting_type_id: Mapped[int | None] = mapped_column(
+        ForeignKey("setting_types.id"), nullable=True
+    )
     # Unit travels with the stone (ct for diamond/polki/colour stones, pcs
     # for some imitation stones) - S1 T-06.
     unit: Mapped[str] = mapped_column(String(8), default="ct")

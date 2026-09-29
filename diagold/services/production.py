@@ -43,6 +43,8 @@ from diagold.db.models import (
     PrintLog,
     ProductSku,
     ProductSkuStone,
+    SettingLabourRate,
+    SettingType,
     StockMovement,
     StoneGroup,
     StoneInfo,
@@ -51,6 +53,7 @@ from diagold.db.models import (
     StoneSize,
     StoneSku,
 )
+from diagold.services import costing
 
 # The client's three heads for stone stock (S1 D4, reaffirmed 18 Sept D9),
 # keyed by the Stone Group master's code.
@@ -289,6 +292,7 @@ def seed_bag_requirements(session: Session, job: Job) -> None:
             particulars=(sku.stone if sku else "") or st.description,
             size=(size.name if size else "") or (sku.size if sku else ""),
             s_type=(sku.stone_type if sku else ""),
+            setting_type_id=st.setting_type_id,
             unit="ct" if (st.per or "Cts").lower().startswith("ct") else "pcs",
             req_pcs=int(st.pieces or 0) * max(int(job.pcs or 1), 1),
             req_wt=_dec(st.weight_cts) * max(int(job.pcs or 1), 1),
@@ -459,6 +463,12 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
         raise ProductionError(f"Unknown voucher kind '{kind}'.")
     if job.status == "cancelled":
         raise ProductionError(f"Job {job.job_no} is cancelled.")
+    if job.status == "transferred":
+        raise ProductionError(
+            f"Job {job.job_no} is already in ready stock. To correct it, delete its "
+            "stock item in Item Search - the job comes back to Pending for MFG "
+            "Transfer - then fix it here and transfer it again."
+        )
     if not job.steps:
         raise ProductionError(
             f"Job {job.job_no} has no route yet. Map it in Job Mapping before "
@@ -504,6 +514,12 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
                 "Nothing is out on this step - issue it to a worker before "
                 "receiving it back."
             )
+    allow = extra.get("allow_loss_pct")
+    if allow in (None, ""):
+        allow = default_allow_loss_pct(session, step, issue_ref)
+    allow = _dec(allow)
+    if allow < 0 or allow >= 100:
+        raise ProductionError("Allowed loss % must be between 0 and 100.")
     v = JobVoucher(
         vr_no=vr_no or next_number(session, JobVoucher.vr_no),
         kind=kind, job_id=job.id, step_id=step.id,
@@ -516,7 +532,7 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
         del_date=extra.get("del_date"), rej_pcs=int(extra.get("rej_pcs") or 0),
         rej_wt=_dec(extra.get("rej_wt")), scrap=_dec(extra.get("scrap")),
         dust=_dec(extra.get("dust")), remark=extra.get("remark") or "",
-        user_id=user_id,
+        allow_loss_pct=allow, user_id=user_id,
     )
     session.add(v)
     if job.status in ("pending", "mapped"):
@@ -528,7 +544,24 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
         job.status = "complete"
         job.completed_on = v.vr_date
     session.flush()
+    if kind == "issue":
+        _claim_bag_movements(session, v)
+    else:
+        _claim_bag_movements(session, issue_ref)
+        refresh_setting_labour(session, v)
     return v
+
+
+def default_allow_loss_pct(session: Session, step: JobStep,
+                           issue: JobVoucher | None = None) -> Decimal:
+    """The allowed loss % a new line starts on: a receive takes its issue's
+    figure, an issue takes the process master's. Live figures seen on 28 Sept:
+    HandMade 3.5, Setting 3.0, PrePolish 0.35, final setting 0. Whether the
+    default belongs to the process, the karigar or the job is open (Q3)."""
+    if issue is not None and issue.allow_loss_pct is not None:
+        return _dec(issue.allow_loss_pct)
+    process = session.get(ManufacturingProcess, step.process_id)
+    return _dec(process.loss_percent if process else 0)
 
 
 def step_loss(issue: JobVoucher | None, receive: JobVoucher | None) -> Decimal | None:
@@ -542,6 +575,61 @@ def step_loss(issue: JobVoucher | None, receive: JobVoucher | None) -> Decimal |
 
 
 @dataclass
+class LossDetail:
+    """Loss on one received step, beside what the karigar was allowed.
+
+    ``loss`` can be negative - setting adds stone weight, so BANG-577's
+    Setting step shows -0.300 / -0.96% (28 Sept §4.5).
+    """
+
+    loss: Decimal                 # grams
+    loss_pct: Decimal             # of the issued net weight
+    allow_pct: Decimal
+    allowed: Decimal              # grams the karigar may lose on this step
+    excess: Decimal               # loss beyond the allowance (negative = under)
+    # True when the step went out unweighed: nothing to subtract from, so the
+    # loss is read as the allowance - the legacy HandMade row of job 28853
+    # shows exactly that (1.141 = 3.5% x 32.610).
+    from_allowance: bool = False
+
+
+def allowed_loss(receive: JobVoucher, allow_pct: Decimal) -> Decimal:
+    """Grams allowed on a receive: allowed % of the net weight received back.
+
+    Both live figures agree - HandMade 3.5% x 32.610 = 1.141 (job 28853) and
+    the worker ledger's 3.5% x 83.240 returned = 2.913 - and the voucher line
+    says "L Price On: NetWt". The process master's loss-type letter is not
+    used here: HandMade carries H (hourly) and Setting S (stone pcs), which
+    give no weight at all, so that letter looks like a labour basis rather
+    than the allowance basis (to confirm with C-03).
+    """
+    return (_dec(receive.net_wt) * allow_pct / Decimal("100")).quantize(D3)
+
+
+def loss_detail(process: ManufacturingProcess | None, issue: JobVoucher | None,
+                receive: JobVoucher | None) -> LossDetail | None:
+    """Loss, loss % and allowance for one issue/receive pair (T-04).
+
+    loss   = issued net - received net - scrap - dust
+    loss % = loss / issued net x 100
+    """
+    if issue is None or receive is None or receive.net_wt is None:
+        return None
+    allow_pct = _dec(receive.allow_loss_pct if receive.allow_loss_pct is not None
+                     else issue.allow_loss_pct if issue.allow_loss_pct is not None
+                     else (process.loss_percent if process else 0))
+    allowed = allowed_loss(receive, allow_pct)
+    actual = step_loss(issue, receive)
+    if actual is None:
+        return LossDetail(loss=allowed, loss_pct=allow_pct.quantize(Decimal("0.01")),
+                          allow_pct=allow_pct, allowed=allowed, excess=ZERO,
+                          from_allowance=True)
+    pct = (actual / _dec(issue.net_wt) * 100).quantize(Decimal("0.01"))
+    return LossDetail(loss=actual, loss_pct=pct, allow_pct=allow_pct, allowed=allowed,
+                      excess=(actual - allowed).quantize(D3))
+
+
+@dataclass
 class HistoryRow:
     step: JobStep
     process: ManufacturingProcess | None
@@ -549,6 +637,7 @@ class HistoryRow:
     receive: JobVoucher | None
     worker: str = ""
     loss: Decimal | None = None
+    detail: LossDetail | None = None
 
 
 def history_rows(session: Session, job: Job) -> list[HistoryRow]:
@@ -571,9 +660,10 @@ def history_rows(session: Session, job: Job) -> list[HistoryRow]:
         touched.add(step.id)
         rcv = receives.get(v.id)
         worker = session.get(Account, v.worker_id)
+        detail = loss_detail(procs.get(step.id), v, rcv) if step.weight_bearing else None
         rows.append(HistoryRow(step=step, process=procs.get(step.id), issue=v,
                                receive=rcv, worker=worker.name if worker else "",
-                               loss=step_loss(v, rcv)))
+                               loss=detail.loss if detail else None, detail=detail))
     for s in job.steps:
         if s.id not in touched:
             rows.append(HistoryRow(step=s, process=procs.get(s.id), issue=None,
@@ -598,10 +688,10 @@ def job_summary(session: Session, job: Job) -> dict[str, Any]:
         "pnd": " ".join(pnd_parts),
         "wip": wip,
         "rejection": rejection,
-        # The Manufacturing module (MFG Transfer) is a later phase; until it
-        # lands nothing has been transferred.
-        "pnd_mfg_transfer": job.pcs if job.status != "complete" else 0,
-        "mfg_transfer": 0,
+        # Finished (last step received) and not yet priced into stock is
+        # Pending for MFG Transfer; transferred is in ready stock (28 Sept R2).
+        "pnd_mfg_transfer": job.pcs if job.status == "complete" else 0,
+        "mfg_transfer": job.pcs if job.status == "transferred" else 0,
         "total_pcs": job.pcs,
         "order_remark": order.remark if order else "",
     }
@@ -918,12 +1008,25 @@ def bag_move(session: Session, line: JobBagLine, kind: str, pcs: int,
             )
     if kind == "back":
         out_pcs = row["iss"][0] - row["back"][0]
+        if worker_id:
+            out_pcs = min(out_pcs, _out_with_worker(line, worker_id))
         if pcs > out_pcs:
+            who = session.get(Account, worker_id) if worker_id else None
             raise ProductionError(
-                f"Only {out_pcs} pcs of {name} are out with a worker."
+                f"Only {out_pcs} pcs of {name} are out with "
+                f"{who.name if who else 'a worker'}."
             )
     if kind == "iss" and not worker_id:
         raise ProductionError("Say which worker the stones are issued to.")
+    # Stones going to or coming back from a karigar belong to the step they
+    # hold for this job, so setting labour can count them (28 Sept T-05).
+    voucher = None
+    if kind in ("iss", "back") and worker_id and not ref_kind:
+        voucher = _open_issue_for_worker(session, line.job_id, worker_id)
+        if voucher is None and kind == "back":
+            voucher = _last_issue_for_worker(session, line.job_id, worker_id)
+        if voucher is not None:
+            ref_kind, ref_id = VOUCHER_REF, voucher.id
     sku = session.get(StoneSku, line.stone_sku_id) if line.stone_sku_id else None
     if kind == "rtn":
         location_id = location_id or line.source_location_id
@@ -950,7 +1053,467 @@ def bag_move(session: Session, line: JobBagLine, kind: str, pcs: int,
     session.add(m)
     session.flush()
     session.refresh(line)
+    if voucher is not None:
+        # Stones back after the step was received: the labour on that
+        # receive is re-counted, so it always matches what was set.
+        receive = session.scalar(select(JobVoucher).where(
+            JobVoucher.kind == "receive", JobVoucher.issue_id == voucher.id))
+        if receive is not None:
+            refresh_setting_labour(session, receive)
     return m
+
+
+def _out_with_worker(line: JobBagLine, worker_id: int) -> int:
+    """Pieces of this bag line still with one karigar: issued less back."""
+    out = 0
+    for m in line.movements:
+        if m.worker_id != worker_id:
+            continue
+        if m.kind == "iss":
+            out += int(m.pcs or 0)
+        elif m.kind == "back":
+            out -= int(m.pcs or 0)
+    return out
+
+
+# --------------------------------------------------------------------------
+# Setting labour (28 Sept R8 / T-05)
+# --------------------------------------------------------------------------
+# Bag movements that went to (or came back from) a karigar carry the issue
+# voucher of the step they were for.
+VOUCHER_REF = "job_voucher"
+
+
+def _open_issue_for_worker(session: Session, job_id: int,
+                           worker_id: int) -> JobVoucher | None:
+    closed = select(JobVoucher.issue_id).where(
+        JobVoucher.kind == "receive", JobVoucher.issue_id.is_not(None))
+    return session.scalars(
+        select(JobVoucher).where(JobVoucher.job_id == job_id,
+                                 JobVoucher.worker_id == worker_id,
+                                 JobVoucher.kind == "issue",
+                                 JobVoucher.id.not_in(closed))
+        .order_by(JobVoucher.id.desc())
+    ).first()
+
+
+def _last_issue_for_worker(session: Session, job_id: int,
+                           worker_id: int) -> JobVoucher | None:
+    return session.scalars(
+        select(JobVoucher).where(JobVoucher.job_id == job_id,
+                                 JobVoucher.worker_id == worker_id,
+                                 JobVoucher.kind == "issue")
+        .order_by(JobVoucher.id.desc())
+    ).first()
+
+
+def _claim_bag_movements(session: Session, issue: JobVoucher | None) -> None:
+    """Stones handed to this karigar on this job before the step voucher was
+    posted belong to that step."""
+    if issue is None:
+        return
+    rows = session.scalars(
+        select(JobBagMovement).join(JobBagLine)
+        .where(JobBagLine.job_id == issue.job_id,
+               JobBagMovement.worker_id == issue.worker_id,
+               JobBagMovement.kind.in_(("iss", "back")),
+               JobBagMovement.ref_kind == "")
+    ).all()
+    for m in rows:
+        m.ref_kind, m.ref_id = VOUCHER_REF, issue.id
+    session.flush()
+
+
+def setting_rate(session: Session, setting_type_id: int | None,
+                 on_date: date) -> tuple[Decimal, str]:
+    """Per-piece setting rate for a setting type on a date, and where it came
+    from. A dated row on the Setting Labour Chart for that setting type wins;
+    otherwise the Setting Type master's price (live: Polki 30, Diam 3). Never
+    a literal - a type with no rate pays 0 and says so."""
+    if not setting_type_id:
+        return ZERO, "no setting type"
+    row = session.scalars(
+        select(SettingLabourRate)
+        .where(SettingLabourRate.setting_type_id == setting_type_id,
+               SettingLabourRate.sku_id.is_(None),
+               SettingLabourRate.is_active.is_(True),
+               SettingLabourRate.effective_from <= on_date)
+        .order_by(SettingLabourRate.effective_from.desc(), SettingLabourRate.id.desc())
+    ).first()
+    if row is not None:
+        return _dec(row.rate_per_piece), f"Setting Labour Chart from {row.effective_from}"
+    st = session.get(SettingType, setting_type_id)
+    if st is None:
+        return ZERO, "setting type not found"
+    return _dec(st.price), "Setting Type master"
+
+
+@dataclass
+class SettingLabourLine:
+    line: JobBagLine
+    setting_type: str
+    issued: int
+    back: int
+    set_pcs: int
+    rate: Decimal
+    rate_source: str
+    amount: Decimal
+
+
+def setting_labour_lines(session: Session, issue: JobVoucher,
+                         on_date: date | None = None) -> list[SettingLabourLine]:
+    """Per stone line: pieces set on this step and the labour for them.
+
+    pieces set = issued to the karigar - back from the karigar
+    labour     = pieces set x setting rate of the line's setting type
+
+    Everything that comes back - returned whole or broken - is unpaid. On job
+    28853 this reproduces the Rs 2,400 on the final-setting row exactly
+    (POLKI 16-18: 43 out, 5 back of which 1 broken -> 38 x 30). That broken
+    pieces are unpaid was read from the arithmetic, not said (28 Sept Q4).
+    """
+    on_date = on_date or date.today()
+    moves = session.scalars(
+        select(JobBagMovement).where(JobBagMovement.ref_kind == VOUCHER_REF,
+                                     JobBagMovement.ref_id == issue.id)
+        .order_by(JobBagMovement.id)
+    ).all()
+    per_line: dict[int, list[int]] = {}
+    for m in moves:
+        tally = per_line.setdefault(m.line_id, [0, 0])
+        if m.kind == "iss":
+            tally[0] += int(m.pcs or 0)
+        elif m.kind == "back":
+            tally[1] += int(m.pcs or 0)
+    out: list[SettingLabourLine] = []
+    for line_id, (issued, back) in per_line.items():
+        line = session.get(JobBagLine, line_id)
+        if line is None or issued <= 0:
+            continue
+        st = session.get(SettingType, line.setting_type_id) if line.setting_type_id else None
+        rate, source = setting_rate(session, line.setting_type_id, on_date)
+        set_pcs = max(issued - back, 0)
+        out.append(SettingLabourLine(
+            line=line, setting_type=st.name if st else "", issued=issued, back=back,
+            set_pcs=set_pcs, rate=rate, rate_source=source,
+            amount=(Decimal(set_pcs) * rate).quantize(Decimal("0.01")),
+        ))
+    return out
+
+
+def set_bag_setting_type(session: Session, line: JobBagLine,
+                         setting_type_id: int | None) -> None:
+    """Correct how a bag line is set. Receives that already counted this line
+    are re-counted - at the rate of their own date, so only the type changes."""
+    line.setting_type_id = setting_type_id
+    session.flush()
+    issue_ids = {m.ref_id for m in line.movements if m.ref_kind == VOUCHER_REF and m.ref_id}
+    for receive in session.scalars(select(JobVoucher).where(
+            JobVoucher.kind == "receive", JobVoucher.issue_id.in_(issue_ids))):
+        refresh_setting_labour(session, receive)
+
+
+def refresh_setting_labour(session: Session, receive: JobVoucher) -> Decimal:
+    """Store the setting labour on a receive, at the rate in force on its date."""
+    issue = session.get(JobVoucher, receive.issue_id) if receive.issue_id else None
+    if issue is None:
+        return ZERO
+    total = sum((l.amount for l in setting_labour_lines(session, issue, receive.vr_date)),
+                ZERO)
+    receive.labour = total
+    session.flush()
+    return total
+
+
+# --------------------------------------------------------------------------
+# Show Pending (28 Sept R3 / UX3)
+# --------------------------------------------------------------------------
+# Every voucher lists only the jobs pending for it; if nothing is pending,
+# nothing shows.
+ACTIVE_STATUSES = ("mapped", "in_progress")
+
+
+def current_step(session: Session, job: Job) -> tuple[JobStep | None, JobVoucher | None]:
+    """The step a job is at: the first route step not yet received back, and
+    the issue that has it out (None when it is waiting to be issued)."""
+    for step in job.steps:
+        issues = session.scalars(select(JobVoucher).where(
+            JobVoucher.step_id == step.id, JobVoucher.kind == "issue")
+            .order_by(JobVoucher.id)).all()
+        if not issues:
+            return step, None
+        received = {v.issue_id for v in session.scalars(select(JobVoucher).where(
+            JobVoucher.step_id == step.id, JobVoucher.kind == "receive"))}
+        open_ = [v for v in issues if v.id not in received]
+        if open_:
+            return step, open_[0]
+    return None, None
+
+
+def last_weights(session: Session, job: Job) -> tuple[Decimal | None, Decimal | None]:
+    """Gross and net as last weighed - what goes out on the next issue."""
+    v = session.scalars(
+        select(JobVoucher).where(JobVoucher.job_id == job.id, JobVoucher.net_wt.is_not(None))
+        .order_by(JobVoucher.vr_date.desc(), JobVoucher.vr_time.desc(), JobVoucher.id.desc())
+    ).first()
+    if v is None:
+        return None, None
+    return (_dec(v.gross_wt) if v.gross_wt is not None else None), _dec(v.net_wt)
+
+
+def pending_steps(session: Session, kind: str, process_id: int | None = None,
+                  worker_id: int | None = None) -> list[dict[str, Any]]:
+    """Jobs pending for an issue (next step not yet issued) or a receive (out
+    with a karigar, not back), optionally for one process / one karigar."""
+    rows = []
+    jobs = session.scalars(select(Job).where(Job.status.in_(ACTIVE_STATUSES))
+                           .order_by(Job.job_no)).all()
+    for job in jobs:
+        step, issue = current_step(session, job)
+        if step is None:
+            continue
+        if (kind == "issue") != (issue is None):
+            continue
+        if process_id and step.process_id != process_id:
+            continue
+        if kind == "receive" and worker_id and issue.worker_id != worker_id:
+            continue
+        proc = session.get(ManufacturingProcess, step.process_id)
+        worker = session.get(Account, issue.worker_id) if issue else None
+        gross, net = last_weights(session, job)
+        if kind == "receive":
+            gross = _dec(issue.gross_wt) if issue.gross_wt is not None else None
+            net = _dec(issue.net_wt) if issue.net_wt is not None else None
+        client = session.get(Account, job.account_id) if job.account_id else None
+        rows.append({
+            "_job_id": job.id, "_step_id": step.id, "job_no": job.job_no,
+            "sku": job.product_sku.sku_code if job.product_sku else "",
+            "client": client.name if client else "stock",
+            "process": proc.name if proc else "", "process_id": step.process_id,
+            "weight_bearing": bool(step.weight_bearing),
+            "worker": worker.name if worker else "", "worker_id": issue.worker_id if issue else None,
+            "issued_on": issue.vr_date if issue else None, "vr_no": issue.vr_no if issue else None,
+            "gross": gross, "net": net, "due": step.due_date, "pcs": job.pcs,
+        })
+    return rows
+
+
+def post_multi_voucher(session: Session, kind: str, worker_id: int | None,
+                       lines: list[dict[str, Any]], *, vr_date: date | None = None,
+                       vr_time: str = "", allow_loss_pct: Any = None,
+                       user_id: int | None = None) -> int:
+    """One issue or receive voucher carrying several jobs, as the legacy
+    "Issue To <Process>" does (Buddha Polish Vr 2333 received four jobs).
+    Every line gets the same voucher number. A receive goes back from
+    whoever has each job out. Returns the voucher number."""
+    if not lines:
+        raise ProductionError("Tick at least one job.")
+    vr_no = next_number(session, JobVoucher.vr_no)
+    for ln in lines:
+        job = session.get(Job, ln["job_id"])
+        step = session.get(JobStep, ln["step_id"])
+        who = worker_id
+        if kind == "receive":
+            out = open_issue(session, step)
+            if out is None:
+                raise ProductionError(f"Job {job.job_no}: nothing is out on this step - "
+                                      "issue it before receiving it back.")
+            who = out.worker_id
+        try:
+            post_voucher(session, job, step, kind, who, vr_date=vr_date, vr_time=vr_time,
+                         pcs=ln.get("pcs") or job.pcs, gross_wt=ln.get("gross"),
+                         net_wt=ln.get("net"), vr_no=vr_no, user_id=user_id,
+                         allow_loss_pct=allow_loss_pct if kind == "issue" else None,
+                         scrap=ln.get("scrap"), dust=ln.get("dust"))
+        except ProductionError as exc:
+            raise ProductionError(f"Job {job.job_no}: {exc}") from exc
+    return vr_no
+
+
+def pending_stone_jobs(session: Session) -> list[dict[str, Any]]:
+    """Stone Issue on Job-Card: jobs whose bag still needs stones (Pnd)."""
+    rows = []
+    for job in session.scalars(select(Job).where(Job.status.not_in(
+            ("complete", "transferred", "cancelled"))).order_by(Job.job_no)):
+        pnd = [b for b in bag_ledger(session, job) if b["pnd"][0] > 0 or b["pnd"][1] > 0]
+        if not pnd:
+            continue
+        client = session.get(Account, job.account_id) if job.account_id else None
+        rows.append({
+            "_job_id": job.id, "job_no": job.job_no,
+            "sku": job.product_sku.sku_code if job.product_sku else "",
+            "client": client.name if client else "stock", "lines": len(pnd),
+            "pnd_pcs": sum(b["pnd"][0] for b in pnd),
+            "pnd_wt": sum((b["pnd"][1] for b in pnd), ZERO),
+        })
+    return rows
+
+
+def pending_stone_lines(session: Session, job: Job) -> list[dict[str, Any]]:
+    """The lines a Stone Issue for this job should start with: what the bag
+    still needs, from where it was taken before (or where it is held)."""
+    out = []
+    for b in bag_ledger(session, job):
+        pcs, wt = b["pnd"]
+        if pcs <= 0 and wt <= 0:
+            continue
+        line = b.line
+        loc = line.source_location_id
+        if loc is None and line.stone_sku_id:
+            held = holdings(session, "stone", line.stone_sku_id, line.size)
+            loc = held[0][0].id if held else None
+        req_pcs, req_wt = b["req"]
+        out.append({
+            "job_id": None, "location_id": loc, "stone_sku_id": line.stone_sku_id,
+            "particulars": line.particulars, "size": line.size,
+            "wt_per_pcs": (req_wt / req_pcs).quantize(D4) if req_pcs else ZERO,
+            "req_pcs": req_pcs, "req_wt": req_wt, "pcs": pcs, "weight": wt,
+            "price_unit": "Cts" if line.unit == "ct" else "Pcs", "s_type": line.s_type,
+            "remark": "",
+        })
+    return out
+
+
+def jobs_with_stones_in_bag(session: Session) -> list[dict[str, Any]]:
+    """Job Card Bag: jobs whose bag holds stones not yet issued or returned."""
+    rows = []
+    for r in stones_in_job_cards(session):
+        key = r["job_no"]
+        if rows and rows[-1]["job_no"] == key:
+            rows[-1]["lines"] += 1
+            rows[-1]["bal_pcs"] += r["bal_pcs"]
+            rows[-1]["bal_wt"] += r["bal_wt"]
+            continue
+        rows.append({"_job_id": r.get("_job_id"), "job_no": key, "sku": r["sku"],
+                     "client": r["client"], "lines": 1, "bal_pcs": r["bal_pcs"],
+                     "bal_wt": r["bal_wt"]})
+    return rows
+
+
+# --------------------------------------------------------------------------
+# Karigar metal ledger (28 Sept R5 / R13 / T-04)
+# --------------------------------------------------------------------------
+# Is the karigar charged for every gram lost, or only for what goes beyond
+# the allowance? Not yet confirmed (28 Sept Q3 / C-03). The legacy Worker
+# Ledger credits the allowance against the balance (RTN 83.240 at 3.5% ->
+# 2.913 off), which is "charge only the excess" - so that is the default and
+# the other reading is a switch in Tools > Option.
+CHARGE_ALL_LOSS_FLAG = "loss.charge_all"
+
+
+def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
+                        worker_id: int | None = None,
+                        charge_all_loss: bool | None = None) -> list[dict[str, Any]]:
+    """One row per metal movement with a karigar, with a running balance in
+    grams and in fine, per karigar.
+
+    Inward  = net weight issued to the karigar on a job step.
+    Outward = net weight received back, plus scrap and dust handed in.
+    Loss    = issued - outward; Alw L Wt = allowed loss on that receive.
+    Balance = opening + inward - outward - allowance credited, where the
+              allowance is credited unless the karigar is charged for all loss.
+    Fine    = weight x the purity of the job's metal (Metal master).
+    """
+    if charge_all_loss is None:
+        from diagold.services import settings
+        charge_all_loss = settings.flag(CHARGE_ALL_LOSS_FLAG, False, session=session)
+    q = (select(JobVoucher).where(JobVoucher.vr_date <= date_to)
+         .order_by(JobVoucher.vr_date, JobVoucher.vr_time, JobVoucher.id))
+    if worker_id:
+        q = q.where(JobVoucher.worker_id == worker_id)
+    vouchers = session.scalars(q).all()
+    jobs: dict[int, Job] = {}
+    steps: dict[int, JobStep | None] = {}
+    procs: dict[int, ManufacturingProcess | None] = {}
+    purity: dict[int | None, Decimal] = {}
+    names: dict[int, str] = {}
+    issues = {v.id: v for v in vouchers if v.kind == "issue"}
+    balance: dict[int, list[Decimal]] = {}   # worker -> [wt, fine]
+    opening_done: set[int] = set()
+    rows: list[dict[str, Any]] = []
+
+    def name(wid: int) -> str:
+        if wid not in names:
+            a = session.get(Account, wid)
+            names[wid] = a.name if a else "?"
+        return names[wid]
+
+    for v in vouchers:
+        step = steps.setdefault(v.step_id, session.get(JobStep, v.step_id))
+        if step is None or not step.weight_bearing or v.net_wt is None:
+            continue
+        job = jobs.setdefault(v.job_id, session.get(Job, v.job_id))
+        if job is None:
+            continue
+        if job.metal_id not in purity:
+            metal = session.get(Metal, job.metal_id) if job.metal_id else None
+            purity[job.metal_id] = costing.purity_fraction(metal) if metal else ZERO
+        pf = purity[job.metal_id]
+        bal = balance.setdefault(v.worker_id, [ZERO, ZERO])
+        inward = outward = loss = allowed = ZERO
+        alw_pct: Decimal | None = None
+        if v.kind == "issue":
+            inward = _dec(v.net_wt)
+        else:
+            outward = _dec(v.net_wt) + _dec(v.scrap) + _dec(v.dust)
+            proc = procs.setdefault(step.process_id,
+                                    session.get(ManufacturingProcess, step.process_id))
+            detail = loss_detail(proc, issues.get(v.issue_id), v)
+            if detail is not None:
+                loss, allowed, alw_pct = detail.loss, detail.allowed, detail.allow_pct
+        credited = ZERO if charge_all_loss else allowed
+        in_range = v.vr_date >= date_from
+        if in_range and v.worker_id not in opening_done:
+            opening_done.add(v.worker_id)
+            rows.append({"worker": name(v.worker_id), "worker_id": v.worker_id,
+                         "date": None, "vrno": "", "vrtype": "OPENING", "metal": "",
+                         "job_no": "", "_job_id": None, "sku": "", "process": "",
+                         "in_wt": None, "in_fine": None, "out_wt": None, "out_fine": None,
+                         "loss_wt": None, "loss_fine": None, "alw_pct": None,
+                         "alw_wt": None, "bal_wt": bal[0].quantize(D3),
+                         "bal_fine": bal[1].quantize(D3)})
+        bal[0] += inward - outward - credited
+        bal[1] += (inward - outward - credited) * pf
+        if not in_range:
+            continue
+        sku = job.product_sku.sku_code if job.product_sku else ""
+        metal = session.get(Metal, job.metal_id) if job.metal_id else None
+        proc = procs.setdefault(step.process_id,
+                                session.get(ManufacturingProcess, step.process_id))
+        rows.append({
+            "worker": name(v.worker_id), "worker_id": v.worker_id, "date": v.vr_date,
+            "vrno": v.vr_no, "vrtype": "ISS" if v.kind == "issue" else "RTN",
+            "metal": metal.name if metal else "", "job_no": job.job_no, "_job_id": job.id,
+            "sku": sku, "process": proc.name if proc else "",
+            "in_wt": inward.quantize(D3) if inward else None,
+            "in_fine": (inward * pf).quantize(D3) if inward else None,
+            "out_wt": outward.quantize(D3) if outward else None,
+            "out_fine": (outward * pf).quantize(D3) if outward else None,
+            "loss_wt": loss if v.kind == "receive" else None,
+            "loss_fine": (loss * pf).quantize(D3) if v.kind == "receive" else None,
+            "alw_pct": alw_pct, "alw_wt": allowed if v.kind == "receive" else None,
+            "bal_wt": bal[0].quantize(D3), "bal_fine": bal[1].quantize(D3),
+        })
+    return rows
+
+
+def job_loss_total(session: Session, job: Job) -> tuple[Decimal, Decimal | None, int]:
+    """Total loss on a job, as a % of its latest net weight, and the number of
+    steps it covers. On job 28853 the legacy total row reads 3.574 / 11.81 -
+    3.574 / 30.257 (the latest net) = 11.81%, which is the basis used here.
+    (The legacy total leaves out one final-setting row that gained 0.080 g;
+    why is asked as 28 Sept Q13.)"""
+    rows = history_rows(session, job)
+    losses = [r.loss for r in rows if r.loss is not None]
+    total = sum(losses, ZERO)
+    latest = None
+    for v in session.scalars(select(JobVoucher).where(JobVoucher.job_id == job.id,
+                                                      JobVoucher.net_wt.is_not(None))
+                             .order_by(JobVoucher.vr_date, JobVoucher.vr_time,
+                                       JobVoucher.id)):
+        latest = _dec(v.net_wt)
+    pct = (total / latest * 100).quantize(Decimal("0.01")) if latest else None
+    return total.quantize(D3), pct, len(losses)
 
 
 # --------------------------------------------------------------------------
@@ -1076,7 +1639,7 @@ def stones_in_job_cards(session: Session) -> list[dict[str, Any]]:
     """Report A - across all open jobs: what is still lying in each bag."""
     out = []
     jobs = session.scalars(
-        select(Job).where(Job.status.not_in(("complete", "cancelled"))).order_by(Job.job_no)
+        select(Job).where(Job.status.not_in(("complete", "transferred", "cancelled"))).order_by(Job.job_no)
     ).all()
     for job in jobs:
         client = session.get(Account, job.account_id) if job.account_id else None
@@ -1086,7 +1649,7 @@ def stones_in_job_cards(session: Session) -> list[dict[str, Any]]:
             if bal_pcs <= 0 and bal_wt <= 0:
                 continue
             out.append({
-                "job_no": job.job_no, "sku": sku.sku_code if sku else "",
+                "job_no": job.job_no, "_job_id": job.id, "sku": sku.sku_code if sku else "",
                 "client": client.name if client else "stock",
                 "stone": row.line.particulars, "size": row.line.size,
                 "type": row.line.s_type, "bal_pcs": bal_pcs, "bal_wt": bal_wt,

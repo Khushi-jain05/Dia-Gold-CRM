@@ -119,7 +119,7 @@ def job_analysis(session: Session, date_from: date, date_to: date,
         order = orders.get(job.order_id) if job.order_id else None
         due = _prod_due(job, order)
         if late_only:
-            if job.status != "complete" or not job.completed_on or not due:
+            if job.status not in ("complete", "transferred") or not job.completed_on or not due:
                 continue
             late = (job.completed_on - due).days
             if late <= 0:
