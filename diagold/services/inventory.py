@@ -205,6 +205,27 @@ def post_voucher(session: Session, v: InvVoucher) -> None:
         )
 
 
+def metal_to_job_step(session: Session, voucher: Any, location_id: int, metal_id: int,
+                      weight: Any, pcs: int = 0) -> None:
+    """F5 on an issue voucher (28 Sept §4.4 / T-03): metal handed out with a
+    job step, taken from a location's stock and booked to the karigar."""
+    wt = _dec(weight)
+    if wt <= 0:
+        return
+    if not location_id or not metal_id:
+        raise ProductionError("F5 Metal: choose the location and the metal.")
+    short = shortfalls(session, "metal_issue", [{"location_id": location_id,
+                                                 "metal_id": metal_id, "weight": wt}])
+    if short and negative_mode(session) == "block":
+        raise ProductionError("Not enough stock:\n" + "\n".join(short))
+    production.adjust_stock(
+        session, location_id, "metal", metal_id, -int(pcs or 0), -wt, kind="outward",
+        mv_date=voucher.vr_date, job_id=voucher.job_id, ref_kind="job_voucher",
+        ref_no=voucher.vr_no, allow_negative=negative_mode(session) != "block",
+        account_id=voucher.worker_id, fine_wt=-line_fine(session, metal_id, wt),
+        remark="metal with a job step (F5)")
+
+
 def delete_voucher(session: Session, v: InvVoucher, *, user_id: int | None = None) -> None:
     """Reverse a voucher's postings and keep the whole voucher in the log."""
     vt = VOUCHER_TYPES[v.vr_type]

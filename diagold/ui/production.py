@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 import shiboken6
 from PySide6.QtCore import QDate, Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -559,8 +559,144 @@ RECEIVE_COLS = [("del_date", "Del-Date"), ("vr_date", "Date"), ("vr_time", "Time
                 ("dust", "Dust"), ("allow_loss_pct", "Alw L %"), ("labour", "Labour")]
 
 
+class StoneBagDialog(QDialog):
+    """F3 on an issue / receive voucher - the "Stone Job Bag" pop-up (28 Sept
+    §4.7): the job's stone lines with their setting type and setting price.
+    On an issue, type the pieces going to the karigar; on a receive, the
+    pieces coming back (whole or broken) - the rest count as set."""
+
+    def __init__(self, job_id: int, kind: str, worker_id: int | None,
+                 current: dict[int, int], parent=None):
+        super().__init__(parent)
+        self.kind = kind
+        self.setWindowTitle("Stone Job Bag (F3)")
+        self.setMinimumSize(860, 380)
+        lay = QVBoxLayout(self)
+        issue = kind == "issue"
+        note = QLabel("Pieces going to the karigar with this step (from the bag's balance)."
+                      if issue else
+                      "Pieces the karigar hands back into the bag on this receipt - whole or "
+                      "broken. What stays with the piece is set, and paid at the setting price.")
+        note.setWordWrap(True)
+        note.setObjectName("Muted")
+        lay.addWidget(note)
+        self.grid = _table(["Stone", "Size", "S Type", "Setting Type", "Setting Price",
+                            "In bag" if issue else "With karigar",
+                            "Issue Pcs" if issue else "Back Pcs"])
+        self.rows: list[int] = []
+        self._caps: list[int] = []
+        with SessionLocal() as s:
+            job = s.get(Job, job_id)
+            for b in production.bag_ledger(s, job):
+                cap = b["bal"][0] if issue else (
+                    production._out_with_worker(b.line, worker_id) if worker_id else 0)
+                if cap <= 0:
+                    continue
+                st = s.get(SettingType, b.line.setting_type_id) if b.line.setting_type_id \
+                    else None
+                rate, _src = production.setting_rate(s, b.line.setting_type_id, date.today())
+                r = self.grid.rowCount()
+                self.grid.insertRow(r)
+                self.rows.append(b.line.id)
+                self._caps.append(cap)
+                for c, v in enumerate([b.line.particulars, b.line.size, b.line.s_type,
+                                       st.name if st else "—", f"{rate:,.2f}", cap]):
+                    it = _item(v, right=c >= 4)
+                    it.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                    self.grid.setItem(r, c, it)
+                it = _item(current.get(b.line.id, ""), TINT_RECEIVE, right=True)
+                it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+                            | Qt.ItemFlag.ItemIsEditable)
+                self.grid.setItem(r, 6, it)
+        self.grid.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
+        _fit_columns(self.grid, 0)
+        lay.addWidget(self.grid, 1)
+        if not self.rows:
+            lay.addWidget(QLabel("Nothing to show - the bag holds no stones for this."
+                                 if issue else "This karigar holds no stones from this job."))
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                   | QDialogButtonBox.StandardButton.Cancel)
+        fill = buttons.addButton("All" if issue else "None back",
+                                 QDialogButtonBox.ButtonRole.ActionRole)
+        fill.clicked.connect(self._fill_all)
+        buttons.accepted.connect(self._ok)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
+
+    def _fill_all(self) -> None:
+        for r, cap in enumerate(self._caps):
+            self.grid.item(r, 6).setText(str(cap) if self.kind == "issue" else "")
+
+    def _ok(self) -> None:
+        self.values: dict[int, int] = {}
+        for r, line_id in enumerate(self.rows):
+            text = self.grid.item(r, 6).text().strip()
+            if not text:
+                continue
+            if not text.isdigit() or int(text) > self._caps[r]:
+                _warn(self, "Stone Job Bag",
+                      f"{self.grid.item(r, 0).text()} {self.grid.item(r, 1).text()}: enter "
+                      f"whole pieces, at most {self._caps[r]}.")
+                return
+            if int(text):
+                self.values[line_id] = int(text)
+        self.accept()
+
+
+class MetalLinesDialog(QDialog):
+    """F5 on an issue voucher: metal taken from a location's stock and handed
+    to the karigar with this step (28 Sept §4.4)."""
+
+    def __init__(self, current: list[dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Metal (F5)")
+        self.setMinimumWidth(560)
+        form = QFormLayout(self)
+        self.location = QComboBox()
+        self.metal = QComboBox()
+        with SessionLocal() as s:
+            for l in s.scalars(select(Location).where(Location.is_active.is_(True))
+                               .order_by(Location.name)):
+                self.location.addItem(l.name, l.id)
+            for m in s.scalars(select(Metal).where(Metal.is_active.is_(True))
+                               .order_by(Metal.name)):
+                self.metal.addItem(m.name, m.id)
+        self.weight = QDoubleSpinBox()
+        self.weight.setDecimals(3)
+        self.weight.setRange(0, 1_000_000)
+        self.pcs = QSpinBox()
+        self.pcs.setRange(0, 100000)
+        if current:
+            c = current[0]
+            self.location.setCurrentIndex(max(self.location.findData(c["location_id"]), 0))
+            self.metal.setCurrentIndex(max(self.metal.findData(c["metal_id"]), 0))
+            self.weight.setValue(float(c["weight"]))
+            self.pcs.setValue(int(c.get("pcs") or 0))
+        form.addRow("From location", self.location)
+        form.addRow("Metal", self.metal)
+        form.addRow("Pcs", self.pcs)
+        form.addRow("Weight (g)", self.weight)
+        hint = QLabel("Leaves the location's stock and is booked to the karigar (worker "
+                      "metal ledger). Its weight is added to Extra on this issue.")
+        hint.setWordWrap(True)
+        hint.setObjectName("Muted")
+        form.addRow("", hint)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                   | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def lines(self) -> list[dict]:
+        if self.weight.value() <= 0:
+            return []
+        return [{"location_id": self.location.currentData(), "metal_id": self.metal.currentData(),
+                 "weight": Decimal(str(self.weight.value())), "pcs": self.pcs.value()}]
+
+
 class VoucherDialog(QDialog):
-    """Post one issue or receive voucher on a job step."""
+    """Post one issue or receive voucher on a job step. F3 Stone, F4 Finding,
+    F5 Metal and F7 Mould work as on the legacy voucher (28 Sept UX4)."""
 
     def __init__(self, job_id: int, kind: str, user_id: int | None, parent=None):
         super().__init__(parent)
@@ -642,7 +778,39 @@ class VoucherDialog(QDialog):
                 self.extra[key] = self._wt()
                 form.addRow(label, self.extra[key])
         self.remark = QLineEdit()
-        form.addRow("Remark", self.remark)
+        form.addRow("Narration", self.remark)
+        # Hot-key pop-ups, as on the legacy voucher line.
+        self.stone_moves: dict[int, int] = {}
+        self.metal_lines: list[dict] = []
+        keys = QHBoxLayout()
+        b3 = QPushButton("F3 Stone")
+        b3.clicked.connect(self._stones)
+        keys.addWidget(b3)
+        if kind == "issue":
+            b4 = QPushButton("F4 Finding")
+            b4.clicked.connect(lambda: self.extra["finding"].setFocus())
+            b5 = QPushButton("F5 Metal")
+            b5.clicked.connect(self._metal)
+            b7 = QPushButton("F7 Mould")
+            b7.clicked.connect(lambda: self.extra["mould"].setFocus())
+            for b in (b4, b5, b7):
+                keys.addWidget(b)
+            QShortcut(QKeySequence("F4"), self, activated=lambda: self.extra["finding"].setFocus())
+            QShortcut(QKeySequence("F5"), self, activated=self._metal)
+            QShortcut(QKeySequence("F7"), self, activated=lambda: self.extra["mould"].setFocus())
+        QShortcut(QKeySequence("F3"), self, activated=self._stones)
+        keys.addStretch(1)
+        form.addRow("", keys)
+        self.picked = QLabel("")
+        self.picked.setObjectName("Muted")
+        self.picked.setWordWrap(True)
+        form.addRow("", self.picked)
+        if kind == "receive":
+            # Mt Bal: what the karigar holds in metal, before this receipt.
+            self.mt_bal = QLabel("")
+            form.addRow("Mt Bal", self.mt_bal)
+            self.worker.currentIndexChanged.connect(lambda _i: self._show_mt_bal())
+            self._show_mt_bal()
         self.hint = QLabel("")
         self.hint.setObjectName("Muted")
         self.hint.setWordWrap(True)
@@ -678,6 +846,44 @@ class VoucherDialog(QDialog):
             "This step is design only (no metal goes out or comes back), so the weight "
             "boxes are off. Pick a step like CASTING or HandMade to enter weights.")
 
+    def _show_mt_bal(self) -> None:
+        wid = self.worker.currentData()
+        if not wid:
+            self.mt_bal.setText("—")
+            return
+        from diagold.services.reports import fy_range
+        a, b = fy_range()
+        with SessionLocal() as s:
+            rows = production.worker_metal_ledger(s, a, b, worker_id=wid)
+        if not rows:
+            self.mt_bal.setText("0.000 g")
+            return
+        last = rows[-1]
+        self.mt_bal.setText(f"<b>{last['bal_wt']} g</b> · fine {last['bal_fine']}")
+
+    def _stones(self) -> None:
+        dlg = StoneBagDialog(self.job_id, self.kind, self.worker.currentData(),
+                             self.stone_moves, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.stone_moves = dlg.values
+            self._show_picked()
+
+    def _metal(self) -> None:
+        dlg = MetalLinesDialog(self.metal_lines, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.metal_lines = dlg.lines()
+            self._show_picked()
+
+    def _show_picked(self) -> None:
+        parts = []
+        if self.stone_moves:
+            n = sum(self.stone_moves.values())
+            parts.append(f"F3: {n} stone pcs "
+                         + ("to issue" if self.kind == "issue" else "coming back"))
+        for m in self.metal_lines:
+            parts.append(f"F5: {m['weight']} g metal")
+        self.picked.setText("  ·  ".join(parts))
+
     @staticmethod
     def _wt(places: int = 3) -> QDoubleSpinBox:
         w = QDoubleSpinBox()
@@ -697,18 +903,44 @@ class VoucherDialog(QDialog):
             if isinstance(w, QDateEdit):
                 return _pydate(w)
             return w.text().strip()
+        extras = {k: val(w) for k, w in self.extra.items()}
         with SessionLocal() as s:
             job = s.get(Job, self.job_id)
             step = next((st for st in job.steps if st.id == self.step.currentData()), None)
+            worker_id = self.worker.currentData()
             try:
-                production.post_voucher(
-                    s, job, step, self.kind, self.worker.currentData(),
+                lines = {l.id: l for l in s.scalars(select(JobBagLine).where(
+                    JobBagLine.id.in_(list(self.stone_moves))))}
+                if self.kind == "receive":
+                    # Stones back first, so the receipt counts only what was set.
+                    for line_id, pcs in self.stone_moves.items():
+                        production.bag_move(s, lines[line_id], "back", pcs,
+                                            worker_id=worker_id, mv_date=_pydate(self.date))
+                if self.kind == "issue" and self.metal_lines and not extras.get("extra"):
+                    extras["extra"] = sum((m["weight"] for m in self.metal_lines), Decimal("0"))
+                if self.kind == "issue" and self.stone_moves and not extras.get("stone_wt"):
+                    extras["stone_wt"] = sum(
+                        ((production.bag_row(lines[i])["bal"][1]
+                          / production.bag_row(lines[i])["bal"][0]) * p
+                         for i, p in self.stone_moves.items()
+                         if production.bag_row(lines[i])["bal"][0]), Decimal("0")
+                    ).quantize(Decimal("0.001"))
+                voucher = production.post_voucher(
+                    s, job, step, self.kind, worker_id,
                     vr_date=_pydate(self.date), vr_time=self.time.text().strip(),
                     pcs=self.pcs.value(), gross_wt=val(self.gross), net_wt=val(self.net),
                     user_id=self.user_id, remark=self.remark.text().strip(),
                     allow_loss_pct=Decimal(str(self.allow.value())),
-                    **{k: val(w) for k, w in self.extra.items()},
+                    **extras,
                 )
+                if self.kind == "issue":
+                    for line_id, pcs in self.stone_moves.items():
+                        production.bag_move(s, lines[line_id], "iss", pcs,
+                                            worker_id=worker_id, mv_date=_pydate(self.date))
+                    from diagold.services import inventory as INV
+                    for m in self.metal_lines:
+                        INV.metal_to_job_step(s, voucher, m["location_id"], m["metal_id"],
+                                              m["weight"], m.get("pcs") or 0)
                 s.commit()
             except ProductionError as exc:
                 s.rollback()

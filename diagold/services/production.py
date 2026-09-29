@@ -1470,6 +1470,14 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
     events: list[tuple] = [(v.vr_date, v.vr_time or "", 0, v.id, "job", v) for v in vouchers]
     events += [(v.vr_date, "", 1, line.id, "inv", (v, line))
                for line, v in session.execute(iq)]
+    # F5: metal handed out with a job step, straight from a location's stock.
+    xq = select(StockMovement).where(StockMovement.ref_kind == "job_voucher",
+                                     StockMovement.material_class == "metal",
+                                     StockMovement.account_id.is_not(None),
+                                     StockMovement.mv_date <= date_to)
+    if worker_id:
+        xq = xq.where(StockMovement.account_id == worker_id)
+    events += [(m.mv_date, "", 2, m.id, "extra", m) for m in session.scalars(xq)]
     events.sort(key=lambda e: e[:4])
 
     jobs: dict[int, Job] = {}
@@ -1520,6 +1528,14 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
             job_no, job_id = job.job_no, job.id
             sku = job.product_sku.sku_code if job.product_sku else ""
             process = proc.name if proc else ""
+        elif source == "extra":
+            m = obj
+            wid, metal_id, vr_no = m.account_id, m.ref_id, m.ref_no
+            inward, vrtype = -_dec(m.weight), "MI"
+            job = jobs.setdefault(m.job_id, session.get(Job, m.job_id)) if m.job_id else None
+            job_no, job_id = (job.job_no if job else ""), (job.id if job else None)
+            sku = job.product_sku.sku_code if job and job.product_sku else ""
+            process = "F5 metal"
         else:
             iv, line = obj
             wid, metal_id, vr_no = iv.account_id, line.metal_id, iv.vr_no
