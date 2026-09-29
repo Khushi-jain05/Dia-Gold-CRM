@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QTableView,
@@ -453,11 +454,28 @@ class _Screen(QWidget):
     open_requested = Signal(str)
     close_requested = Signal()
 
-    def __init__(self, title: str, with_picker: bool = True, parent=None):
+    def __init__(self, title: str, with_picker: bool = True, parent=None,
+                 scroll: bool = False):
         super().__init__(parent)
         self.user = None
         self.job_id: int | None = None
-        self.outer = QVBoxLayout(self)
+        if scroll:
+            # The whole screen scrolls like a page, so grids can show every
+            # row instead of hiding them behind small inner scroll areas.
+            wrap = QVBoxLayout(self)
+            wrap.setContentsMargins(0, 0, 0, 0)
+            self.scroll_area = QScrollArea()
+            self.scroll_area.setObjectName("FormScroll")
+            self.scroll_area.setWidgetResizable(True)
+            self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+            self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            body = QWidget()
+            body.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.scroll_area.setWidget(body)
+            wrap.addWidget(self.scroll_area)
+            self.outer = QVBoxLayout(body)
+        else:
+            self.outer = QVBoxLayout(self)
         self.outer.setContentsMargins(24, 20, 24, 20)
         self.outer.setSpacing(10)
         h1 = QLabel(title)
@@ -901,7 +919,7 @@ class JobHistoryWidget(_Screen):
     """The complete life of a job in one view (R5, §4.6)."""
 
     def __init__(self, user=None, parent=None):
-        super().__init__("Job History", parent=parent)
+        super().__init__("Job History", parent=parent, scroll=True)
         self.user = user
         self.button("+ Issue", lambda: self._voucher("issue"), primary=True)
         self.button("+ Receive", lambda: self._voucher("receive"))
@@ -938,28 +956,21 @@ class JobHistoryWidget(_Screen):
                    + [f"Iss\n{l}" for _, l in ISSUE_COLS]
                    + [f"Rcv\n{l}" for _, l in RECEIVE_COLS])
         self.grid = _table(headers, ledger=True)
-        # The route is eleven steps; a grid one row tall hides the very row
-        # the reader came for, so it keeps most of the screen and the stone
-        # list below it can be dragged smaller or larger.
-        self.grid.setMinimumHeight(240)
+        # Every step and every stone line is in view at once: both grids are
+        # as tall as their rows and the page itself scrolls (29 Sept - an
+        # inner scroll area nobody noticed hid the stone lines).
+        self.grid.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.frozen = _FrozenColumns(self.grid, 4)
 
-        stone_box = QGroupBox("Stones on this job")
-        sl = QVBoxLayout(stone_box)
+        self.stone_box = QGroupBox("Stones on this job")
+        sl = QVBoxLayout(self.stone_box)
         sl.setContentsMargins(10, 8, 10, 8)
         self.stones = _table(["Location", "SSKU", "Description", "Size", "LotNo", "Wt/Pcs",
                               "Pcs", "Weight", "Rtn", "Break", "Loss", "S Type", "Remark"])
-        self.stones.setMinimumHeight(70)
+        self.stones.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         sl.addWidget(self.stones)
-        stone_box.setMinimumHeight(110)
-
-        split = QSplitter(Qt.Orientation.Vertical)
-        split.addWidget(self.grid)
-        split.addWidget(stone_box)
-        split.setStretchFactor(0, 4)
-        split.setStretchFactor(1, 1)
-        split.setSizes([460, 150])
-        self.outer.addWidget(split, 1)
+        self.outer.addWidget(self.grid)
+        self.outer.addWidget(self.stone_box)
 
         self.summary = QLabel("")
         self.summary.setObjectName("Muted")
@@ -973,12 +984,14 @@ class JobHistoryWidget(_Screen):
         self.comments.setObjectName("Muted")
         self.comments.setWordWrap(True)
         self.outer.addWidget(self.comments)
+        self.outer.addStretch(1)
         self.refresh()
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
         super().resizeEvent(event)
         _fit_columns(self.grid)
         self.frozen.sync()
+        self._fit_stones()
 
     def refresh(self) -> None:
         self.grid.setRowCount(0)
@@ -1046,6 +1059,7 @@ class JobHistoryWidget(_Screen):
                 for c, v in enumerate(vals):
                     self.stones.setItem(r, c, _item(v, right=c in (5, 6, 7)))
             self.stones.resizeColumnsToContents()
+            self._fit_stones()
             sm = production.job_summary(s, job)
             total_loss, total_pct, n_loss = production.job_loss_total(s, job)
             labour = sum((Decimal(str(v.labour or 0)) for v in s.scalars(
@@ -1076,6 +1090,26 @@ class JobHistoryWidget(_Screen):
                 self.comments.setText("<b>Comments</b><br>" + "<br>".join(lines))
             else:
                 self.comments.setText("")
+
+    @staticmethod
+    def _fit_height(table: QTableWidget, min_rows: int = 1) -> None:
+        """Make a grid exactly as tall as its rows (and its sideways scroll bar)."""
+        rows = max(table.rowCount(), min_rows)
+        h = table.horizontalHeader().sizeHint().height() + 2 * table.frameWidth() + 2
+        h += sum(table.rowHeight(r) for r in range(table.rowCount()))
+        h += (rows - table.rowCount()) * table.verticalHeader().defaultSectionSize()
+        if table.horizontalScrollBar().maximum() > 0 or table.columnCount() > 12:
+            h += table.horizontalScrollBar().sizeHint().height()
+        table.setFixedHeight(h)
+
+    def _fit_stones(self) -> None:
+        """Steps and stones show every row; the page scrolls if they are long."""
+        self._fit_height(self.grid, 3)
+        n = self.stones.rowCount()
+        self._fit_height(self.stones, 1)
+        self.stone_box.setTitle(f"Stones on this job — {n} line{'s' if n != 1 else ''}"
+                                if n else "Stones on this job — none issued to it yet")
+        self.frozen.sync()
 
     def _show_pending(self) -> None:
         dlg = PendingVoucherDialog(getattr(self.user, "id", None), self)
