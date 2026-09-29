@@ -1007,7 +1007,14 @@ def bag_move(session: Session, line: JobBagLine, kind: str, pcs: int,
     row = bag_row(line)
     bal_pcs, bal_wt = row["bal"]
     if weight in (None, ""):
-        avg = (bal_wt / bal_pcs) if bal_pcs else ZERO
+        if kind == "back":
+            # Pieces coming back weigh what those still out with karigars
+            # average - the bag's own balance is usually empty by then.
+            out_pcs = row["iss"][0] - row["back"][0]
+            out_wt = row["iss"][1] - row["back"][1]
+            avg = (out_wt / out_pcs) if out_pcs > 0 else ZERO
+        else:
+            avg = (bal_wt / bal_pcs) if bal_pcs else ZERO
         weight = (avg * pcs).quantize(D4)
     weight = _dec(weight)
     name = f"{line.particulars} {line.size}".strip()
@@ -1383,7 +1390,9 @@ def worker_metal_balance(session: Session, worker_id: int,
     """Mt Bal on the voucher: the karigar's closing metal balance (weight,
     fine) from the Worker Metal Ledger."""
     on_date = on_date or date.today()
-    rows = worker_metal_ledger(session, on_date, on_date, worker_id=worker_id)
+    # From the start of records: the running balance is carried row to row,
+    # so a karigar with nothing on the day still shows what he holds.
+    rows = worker_metal_ledger(session, date(2000, 1, 1), on_date, worker_id=worker_id)
     if not rows:
         return ZERO, ZERO
     return _dec(rows[-1]["bal_wt"]), _dec(rows[-1]["bal_fine"])
