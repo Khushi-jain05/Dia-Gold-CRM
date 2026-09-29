@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 from diagold.menu import MENU_BY_KEY
 from diagold.services.auth import CurrentUser
 from diagold.ui.crud import CrudWidget
+from diagold.ui.manufacturing import ItemSearchWidget, MfgTransferWidget
 from diagold.ui.permissions import PermissionMatrixWidget
 from diagold.ui.placeholder import PlaceholderWidget
 from diagold.ui.production import (
@@ -19,7 +20,7 @@ from diagold.ui.production import (
     PrintingOptionsWidget,
     StoneReturnWidget,
 )
-from diagold.ui.reports import ReportsHub
+from diagold.ui.reports import ReportsHub, ReportWidget, build_specs
 from diagold.ui.specs import SPECS
 
 # Menu keys that get a real screen but not via a plain CrudSpec.
@@ -34,7 +35,18 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "production_planning.day_book": lambda user: ReportsHub(user, first="order_day_book"),
     "production_planning.reports": lambda user: ReportsHub(user),
     "tools.option": lambda user: OptionsWidget(user),
+    "manufacturing.mfg_transfer": lambda user: MfgTransferWidget(user),
+    "manufacturing.item_search": lambda user: ItemSearchWidget(user),
+    "manufacturing.pending_mfg_transfer":
+        lambda user: ReportWidget(build_specs()["pending_mfg_transfer"], user),
+    "manufacturing.mfg_transfer_day_book":
+        lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
+    "manufacturing.reports": lambda user: ReportsHub(user, first="pending_mfg_transfer"),
 }
+
+# Screens reached from a button rather than the workbook's menu - the legacy
+# "Item Search" link sits at the top right of every screen.
+EXTRA_SCREENS: dict[str, str] = {"manufacturing.item_search": "Item Search"}
 
 
 def _group_label(menu_key: str) -> str:
@@ -42,6 +54,8 @@ def _group_label(menu_key: str) -> str:
     return group.label if group else menu_key
 
 def _item_label(menu_key: str) -> str:
+    if menu_key in EXTRA_SCREENS:
+        return EXTRA_SCREENS[menu_key]
     group = MENU_BY_KEY.get(menu_key.split(".", 1)[0])
     if group:
         for item in group.items:

@@ -55,6 +55,8 @@ from PySide6.QtWidgets import (
 
 from diagold.db.session import SessionLocal
 from diagold.services import documents, settings
+from diagold.services import manufacturing as MF
+from diagold.services import production as P
 from diagold.services import reports as R
 
 TINT_KEY = QColor("#FBEEEE")
@@ -1176,6 +1178,57 @@ def build_specs() -> dict[str, ReportSpec]:
             footer=R.lead_time_footer, on_activate=lambda w, r: w.open_job(r),
             note="DAYS = STOCK DT − ORD DT; blank while the job is open. STOCK DT is the "
                  "receipt of the last route step (MFG transfer once that module exists - Q8)."),
+        # -- manufacturing (28 Sept §4.8-4.10) ----------------------------
+        "pending_mfg_transfer": ReportSpec(
+            key="pending_mfg_transfer", title="Pending for MFG Transfer",
+            columns=static([Col("job_no", "JOBNO"), Col("sku", "SKU"), Col("item", "ITEM"),
+                            Col("c_ref", "C-REF"), Col("metal", "METAL"), Col("col", "COL"),
+                            pcs("pcs", "PCS"), wt("g_wt", "G-WT"), wt("n_wt", "N-WT"),
+                            Col("client", "CLIENT"), Col("completed", "FINISHED ON"),
+                            money("st_value", "JB ST VALUE")]),
+            query=lambda s, a, b, **_k: MF.pending_rows(s), date_mode="none",
+            on_activate=lambda w, r: w.open_job(r),
+            note="Jobs whose last route step has been received and that are not yet in "
+                 "ready stock. Transfer them in Manufacturing ▸ MFG Transfer (Show Pending). "
+                 "If nothing is pending the list is empty. Double-click opens Job History."),
+        "mfg_transfer_day_book": ReportSpec(
+            key="mfg_transfer_day_book", title="MFG Transfer Day Book",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("job_no", "JOBNO"),
+                            Col("sku", "SKU"), Col("stock_no", "STOCK NO"), pcs("pcs", "PCS"),
+                            wt("g_wt", "G-WT"), wt("n_wt", "N-WT"),
+                            money("metal_amt", "METAL AMT"), money("stone_amt", "STONE AMT"),
+                            money("labour", "LABOUR"), money("total", "TOTAL"),
+                            money("price", "PRICE"), Col("tag", "TAG")]),
+            query=lambda s, a, b, **_k: MF.transfer_day_book(s, a, b),
+            on_activate=lambda w, r: w.open_job(r),
+            note="Every piece put into ready stock in the period, with the prices stored "
+                 "at transfer time."),
+        # -- karigar ledgers (28 Sept R13 / T-04) -----------------------
+        "worker_metal_ledger": ReportSpec(
+            key="worker_metal_ledger", title="Worker Metal Ledger",
+            columns=static([Col("worker", "WORKER"), Col("date", "DATE"), Col("vrno", "VRNO"),
+                            Col("vrtype", "VRTYPE"), Col("metal", "METAL"),
+                            Col("job_no", "JOBNO"), Col("sku", "SKU"),
+                            Col("process", "PROCESS"),
+                            Col("in_wt", "WEIGHT", "measure", 3, "INWARD", True),
+                            Col("in_fine", "FINEWT", "measure", 3, "INWARD", True),
+                            Col("out_wt", "WEIGHT", "measure", 3, "OUTWARD", True),
+                            Col("out_fine", "FINEWT", "measure", 3, "OUTWARD", True),
+                            Col("loss_wt", "LOSSWT", "measure", 3, "LOSS", True),
+                            Col("loss_fine", "LOSSFINE", "measure", 3, "LOSS", True),
+                            Col("alw_pct", "ALW L %", "measure", 3, "LOSS"),
+                            Col("alw_wt", "ALW L WT", "measure", 3, "LOSS", True),
+                            Col("bal_wt", "WEIGHT", "measure", 3, "BALANCE"),
+                            Col("bal_fine", "FINE", "measure", 3, "BALANCE")]),
+            query=lambda s, a, b, **_k: P.worker_metal_ledger(s, a, b),
+            group_by="worker", filter_column="worker",
+            on_activate=lambda w, r: w.open_job(r),
+            note="The karigar's metal account. Inward = net weight issued on a job step; "
+                 "outward = net weight received back plus scrap and dust; LOSSWT = what "
+                 "was actually lost; ALW L WT = Allow Loss % of the net received. BALANCE "
+                 "= opening + inward − outward − allowance, i.e. the karigar owes only loss "
+                 "beyond the allowance - switch to 'charged for all loss' in Tools ▸ Option "
+                 "(to confirm, 28 Sept Q3). Fine = weight × the job metal's purity."),
         # -- data quality ------------------------------------------------
         "data_quality": ReportSpec(
             key="data_quality", title="Data Quality",
@@ -1194,6 +1247,8 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Outstanding", ("inv_rtn_os_stone", "job_os_stone")),
     ("Analysis", ("job_analysis", "process_analysis", "job_card_analysis_stone",
                   "job_stock_analysis")),
+    ("Manufacturing", ("pending_mfg_transfer", "mfg_transfer_day_book")),
+    ("Karigar", ("worker_metal_ledger",)),
     ("Other", ("job_os_pct", "data_quality")),
 )
 

@@ -44,6 +44,12 @@ from diagold.db.models.master import (
     StoneShape,
     StoneSize,
 )
+from diagold.db.models.manufacturing import (
+    DeletionLog,
+    MfgTransfer,
+    MfgTransferLine,
+    StockItem,
+)
 from diagold.db.models.production import (
     AppSetting,
     InventoryReturn,
@@ -137,4 +143,8 @@ __all__ = [
     "StockMovement",
     "StoneIssue",
     "StoneIssueLine",
+    "DeletionLog",
+    "MfgTransfer",
+    "MfgTransferLine",
+    "StockItem",
 ]
