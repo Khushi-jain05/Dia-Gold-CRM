@@ -36,6 +36,11 @@ Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping
 - **28 Sep Q12** Does the **setting labour** paid to the karigar go into "Setting Amount" on the Mfg transfer? (It read 0.00 on Vr 1081.)
 - **28 Sep Q13** Job 28853: the second final-setting row (akshay, Vr 5390 → 5410) shows **no loss** though net went 30.177 → 30.257, and the job total 3.574 leaves it out. Why is that row skipped?
 - **28 Sep Q14** Can stones go **back to stock straight from the job bag** without first going to a karigar (extra stones received)? If never, we will block it.
+- **28 Sep Q15** MFG Transfer **"Split Jobs"** tick: does it give each piece of a multi-piece job its own Stock No, or something else?
+- **28 Sep Q16** MFG Transfer **"Old Wt"** and **"Tag%"**: what goes in these two columns? (Not built until we know.)
+- **28 Sep Q17** We show **"Fine With Loss"** as FineWt × (1 + Loss%). Is that how the legacy screen works it out?
+- **28 Sep Q18** Item Search **"Delete SKU also"**: does it remove the Product SKU master itself, or only this SKU's stock entry? (Not built - it deletes a master.)
+- **28 Sep Q19** Tag List **"Diamond Tag"**: what is different on a diamond tag? ("Detail" is built to print the Dia / Polki / CS carats.)
 - **28 Sep C-05** Exports now also of **transactions**: open job cards, job bags, worker metal balances, location balances, stock with stock numbers.
 
 **Production Planning reports (18 Sept) — five one-line answers**

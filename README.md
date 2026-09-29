@@ -60,6 +60,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
+To try the whole production flow on sample data without touching the working
+database, run `python -m diagold.demo` (a separate database in `~/DiaGoldDemo`;
+`--reset` starts it again). `docs/demo-walkthrough.md` gives each step and the
+figure it should show.
+
 First launch creates the database and seeds:
 
 - `admin` / `admin` superuser (change the password from **Tools ▸ Change Password**)
