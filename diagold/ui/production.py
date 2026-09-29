@@ -76,7 +76,7 @@ from diagold.menu import MENU_BY_KEY
 from diagold.services import documents, production, rates, settings
 from diagold.services.production import ProductionError
 from diagold.ui.confirm import confirm_save
-from diagold.ui.crud import ROW_HEIGHT, CrudWidget
+from diagold.ui.crud import ROW_HEIGHT, CrudWidget, auto_fit, fill_width
 
 # Legacy colour cues (UX1, UX3) - kept as tints so the text stays readable.
 TINT_ISSUE = QColor("#FBE7E7")
@@ -139,17 +139,15 @@ def _table(headers: list[str], stretch_last: bool = True,
     if ledger:
         t.setObjectName("Ledger")
         t.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-    return t
+    return auto_fit(t)
 
 
 def _fit_columns(t: QTableWidget, flex: int = 0) -> None:
-    """Size every column to what it holds, then give the spare width to
-    column ``flex`` so the grid fills its viewport; when the columns need more
-    than the viewport there is nothing spare and the grid scrolls."""
-    t.resizeColumnsToContents()
-    spare = t.viewport().width() - sum(t.columnWidth(c) for c in range(t.columnCount()))
-    if spare > 0:
-        t.setColumnWidth(flex, t.columnWidth(flex) + spare)
+    """Size every column to what it holds and share the spare width so the
+    grid fills its viewport; when the columns need more than the viewport
+    there is nothing spare and the grid scrolls. (``flex`` is kept for the
+    callers; the spare is now shared rather than given to one column.)"""
+    fill_width(t)
 
 
 class _FrozenColumns(QTableView):
@@ -301,20 +299,23 @@ class JobPicker(QWidget):
         self.combo.setMinimumWidth(220)
         # Long labels ("28350 · NS-2968 · RUBY SINGH") must not widen the row.
         self.combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.combo.setMinimumContentsLength(18)
+        self.combo.setMinimumContentsLength(28)
         # The styled combo's padding swallowed the first character of the text.
         self.combo.lineEdit().setTextMargins(6, 0, 0, 0)
         lay.addWidget(self.combo)
-        self.btn_refresh = QPushButton("↻")
+        self.btn_refresh = QPushButton("Refresh")
         self.btn_refresh.setToolTip("Refresh the job list")
-        self.btn_refresh.setFixedWidth(34)
         self.btn_refresh.clicked.connect(self.refresh)
         lay.addWidget(self.btn_refresh)
         lay.addStretch(1)
-        self.combo.currentIndexChanged.connect(
-            lambda _i: self.changed.emit(self.combo.currentData()))
+        self.combo.currentIndexChanged.connect(self._picked)
         self.combo.lineEdit().returnPressed.connect(self._jump)
         self.refresh()
+
+    def _picked(self, _i: int) -> None:
+        # Show the start of the label (the job number), not its tail.
+        self.combo.lineEdit().setCursorPosition(0)
+        self.changed.emit(self.combo.currentData())
 
     def refresh(self) -> None:
         current = self.combo.currentData()
@@ -343,6 +344,7 @@ class JobPicker(QWidget):
         idx = self.combo.findData(current) if current is not None else 0
         self.combo.setCurrentIndex(max(idx, 0))
         self.combo.blockSignals(False)
+        self.combo.lineEdit().setCursorPosition(0)
         self.changed.emit(self.combo.currentData())
 
     def _jump(self) -> None:
@@ -363,6 +365,7 @@ class JobPicker(QWidget):
             idx = self.combo.findData(job_id)
         if idx >= 0:
             self.combo.setCurrentIndex(idx)
+            self.combo.lineEdit().setCursorPosition(0)
 
 
 class JobHeaderCard(QFrame):
@@ -2649,7 +2652,7 @@ class StoneReturnWidget(_Screen):
         form.addWidget(self.remark, 1)
         self.outer.addLayout(form)
 
-        self.grid = QTableWidget(0, 12)
+        self.grid = auto_fit(QTableWidget(0, 12))
         self.grid.setHorizontalHeaderLabels(["Location", "Type", "SSKU", "Size", "Bal Pcs",
                                              "Bal Wt", "Return Pcs", "Return Wt", "Unit",
                                              "Amount", "JobNo", "Account"])

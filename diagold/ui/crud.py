@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -1087,6 +1087,37 @@ def fill_width(table: QTableWidget) -> None:
                 - table.columnWidth(c)
         table.setColumnWidth(c, table.columnWidth(c) + max(extra, 0))
 
+
+
+class _AutoFit(QObject):
+    """Keeps a grid spanning its box: re-runs :func:`fill_width` when the grid
+    is shown or resized and when rows come or go, batched to one pass after
+    the event loop settles so a bulk fill is fitted once, not per row."""
+
+    def __init__(self, table: QTableWidget):
+        super().__init__(table)
+        self.table = table
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.setInterval(0)
+        self.timer.timeout.connect(lambda: fill_width(self.table))
+        table.installEventFilter(self)
+        m = table.model()
+        for sig in (m.rowsInserted, m.rowsRemoved, m.modelReset,
+                    m.columnsInserted, m.columnsRemoved, m.layoutChanged):
+            sig.connect(self.timer.start)
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+            self.timer.start()
+        return False
+
+
+def auto_fit(table: QTableWidget) -> QTableWidget:
+    """Make ``table`` always fill its width (see :class:`_AutoFit`)."""
+    if not table.findChild(_AutoFit):
+        _AutoFit(table)
+    return table
 
 class CrudWidget(QWidget):
     def __init__(self, spec: CrudSpec, can_edit: bool = True, parent=None,
