@@ -20,6 +20,31 @@ TEXT = "#2C2E36"
 MUTED = "#8A8F9C"
 DANGER = "#C0392B"
 
+
+def _close_icons() -> tuple[str, str]:
+    """The tab close cross, drawn by us: once the style sheet touches
+    ::close-button, the platform stops drawing its own cross and the button
+    shows as an empty grey square. Written next to the database, since the
+    style sheet needs a file path (and that folder is writable, packaged or not)."""
+    from diagold.config import DATA_DIR
+
+    folder = DATA_DIR / "ui"
+    folder.mkdir(parents=True, exist_ok=True)
+    cross = ("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'>"
+             "<path d='M4.5 4.5 L11.5 11.5 M11.5 4.5 L4.5 11.5' stroke='{c}' "
+             "stroke-width='1.8' stroke-linecap='round'/></svg>")
+    paths = []
+    for name, colour in (("tab_close.svg", INK), ("tab_close_hover.svg", "#FFFFFF")):
+        p = folder / name
+        text = cross.format(c=colour)
+        if not p.exists() or p.read_text(encoding="utf-8") != text:
+            p.write_text(text, encoding="utf-8")
+        paths.append(p.as_posix())
+    return paths[0], paths[1]
+
+
+CLOSE_ICON, CLOSE_ICON_HOVER = _close_icons()
+
 APP_QSS = f"""
 * {{
     font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
@@ -150,8 +175,15 @@ QTabBar::tab {{
 }}
 QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {GOLD}; }}
 QTabBar::tab:hover {{ color: {TEXT}; }}
-QTabBar::close-button {{ background: transparent; padding: 2px; }}
-QTabBar::close-button:hover {{ background: {BORDER}; border-radius: 6px; }}
+QTabBar::close-button {{
+    image: url("{CLOSE_ICON}");
+    background: transparent;
+    border-radius: 5px;
+    padding: 1px;
+    subcontrol-position: right;
+}}
+QTabBar::close-button:hover {{ image: url("{CLOSE_ICON_HOVER}"); background: {INK}; }}
+QTabBar::close-button:pressed {{ image: url("{CLOSE_ICON_HOVER}"); background: {GOLD_DARK}; }}
 
 /* ---- Tables ---- */
 QTableWidget, QTreeWidget, QTableView {{
@@ -347,6 +379,16 @@ QLabel#CardValue {{ font-size: 26px; font-weight: 800; color: {INK}; }}
 QLabel#CardLabel {{ color: {MUTED}; font-size: 11px; font-weight: 700; letter-spacing: 1px; }}
 QLabel#H1 {{ font-size: 22px; font-weight: 800; color: {INK}; }}
 QLabel#Muted {{ color: {MUTED}; }}
+QLabel#OrderRemark {{
+    background: {GOLD_SOFT};
+    border: 1px solid {GOLD};
+    border-left: 5px solid {GOLD};
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: {INK};
+    font-size: 14px;
+    font-weight: 600;
+}}
 
 QStatusBar {{ background: {CARD}; color: {MUTED}; border-top: 1px solid {BORDER}; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}

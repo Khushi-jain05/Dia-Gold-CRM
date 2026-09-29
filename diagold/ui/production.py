@@ -1302,6 +1302,15 @@ class JobHistoryWidget(_Screen):
                               "Pcs", "Weight", "Rtn", "Break", "Loss", "S Type", "Remark"])
         self.stones.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         sl.addWidget(self.stones)
+        # Order Remark carries what the client asked for (stones, notes), so it
+        # sits right under the job card as a highlighted note, not in the
+        # muted footer where nobody saw it.
+        self.remark = QLabel("")
+        self.remark.setObjectName("OrderRemark")
+        self.remark.setWordWrap(True)
+        self.remark.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.remark.hide()
+        self.outer.addWidget(self.remark)
         self.outer.addWidget(self.grid)
         self.outer.addWidget(self.stone_box)
 
@@ -1309,10 +1318,6 @@ class JobHistoryWidget(_Screen):
         self.summary.setObjectName("Muted")
         self.summary.setWordWrap(True)
         self.outer.addWidget(self.summary)
-        self.remark = QLabel("")
-        self.remark.setWordWrap(True)
-        self.remark.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.outer.addWidget(self.remark)
         self.comments = QLabel("")
         self.comments.setObjectName("Muted")
         self.comments.setWordWrap(True)
@@ -1333,6 +1338,7 @@ class JobHistoryWidget(_Screen):
             self.header.clear()
             self.summary.setText("")
             self.remark.setText("")
+            self.remark.hide()
             self.comments.setText("")
             return
         with SessionLocal() as s:
@@ -1414,7 +1420,10 @@ class JobHistoryWidget(_Screen):
             parsed = production.parse_order_remark(sm["order_remark"])
             extra = ("  →  " + ", ".join(f"{p['particulars']} {p['pcs']} pcs / {p['weight']}"
                                         for p in parsed)) if parsed else ""
-            self.remark.setText(f"<b>Order Remark:</b> {sm['order_remark'] or '—'}{extra}")
+            self.remark.setText(f"<b>ORDER REMARK:</b>&nbsp; {sm['order_remark'] or '—'}"
+                                + (f"<br><span style='color:#7A5B00'>{extra.strip(' →')}</span>"
+                                   if extra else ""))
+            self.remark.setVisible(True)
             notes = list(s.scalars(select(JobComment).where(JobComment.job_id == job.id)
                                    .order_by(JobComment.created_at.desc()).limit(8)))
             if notes:
