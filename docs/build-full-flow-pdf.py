@@ -15,24 +15,29 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from diagold.services.documents import to_pdf  # noqa: E402
 
-CSS = """
+# Qt's HTML renderer sizes <h1>/<h2>/<h3> by its own scale whatever the CSS
+# says, and takes the body font from the platform (13pt on a Mac), which is
+# what made the first print look oversized. Headings are therefore plain
+# paragraphs with explicit sizes, and the default font is set on the document
+# (see render()).
+FONT = "Helvetica Neue"
+CSS = f"""
 <style>
-body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #1B211E; }
-h1 { font-size: 20pt; margin: 0 0 4px 0; }
-h2 { font-size: 12.5pt; margin: 16px 0 4px 0; color: #0E6B54; }
-h3 { font-size: 11pt; margin: 18px 0 2px 0; color: #7A5B00; border-bottom: 1px solid #C9A227; }
-p { margin: 3px 0; }
-table { border-collapse: collapse; width: 100%; margin: 4px 0 6px 0; }
-th, td { border: 1px solid #C9CFCA; padding: 4px 6px; vertical-align: top; font-size: 9.5pt; }
-th { background: #EEF1EE; text-align: left; }
-.ok { color: #0E6B54; font-weight: bold; }
-.muted { color: #5C6661; font-size: 9pt; }
-.box { background: #F2EBD6; padding: 6px 8px; margin: 6px 0; }
+p {{ margin: 2px 0; }}
+table {{ border-collapse: collapse; margin: 3px 0 5px 0; }}
+th, td {{ border: 1px solid #C9CFCA; padding: 3px 5px; vertical-align: top; }}
+th {{ background: #EEF1EE; text-align: left; font-weight: 600; }}
+.ok {{ color: #0E6B54; font-weight: 600; }}
+.muted {{ color: #5C6661; }}
 </style>
 """
+H1 = "<p style='font-size:15pt; font-weight:700; margin:0 0 3px 0'>{}</p>"
+H2 = ("<p style='font-size:10.5pt; font-weight:700; color:#0E6B54; "
+      "margin:10px 0 3px 0'>{}</p>")
+H3 = ("<p style='font-size:10pt; font-weight:700; color:#7A5B00; margin:14px 0 2px 0'>"
+      "{}</p>")
+BOX = "<table width='100%' style='margin:4px 0'><tr><td style='background:#F2EBD6; border:none; padding:5px 7px'>{}</td></tr></table>"
 
 _n = 0
 
@@ -40,18 +45,19 @@ _n = 0
 def step(title: str, rows: list[tuple[str, str]], checks: list[str], intro: str = "") -> str:
     global _n
     _n += 1
-    body = f"<h2>{_n}. {title}</h2>"
+    body = H2.format(f"{_n}. {title}")
     if intro:
         body += f"<p>{intro}</p>"
     if rows:
-        body += "<table><tr><th width='30%'>Field / Column</th><th>Bharo (type this)</th></tr>"
+        body += ("<table width='100%'><tr><th width='28%'>Field / Column</th>"
+                 "<th>Bharo (type this)</th></tr>")
         body += "".join(f"<tr><td>{f}</td><td>{v}</td></tr>" for f, v in rows) + "</table>"
     body += "".join(f"<p><span class='ok'>✔ Check:</span> {c}</p>" for c in checks)
     return body
 
 
 def part(title: str) -> str:
-    return f"<h3>{title}</h3>"
+    return H3.format(title)
 
 
 def mfg(process: str, karigar: str, iss: str, rcv: str, allow: str, expect: str,
@@ -69,20 +75,20 @@ def mfg(process: str, karigar: str, iss: str, rcv: str, allow: str, expect: str,
 
 
 HTML = CSS + """
-<h1>Dia Gold CRM — Full Flow Test Script</h1>
+""" + H1.format("Dia Gold CRM — Full Flow Test Script") + """
 <p class='muted'>Order se Ready Stock tak ek naya job — har screen jo ab tak bani hai (Master, Inventory,
 Production Planning, Manufacturing, Reports), aur har step pe kya type karna hai aur screen pe kya aana chahiye.
 Login <b>admin</b> / <b>admin</b>.</p>
-<div class='box'><b>Shuru kaise karein:</b> Terminal me project folder se <b>python -m diagold.demo --reset</b>.
+""" + BOX.format("""<b>Shuru kaise karein:</b> Terminal me project folder se <b>python -m diagold.demo --reset</b>.
 Ye ek alag demo database kholta hai (~/DiaGoldDemo) — asli data ko kuch nahi hota. Isme aaj ke rates
 (24K fine 14,713/g → 14KT 590 = 8,680.67/g), labour 1,200/g, margin 50%, karigar CHAND KUMAR HAZRA, aur
-demo jobs 28854–28856 pehle se hain. Neeche window ke status bar me <b>DiaGoldDemo</b> dikhna chahiye.</div>
-<div class='box'><b>Aapka job:</b> step 10 me order save hote hi ek naya Job No milega (fresh demo me
+demo jobs 28854–28856 pehle se hain. Neeche window ke status bar me <b>DiaGoldDemo</b> dikhna chahiye.""") + """
+""" + BOX.format("""<b>Aapka job:</b> step 10 me order save hote hi ek naya Job No milega (fresh demo me
 <b>28857</b>). Wahi number likh lein — step 11 se aakhir tak har jagah wahi job chunna hai. Demo jobs
 (28854–28856) aur BANG-577 (28853) pe apne steps mat karein.<br>
 <b>Har Save pe</b> "Save? Yes / No" popup aana chahiye — Yes dabayein. <b>Steps skip na karein</b> —
-har step agle step ko data deta hai. Koi cheez dropdown / Show Pending me na mile to pichhla step reh gaya.</div>
-<div class='box'><b>Bug report:</b> step number · screen · kya dabaya · kya expect tha · kya hua · screenshot.</div>
+har step agle step ko data deta hai. Koi cheez dropdown / Show Pending me na mile to pichhla step reh gaya.""") + """
+""" + BOX.format("""<b>Bug report:</b> step number · screen · kya dabaya · kya expect tha · kya hua · screenshot.""") + """
 """ + part("A. Masters — jo rates aur log flow use karega") + step(
     "Master ▸ Daily Metal Rate", [],
     ["List me <b>14KT 590</b> aur <b>24KT Gold</b> — date 25-09-2026, rate <b>14,713</b> (24K fine rate).",
@@ -292,9 +298,31 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
 ) + ("<p class='muted'>Jo bhi galat mile — step number aur screenshot ke saath bhej do. "
      "Dobara shuru karna ho to: python -m diagold.demo --reset.</p>")
 
+def render(html: str, out: Path) -> Path:
+    """A4 PDF with a fixed 9pt body font, whatever the platform default is."""
+    from PySide6.QtGui import QFont, QPageLayout, QPageSize, QTextDocument
+    from PySide6.QtCore import QMarginsF
+    from PySide6.QtPrintSupport import QPrinter
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+    printer.setPageLayout(QPageLayout(QPageSize(QPageSize.PageSizeId.A4),
+                                      QPageLayout.Orientation.Portrait,
+                                      QMarginsF(10, 10, 10, 10), QPageLayout.Unit.Millimeter))
+    printer.setOutputFileName(str(out))
+    doc = QTextDocument()
+    font = QFont(FONT)
+    font.setPointSizeF(9)
+    doc.setDefaultFont(font)
+    doc.setDocumentMargin(0)
+    doc.setHtml(html)
+    doc.print_(printer)
+    return out
+
+
 if __name__ == "__main__":
     app = QApplication.instance() or QApplication(sys.argv)
     out = (Path(sys.argv[1]) if len(sys.argv) > 1
            else Path.home() / "Downloads" / "DiaGold-Full-Flow-Test.pdf")
-    to_pdf(HTML, out)
-    print(out)
+    print(render(HTML, out))
