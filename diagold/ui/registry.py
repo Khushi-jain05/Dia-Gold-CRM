@@ -9,7 +9,7 @@ from diagold.menu import MENU_BY_KEY
 from diagold.services.auth import CurrentUser
 from diagold.ui.crud import CrudWidget
 from diagold.ui import inventory as inventory_ui
-from diagold.ui.manufacturing import ItemSearchWidget, MfgTransferWidget
+from diagold.ui.manufacturing import ItemSearchWidget, MfgTransferWidget, ProcessVoucherWidget
 from diagold.ui.permissions import PermissionMatrixWidget
 from diagold.ui.placeholder import PlaceholderWidget
 from diagold.ui.production import (
@@ -38,6 +38,12 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "tools.option": lambda user: OptionsWidget(user),
     "manufacturing.mfg_transfer": lambda user: MfgTransferWidget(user),
     "manufacturing.item_search": lambda user: ItemSearchWidget(user),
+    "manufacturing.issue": lambda user: ProcessVoucherWidget("issue", user),
+    "manufacturing.received": lambda user: ProcessVoucherWidget("receive", user),
+    "manufacturing.issue_day_book":
+        lambda user: ReportWidget(build_specs()["issue_day_book"], user),
+    "manufacturing.received_day_book":
+        lambda user: ReportWidget(build_specs()["received_day_book"], user),
     "manufacturing.pending_mfg_transfer":
         lambda user: ReportWidget(build_specs()["pending_mfg_transfer"], user),
     "manufacturing.mfg_transfer_day_book":

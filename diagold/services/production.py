@@ -1321,6 +1321,7 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
             gross = _dec(issue.gross_wt) if issue.gross_wt is not None else None
             net = _dec(issue.net_wt) if issue.net_wt is not None else None
         client = session.get(Account, job.account_id) if job.account_id else None
+        order = session.get(Order, job.order_id) if job.order_id else None
         rows.append({
             "_job_id": job.id, "_step_id": step.id, "job_no": job.job_no,
             "sku": job.product_sku.sku_code if job.product_sku else "",
@@ -1330,6 +1331,12 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
             "worker": worker.name if worker else "", "worker_id": issue.worker_id if issue else None,
             "issued_on": issue.vr_date if issue else None, "vr_no": issue.vr_no if issue else None,
             "gross": gross, "net": net, "due": step.due_date, "pcs": job.pcs,
+            # the rest of the legacy voucher grid
+            "c_ref": job.c_ref, "colour": job.colour,
+            "metal": (session.get(Metal, job.metal_id).name if job.metal_id else ""),
+            "order_no": order.order_no if order else "",
+            "order_date": order.order_date if order else None, "ref_no": order.ref if order else "",
+            "allow": default_allow_loss_pct(session, step, issue),
         })
     return rows
 
@@ -1341,11 +1348,22 @@ def post_multi_voucher(session: Session, kind: str, worker_id: int | None,
     """One issue or receive voucher carrying several jobs, as the legacy
     "Issue To <Process>" does (Buddha Polish Vr 2333 received four jobs).
     Every line gets the same voucher number. A receive goes back from
-    whoever has each job out. Returns the voucher number."""
+    whoever has each job out. Returns the voucher number.
+
+    A line may also carry ``allow`` (its own Allow Loss %), ``rej_pcs`` /
+    ``rej_wt`` / ``stone_wt``, ``stones`` ({bag line id: pcs} - F3: out with
+    an issue, back on a receipt) and ``metal`` ([{location_id, metal_id,
+    weight, pcs}] - F5, issue only)."""
     if not lines:
         raise ProductionError("Tick at least one job.")
     vr_no = next_number(session, JobVoucher.vr_no)
     for ln in lines:
+        if ln.get("allow") not in (None, "") or ln.get("stones") or ln.get("metal") \
+                or ln.get("rej_pcs") or ln.get("rej_wt") or ln.get("stone_wt"):
+            _post_line_full(session, kind, worker_id, ln, vr_no, vr_date=vr_date,
+                            vr_time=vr_time, allow_loss_pct=allow_loss_pct, user_id=user_id,
+                            remark=ln.get("remark") or "")
+            continue
         job = session.get(Job, ln["job_id"])
         step = session.get(JobStep, ln["step_id"])
         who = worker_id
@@ -1364,6 +1382,46 @@ def post_multi_voucher(session: Session, kind: str, worker_id: int | None,
         except ProductionError as exc:
             raise ProductionError(f"Job {job.job_no}: {exc}") from exc
     return vr_no
+
+
+def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict[str, Any],
+                    vr_no: int, *, vr_date: date | None, vr_time: str, allow_loss_pct: Any,
+                    user_id: int | None, remark: str = "") -> JobVoucher:
+    """One line of a multi-job voucher, with its F3 stones and F5 metal."""
+    job = session.get(Job, ln["job_id"])
+    step = session.get(JobStep, ln["step_id"])
+    who = worker_id
+    if kind == "receive":
+        out = open_issue(session, step)
+        if out is None:
+            raise ProductionError(f"Job {job.job_no}: nothing is out on this step - "
+                                  "issue it before receiving it back.")
+        who = out.worker_id
+    lines = {l.id: l for l in session.scalars(select(JobBagLine).where(
+        JobBagLine.id.in_(list((ln.get("stones") or {}).keys()))))}
+    try:
+        if kind == "receive":
+            for line_id, pcs in (ln.get("stones") or {}).items():
+                bag_move(session, lines[line_id], "back", pcs, worker_id=who, mv_date=vr_date)
+        extra = {k: ln.get(k) for k in ("scrap", "dust", "rej_pcs", "rej_wt", "stone_wt")}
+        if kind == "issue" and ln.get("metal"):
+            extra["extra"] = sum((_dec(m["weight"]) for m in ln["metal"]), ZERO)
+        allow = ln.get("allow")
+        v = post_voucher(session, job, step, kind, who, vr_date=vr_date, vr_time=vr_time,
+                         pcs=ln.get("pcs") or job.pcs, gross_wt=ln.get("gross"),
+                         net_wt=ln.get("net"), vr_no=vr_no, user_id=user_id, remark=remark,
+                         allow_loss_pct=allow if allow not in (None, "") else
+                         (allow_loss_pct if kind == "issue" else None), **extra)
+        if kind == "issue":
+            for line_id, pcs in (ln.get("stones") or {}).items():
+                bag_move(session, lines[line_id], "iss", pcs, worker_id=who, mv_date=vr_date)
+            from diagold.services import inventory as INV
+            for m in ln.get("metal") or []:
+                INV.metal_to_job_step(session, v, m["location_id"], m["metal_id"],
+                                      m["weight"], m.get("pcs") or 0)
+    except ProductionError as exc:
+        raise ProductionError(f"Job {job.job_no}: {exc}") from exc
+    return v
 
 
 def pending_stone_jobs(session: Session) -> list[dict[str, Any]]:

@@ -6,10 +6,12 @@ The pending list and the day book are report-grid screens (see reports.py).
 """
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -23,6 +25,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QComboBox,
     QMessageBox,
     QSplitter,
     QTableWidgetItem,
@@ -31,7 +34,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy import func, select
 
-from diagold.db.models import Job, Metal, MfgTransfer, StockItem
+from diagold.db.models import (Account, Job, JobVoucher, ManufacturingProcess, Metal,
+                               MfgTransfer, StockItem)
 from diagold.db.session import SessionLocal
 from diagold.services import manufacturing as mfg
 from diagold.services import mfg_pricing, production
@@ -668,3 +672,286 @@ class ItemSearchWidget(_Screen):
         _info(self, "Deleted", f"Stock No {no} deleted. Job {jn} is back in Pending for "
                                "MFG Transfer.")
         self.refresh()
+
+
+# --------------------------------------------------------------------------
+# Manufacturing ▸ Issue / Received - "Issue To <Process>" and
+# "Received From <Process>" (28 Sept §4.4, R4, T-03)
+# --------------------------------------------------------------------------
+class ProcessVoucherWidget(_Screen):
+    """One voucher per process per karigar, many jobs on it. Show Pending
+    lists only the jobs waiting for this process; F3 / F5 work on the
+    selected line, as on the legacy voucher."""
+
+    def __init__(self, kind: str, user=None, parent=None):
+        self.kind = kind
+        issue = kind == "issue"
+        super().__init__("Issue To — process" if issue else "Received From — process",
+                         with_picker=False, parent=parent)
+        self.user = user
+        self.header.hide()
+        self.h1 = self.findChild(QLabel, "H1")
+        self.lines: list[dict[str, Any]] = []
+        self.vr = QLabel("")
+        self.vr.setObjectName("H2")
+        self.date = QDateEdit(_qdate(None))
+        self.date.setCalendarPopup(True)
+        self.date.setDisplayFormat("dd-MM-yyyy")
+        self.time = QLineEdit(datetime.now().strftime("%H:%M"))
+        self.time.setMaximumWidth(64)
+        self.process = QComboBox()
+        self.worker = QComboBox()
+        with SessionLocal() as s:
+            for p in s.scalars(select(ManufacturingProcess).where(
+                    ManufacturingProcess.is_active.is_(True)).order_by(ManufacturingProcess.name)):
+                self.process.addItem(p.name, p.id)
+            for w in s.scalars(select(Account).where(Account.account_type == "Worker")
+                               .order_by(Account.name)):
+                self.worker.addItem(w.name, w.id)
+        self.process.currentIndexChanged.connect(lambda _i: self._process_changed())
+        for w in (QLabel("Vr No"), self.vr, QLabel("Date"), self.date, self.time,
+                  QLabel("Process"), self.process):
+            self.toolbar.addWidget(w)
+        if issue:
+            self.toolbar.addWidget(QLabel("Account"))
+            self.toolbar.addWidget(self.worker)
+        self.toolbar.addStretch(1)
+        self.button("Show Pending", self.show_pending, primary=True)
+        self.button("Save", self.save)
+        self.button("F3 Stone", self.f3, secondary=True)
+        if issue:
+            self.button("F5 Metal", self.f5, secondary=True)
+        self.button("Remove Line", self.remove_line, secondary=True)
+        self.button("Print Voucher", self.print_voucher, secondary=True)
+        self.button("Day Book", lambda: self.open_requested.emit(
+            "manufacturing.issue_day_book" if issue else "manufacturing.received_day_book"),
+            secondary=True)
+        self.button("Exit", self.close_requested.emit, secondary=True)
+        QShortcut(QKeySequence("F3"), self, activated=self.f3)
+        if issue:
+            QShortcut(QKeySequence("F5"), self, activated=self.f5)
+
+        self.cols: list[tuple[str, str, bool]] = [
+            ("job_no", "JobNo", False), ("sku", "SKU", False), ("c_ref", "C-Ref", False),
+            ("metal", "Metal", False), ("colour", "Col", False), ("pcs", "Pcs", True),
+            ("gross", "GrossWt", True), ("net", "NetWt", True)]
+        if issue:
+            self.cols += [("stone_wt", "Issue\nSt Wt", True)]
+        else:
+            self.cols += [("worker", "From", False), ("rej_pcs", "Rej\nPcs", True),
+                          ("rej_wt", "Rej Wt", True), ("scrap", "Scrap", True),
+                          ("dust", "Dust", True)]
+        self.cols += [("allow", "Allow\nLoss %", True), ("f3f5", "F3 / F5", False),
+                      ("order_no", "OrderNo", False), ("order_date", "Date", False),
+                      ("ref_no", "RefNo", False), ("client", "Client", False)]
+        self.grid = _table([h for _k, h, _e in self.cols], ledger=True)
+        self.grid.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
+                                  | QAbstractItemView.EditTrigger.EditKeyPressed
+                                  | QAbstractItemView.EditTrigger.AnyKeyPressed)
+        self.grid.itemChanged.connect(self._edited)
+        self.outer.addWidget(self.grid, 1)
+        self.narration = QLineEdit()
+        self.narration.setPlaceholderText("Narration")
+        self.outer.addWidget(self.narration)
+        self.totals = QLabel("")
+        self.totals.setObjectName("Muted")
+        self.outer.addWidget(self.totals)
+        legend = QLabel(
+            ("Pick the process and the karigar, Show Pending lists the jobs whose next step "
+             "is this process; tick them, check the weights (green), Save - one voucher "
+             "number for all. F3 sends stones from the job's bag with the selected line; "
+             "F5 sends metal from a location.") if issue else
+            ("Pick the process, Show Pending lists the jobs out on it with any karigar; enter "
+             "the weights coming back (green) and Save - each job comes back from whoever "
+             "has it. F3 on a line records the stones handed back; the rest count as set."))
+        legend.setWordWrap(True)
+        legend.setObjectName("Muted")
+        self.outer.addWidget(legend)
+        self._last_vr: int | None = None
+        self._process_changed()
+
+    # -- header ---------------------------------------------------------
+    def _process_changed(self) -> None:
+        name = self.process.currentText()
+        self.h1.setText(("Issue To " if self.kind == "issue" else "Received From ") + name)
+        if self.lines and any(l["process_id"] != self.process.currentData() for l in self.lines):
+            self.lines = []
+        self.refresh()
+
+    def refresh(self) -> None:
+        with SessionLocal() as s:
+            self.vr.setText(str(production.next_number(s, JobVoucher.vr_no)))
+        self._render()
+
+    # -- lines ----------------------------------------------------------
+    def show_pending(self) -> None:
+        with SessionLocal() as s:
+            rows = production.pending_steps(s, self.kind, self.process.currentData())
+        have = {l["_job_id"] for l in self.lines}
+        rows = [r for r in rows if r["_job_id"] not in have]
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Show Pending — {self.h1.text()}")
+        dlg.setMinimumSize(760, 400)
+        lay = QVBoxLayout(dlg)
+        note = QLabel(f"{len(rows)} job(s) pending for this process." if rows else
+                      "Nothing is pending for this process - it shows here as soon as it is.")
+        note.setObjectName("Muted")
+        lay.addWidget(note)
+        lst = QListWidget()
+        for r in rows:
+            it = QListWidgetItem(
+                f"{r['job_no']}   {r['sku']}   {r['metal']}   {r['pcs']} pc   "
+                + (f"N {r['net']} g   " if r["net"] is not None else "")
+                + (f"with {r['worker']}   " if r["worker"] else "") + r["client"])
+            it.setData(Qt.ItemDataRole.UserRole, r)
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(Qt.CheckState.Checked)
+            lst.addItem(it)
+        lay.addWidget(lst, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        for i in range(lst.count()):
+            if lst.item(i).checkState() == Qt.CheckState.Checked:
+                r = dict(lst.item(i).data(Qt.ItemDataRole.UserRole))
+                if self.kind == "receive":
+                    r["gross"] = r["net"] = None     # typed from the scale
+                r["stones"], r["metal_lines"] = {}, []
+                self.lines.append(r)
+        self._render()
+
+    def _render(self) -> None:
+        self.grid.blockSignals(True)
+        self.grid.setRowCount(0)
+        net_total = Decimal("0")
+        for ln in self.lines:
+            r = self.grid.rowCount()
+            self.grid.insertRow(r)
+            for c, (key, _h, editable) in enumerate(self.cols):
+                if key == "f3f5":
+                    parts = []
+                    if ln.get("stones"):
+                        parts.append(f"{sum(ln['stones'].values())} st")
+                    if ln.get("metal_lines"):
+                        parts.append(f"{sum(Decimal(str(m['weight'])) for m in ln['metal_lines'])} g")
+                    v = " · ".join(parts)
+                elif key == "allow" and ln.get(key) is not None:
+                    v = f"{Decimal(str(ln[key])):.2f}"
+                else:
+                    v = ln.get(key)
+                wb = ln.get("weight_bearing", True)
+                edit = editable and (wb or key in ("pcs",))
+                it = _item(v if v is not None else "", TINT_RECEIVE if edit else None,
+                           right=key not in ("sku", "c_ref", "metal", "colour", "worker",
+                                             "client", "ref_no", "f3f5"))
+                flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+                if edit:
+                    flags |= Qt.ItemFlag.ItemIsEditable
+                it.setFlags(flags)
+                self.grid.setItem(r, c, it)
+            net_total += Decimal(str(ln.get("net") or 0))
+        self.grid.blockSignals(False)
+        _fit_columns(self.grid, len(self.cols) - 1)
+        self.totals.setText(f"<b>{len(self.lines)} job(s)</b>    Net {net_total:.3f} g"
+                            if self.lines else "No jobs on this voucher yet - Show Pending.")
+
+    def _edited(self, it: QTableWidgetItem) -> None:
+        r, c = it.row(), it.column()
+        key = self.cols[c][0]
+        text = it.text().replace(",", "").strip()
+        if key in ("pcs", "rej_pcs"):
+            self.lines[r][key] = int(text) if text.isdigit() else 0
+        else:
+            self.lines[r][key] = _num(text)
+
+    def _selected(self) -> int | None:
+        rows = self.grid.selectionModel().selectedRows()
+        if not rows or not self.lines:
+            _info(self, "Voucher", "Select a line first.")
+            return None
+        return rows[0].row()
+
+    def remove_line(self) -> None:
+        r = self._selected()
+        if r is not None:
+            self.lines.pop(r)
+            self._render()
+
+    def f3(self) -> None:
+        r = self._selected()
+        if r is None:
+            return
+        from diagold.ui.production import StoneBagDialog
+        ln = self.lines[r]
+        worker = self.worker.currentData() if self.kind == "issue" else ln["worker_id"]
+        dlg = StoneBagDialog(ln["_job_id"], self.kind, worker, ln.get("stones") or {}, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            ln["stones"] = dlg.values
+            self._render()
+
+    def f5(self) -> None:
+        r = self._selected()
+        if r is None:
+            return
+        from diagold.ui.production import MetalLinesDialog
+        dlg = MetalLinesDialog(self.lines[r].get("metal_lines") or [], self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.lines[r]["metal_lines"] = dlg.lines()
+            self._render()
+
+    # -- save / print ---------------------------------------------------
+    def save(self) -> None:
+        if not self.lines:
+            _info(self, "Save", "Show Pending and pick the jobs first.")
+            return
+        issue = self.kind == "issue"
+        if issue and not self.worker.currentData():
+            _info(self, "Save", "Choose the karigar (Account).")
+            return
+        what = (f"issue of {len(self.lines)} job(s) to {self.worker.currentText()}" if issue
+                else f"receipt of {len(self.lines)} job(s)")
+        if not confirm_save(self, what):
+            return
+        payload = []
+        for ln in self.lines:
+            payload.append({
+                "job_id": ln["_job_id"], "step_id": ln["_step_id"], "pcs": ln.get("pcs"),
+                "gross": ln.get("gross"), "net": ln.get("net"),
+                "stone_wt": ln.get("stone_wt"), "rej_pcs": ln.get("rej_pcs"),
+                "rej_wt": ln.get("rej_wt"), "scrap": ln.get("scrap"), "dust": ln.get("dust"),
+                "allow": ln.get("allow"), "stones": ln.get("stones") or {},
+                "metal": ln.get("metal_lines") or [], "remark": self.narration.text().strip(),
+            })
+        with SessionLocal() as s:
+            try:
+                vr = production.post_multi_voucher(
+                    s, self.kind, self.worker.currentData(), payload,
+                    vr_date=_pydate(self.date), vr_time=self.time.text().strip(),
+                    user_id=getattr(self.user, "id", None))
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot save", str(exc))
+                return
+        self._last_vr = vr
+        n = len(self.lines)
+        self.lines = []
+        self.narration.clear()
+        self.refresh()
+        self.totals.setText(f"Saved Vr {vr}: {n} job(s). Print Voucher prints it.")
+
+    def print_voucher(self) -> None:
+        if self._last_vr is None:
+            _info(self, "Print", "Save a voucher first - Print Voucher prints the last one.")
+            return
+        with SessionLocal() as s:
+            v = s.scalar(select(JobVoucher).where(JobVoucher.vr_no == self._last_vr,
+                                                  JobVoucher.kind == self.kind))
+            vid = v.id if v else None
+        if vid:
+            from diagold.ui.production import voucher_view
+            voucher_view(self, vid)
