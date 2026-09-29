@@ -1065,6 +1065,29 @@ class FormDialog(QDialog):
                 self.session.add(child.model(**{child.fk_attr: obj.id}, **row))
 
 
+def fill_width(table: QTableWidget) -> None:
+    """Size columns to their contents, then share any spare width among them
+    in proportion, so a list always spans its box - no blank strip to the
+    right of the last column - and re-fits when a column is added or the
+    window is resized."""
+    header = table.horizontalHeader()
+    header.setStretchLastSection(False)
+    table.resizeColumnsToContents()
+    cols = [c for c in range(table.columnCount()) if not table.isColumnHidden(c)]
+    if not cols:
+        return
+    used = sum(table.columnWidth(c) for c in cols)
+    spare = table.viewport().width() - used
+    if spare <= 0:
+        return   # wider than the box: keep content widths and scroll sideways
+    for i, c in enumerate(cols):
+        extra = spare * table.columnWidth(c) // used if used else spare // len(cols)
+        if i == len(cols) - 1:
+            extra = table.viewport().width() - sum(table.columnWidth(x) for x in cols[:-1]) \
+                - table.columnWidth(c)
+        table.setColumnWidth(c, table.columnWidth(c) + max(extra, 0))
+
+
 class CrudWidget(QWidget):
     def __init__(self, spec: CrudSpec, can_edit: bool = True, parent=None,
                  rights: Any = None):
@@ -1275,7 +1298,7 @@ class CrudWidget(QWidget):
                 if f.type in ("int", "float"):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.table.setItem(r, c, item)
-        self.table.resizeColumnsToContents()
+        fill_width(self.table)
         self.status.setText(f"{len(self._rows)} record(s)")
         if self._rows and self.spec.detail_panels:
             self.table.selectRow(0)
@@ -1285,7 +1308,11 @@ class CrudWidget(QWidget):
         # A list filled before it was first shown (a hub builds it off screen)
         # was sized with the default font; size it again with the real one.
         super().showEvent(event)
-        self.table.resizeColumnsToContents()
+        fill_width(self.table)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
+        super().resizeEvent(event)
+        fill_width(self.table)
 
     def _selected(self) -> Any | None:
         rows = self.table.selectionModel().selectedRows()
