@@ -210,6 +210,8 @@ def voucher_spec(vr_type: str) -> CrudSpec:
     if vr_type == "metal_issue":
         buttons.insert(0, ("Check Bal", lambda w, sel: CheckBalDialog(
             sel.account_id if sel is not None else None, w).exec()))
+    if vr_type == "stone_receipt":
+        buttons.insert(0, ("Show O/S", _show_stone_os))
     return CrudSpec(
         key=f"inventory.{vr_type}", title=vt.title, model=InvVoucher, fields=head,
         extra_buttons=buttons,
@@ -218,6 +220,83 @@ def voucher_spec(vr_type: str) -> CrudSpec:
         warn=warn, before_delete=before_delete, fixed={"vr_type": vr_type},
         form_width=1180, singular_title=vt.title,
     )
+
+
+def _show_stone_os(widget, _selected) -> None:
+    """Show O/S (legacy Stone Receipt): stones out with a worker; the ticked
+    lines open a new receipt from that worker, filled in."""
+    from PySide6.QtWidgets import (QComboBox, QDialogButtonBox, QHBoxLayout,
+                                   QMessageBox)
+    from sqlalchemy import select
+
+    from diagold.db.session import SessionLocal
+    dlg = QDialog(widget)
+    dlg.setWindowTitle("Show O/S — stones out with workers")
+    dlg.setMinimumSize(820, 460)
+    lay = QVBoxLayout(dlg)
+    row = QHBoxLayout()
+    row.addWidget(QLabel("Account"))
+    acct = QComboBox()
+    acct.addItem("(all)", None)
+    with SessionLocal() as s:
+        for a in s.scalars(select(Account).order_by(Account.name)):
+            acct.addItem(a.name, a.id)
+    row.addWidget(acct, 1)
+    lay.addLayout(row)
+    heads = ["", "Account", "Location", "Stone", "Size", "Pcs", "Weight", "Price", "Per"]
+    grid = CheckBalDialog._grid(heads)
+    lay.addWidget(grid, 1)
+    note = QLabel("")
+    note.setObjectName("Muted")
+    lay.addWidget(note)
+    data: list[dict] = []
+
+    def load() -> None:
+        with SessionLocal() as s:
+            data[:] = INV.stone_outstanding(s, acct.currentData())
+        grid.setRowCount(0)
+        for r in data:
+            i = grid.rowCount()
+            grid.insertRow(i)
+            tick = QTableWidgetItem("")
+            tick.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+            tick.setCheckState(Qt.CheckState.Unchecked)
+            grid.setItem(i, 0, tick)
+            for c, v in enumerate([r["account"], r["location"], r["stone"], r["size"],
+                                   r["pcs"], r["weight"], r["price"], r["unit"]], start=1):
+                it = QTableWidgetItem(str(v))
+                if isinstance(v, (int, Decimal)):
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignRight
+                                        | Qt.AlignmentFlag.AlignVCenter)
+                grid.setItem(i, c, it)
+        note.setText(f"{len(data)} line(s) outstanding. Tick the lines coming back (one "
+                     "account) and press OK - a new receipt opens with them."
+                     if data else "Nothing is outstanding.")
+
+    acct.currentIndexChanged.connect(lambda _i: load())
+    load()
+    bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                          | QDialogButtonBox.StandardButton.Cancel)
+    bb.accepted.connect(dlg.accept)
+    bb.rejected.connect(dlg.reject)
+    lay.addWidget(bb)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return
+    picked = [data[i] for i in range(grid.rowCount())
+              if grid.item(i, 0).checkState() == Qt.CheckState.Checked]
+    if not picked:
+        return
+    if len({r["account_id"] for r in picked}) > 1:
+        QMessageBox.information(widget, "Show O/S",
+                                "Tick lines of one account - a receipt is from one worker.")
+        return
+    lines = [{"sno": n, "location_id": r["location_id"], "mt_type": "Actual",
+              "stone_sku_id": r["stone_sku_id"], "particulars": r["particulars"],
+              "size": r["size"], "pcs": r["pcs"], "weight": r["weight"],
+              "price": r["price"], "unit": r["unit"], "s_type": r["s_type"],
+              "amount": INV.line_amount("stone", r["pcs"], r["weight"], r["price"], r["unit"])}
+             for n, r in enumerate(picked, start=1)]
+    widget.new_with({"account_id": picked[0]["account_id"], "lines": lines})
 
 
 class CheckBalDialog(QDialog):

@@ -388,6 +388,45 @@ def check_balance(session: Session, account_id: int | None,
             "per_metal": per_metal, "stock": stock}
 
 
+def stone_outstanding(session: Session, account_id: int | None = None) -> list[dict[str, Any]]:
+    """Show O/S on Stone Receipt (28 Sept §4.11): stones issued outside / to a
+    worker and not yet received back, per account, location, stone and size -
+    what the receipt can bring in."""
+    acc: dict[tuple, dict[str, Any]] = {}
+    q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
+         .where(InvVoucher.vr_type.in_(("stone_issue", "stone_receipt"))))
+    if account_id:
+        q = q.where(InvVoucher.account_id == account_id)
+    for line, v in session.execute(q):
+        if not v.account_id:
+            continue
+        key = (v.account_id, line.location_id, line.stone_sku_id, line.particulars or "",
+               line.size or "")
+        a = acc.setdefault(key, {"pcs": 0, "weight": ZERO, "price": ZERO, "unit": "Cts",
+                                 "s_type": ""})
+        sign = 1 if v.vr_type == "stone_issue" else -1
+        a["pcs"] += sign * int(line.pcs or 0)
+        a["weight"] += sign * _dec(line.weight)
+        if sign > 0:
+            a["price"], a["unit"] = _dec(line.price), line.unit or "Cts"
+            a["s_type"] = line.s_type or a["s_type"]
+    rows = []
+    for (acct_id, loc_id, sku_id, part, size), a in acc.items():
+        if a["pcs"] <= 0 and a["weight"] <= 0:
+            continue
+        acct = session.get(Account, acct_id)
+        loc = session.get(Location, loc_id) if loc_id else None
+        sku = session.get(StoneSku, sku_id) if sku_id else None
+        rows.append({"account_id": acct_id, "account": acct.name if acct else "?",
+                     "location_id": loc_id, "location": loc.name if loc else "",
+                     "stone_sku_id": sku_id, "stone": sku.sku_code if sku else part,
+                     "particulars": part, "size": size, "pcs": a["pcs"],
+                     "weight": a["weight"].quantize(D3), "price": a["price"],
+                     "unit": a["unit"], "s_type": a["s_type"]})
+    rows.sort(key=lambda r: (r["account"].lower(), r["stone"].lower(), r["size"]))
+    return rows
+
+
 def day_book(session: Session, date_from: date, date_to: date,
              material: str | None = None) -> list[dict[str, Any]]:
     """Every Inventory voucher line in the period."""
