@@ -50,6 +50,7 @@ from diagold.db.models.manufacturing import (
     MfgTransfer,
     MfgTransferLine,
     StockItem,
+    VoucherAttachment,
 )
 from diagold.db.models.production import (
     AppSetting,
@@ -147,6 +148,7 @@ __all__ = [
     "InvVoucher",
     "InvVoucherLine",
     "DeletionLog",
+    "VoucherAttachment",
     "MfgTransfer",
     "MfgTransferLine",
     "StockItem",

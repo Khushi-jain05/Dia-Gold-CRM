@@ -192,9 +192,20 @@ def voucher_spec(vr_type: str) -> CrudSpec:
         documents.to_pdf(html, path)
         QMessageBox.information(widget, "Print", f"Saved {path}")
 
+    def attach_doc(widget, selected) -> None:
+        """Attach Doc (legacy purchase header): bills and slips kept with the voucher."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from diagold.ui.attachments import AttachDocDialog
+        if selected is None:
+            QMessageBox.information(widget, "Attach Doc", "Select a saved voucher first.")
+            return
+        AttachDocDialog(vr_type, selected.vr_no, f"{vt.title} Vr {selected.vr_no}",
+                        parent=widget).exec()
+
     return CrudSpec(
         key=f"inventory.{vr_type}", title=vt.title, model=InvVoucher, fields=head,
-        extra_buttons=[("Print", print_voucher)],
+        extra_buttons=[("Print", print_voucher), ("Attach Doc", attach_doc)],
         order_by="-vr_no", date_field="vr_date", search_hint="Search by ref, narration…",
         editable=False, before_save=prepare, after_save=saved, validate=validate,
         warn=warn, before_delete=before_delete, fixed={"vr_type": vr_type},

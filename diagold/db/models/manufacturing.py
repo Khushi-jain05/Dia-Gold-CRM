@@ -120,3 +120,18 @@ class DeletionLog(Base, PKMixin):
     ref: Mapped[str] = mapped_column(String(64), default="")
     reason: Mapped[str] = mapped_column(String(200), default="")
     before_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class VoucherAttachment(Base, PKMixin):
+    """A document attached to a voucher - "Attach Doc" on the legacy receipt
+    and purchase screens (28 Sept §4.4, §4.12): a karigar's slip, a supplier
+    bill. The file is copied into the data folder, so it stays with the data."""
+
+    __tablename__ = "voucher_attachments"
+
+    ref_kind: Mapped[str] = mapped_column(String(24), index=True)   # job_voucher / metal_purchase …
+    ref_no: Mapped[int] = mapped_column(index=True)                 # the voucher number
+    file_name: Mapped[str] = mapped_column(String(200))             # as it was chosen
+    stored_path: Mapped[str] = mapped_column(String(400))
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)

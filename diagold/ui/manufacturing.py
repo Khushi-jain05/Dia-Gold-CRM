@@ -1107,6 +1107,8 @@ class ProcessVoucherWidget(_Screen):
         self.button("Edit", self.edit_voucher, secondary=True)
         self.button("Save", self.save)
         self.button("Delete", self.delete_voucher, secondary=True)
+        if not issue:
+            self.button("Attach Doc", self.attach_doc, secondary=True)
         self.button("F3 Stone", self.f3, secondary=True)
         if issue:
             self.button("F4 Finding", lambda: self._edit_cell("finding"), secondary=True)
@@ -1177,6 +1179,8 @@ class ProcessVoucherWidget(_Screen):
         self._last_vr: int | None = None
         # The saved voucher open for editing (Edit), None on a new one.
         self._edit_vr: int | None = None
+        # Attach Doc on a voucher not saved yet: attached when it saves.
+        self._docs: list[str] = []
         self._process_changed()
 
     # -- header ---------------------------------------------------------
@@ -1297,9 +1301,17 @@ class ProcessVoucherWidget(_Screen):
               "or metal are on it, Delete it and make it again (Add).")
         return True
 
+    def attach_doc(self) -> None:
+        """Attach Doc (legacy receipt header): documents kept with the voucher."""
+        from diagold.ui.attachments import AttachDocDialog
+        vr = self._edit_vr
+        AttachDocDialog("job_voucher", vr, f"Vr {vr}" if vr else "new voucher",
+                        user=self.user, pending=self._docs, parent=self).exec()
+
     def new_voucher(self) -> None:
         """Add: a fresh, empty voucher."""
         self._edit_vr = None
+        self._docs = []
         self.lines = []
         self.narration.clear()
         self.vr_ref.clear()
@@ -1570,6 +1582,9 @@ class ProcessVoucherWidget(_Screen):
                 s.rollback()
                 _warn(self, "Cannot save", str(exc))
                 return
+        from diagold.ui.attachments import attach_pending
+        attach_pending("job_voucher", vr, self._docs, self.user)
+        self._docs = []
         self._last_vr = vr
         n = len(self.lines)
         self.lines = []
