@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMenuBar,
@@ -61,6 +63,8 @@ class MainWindow(QMainWindow):
         # Job History is F11 in the legacy system - a habit worth keeping (UX7).
         QShortcut(QKeySequence("F11"), self,
                   activated=lambda: self._open_by_key("production_planning.job_history"))
+        # "More… (F12)" on the legacy Reports menu: every report in one list.
+        QShortcut(QKeySequence("F12"), self, activated=self._more_reports)
 
         self._open_dashboard()
 
@@ -159,6 +163,56 @@ class MainWindow(QMainWindow):
                 act = target.addAction(label)
                 act.triggered.connect(lambda _c=False, kk=key: self._open_by_key(kk))
                 self._search_targets[f"{label}  —  {group_label} report"] = key
+
+    def _more_reports(self) -> None:
+        """F12: every report, by section, with a search box - Enter or a
+        double-click opens it in its own tab."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("More Reports (F12)")
+        dlg.setMinimumSize(460, 560)
+        lay = QVBoxLayout(dlg)
+        find = QLineEdit()
+        find.setPlaceholderText("Type part of a report name…")
+        lay.addWidget(find)
+        lst = QListWidget()
+        for title, keys in REPORT_MENUS["reports.all_reports"]:
+            head = QListWidgetItem(title or "Reports")
+            head.setFlags(Qt.ItemFlag.NoItemFlags)
+            f = head.font()
+            f.setBold(True)
+            head.setFont(f)
+            lst.addItem(head)
+            for k in keys:
+                key = report_key(k)
+                it = QListWidgetItem("    " + EXTRA_SCREENS.get(key, k))
+                it.setData(Qt.ItemDataRole.UserRole, key)
+                lst.addItem(it)
+        lay.addWidget(lst, 1)
+
+        def filt(text: str) -> None:
+            t = text.strip().lower()
+            first = None
+            for i in range(lst.count()):
+                it = lst.item(i)
+                key = it.data(Qt.ItemDataRole.UserRole)
+                hide = bool(t) and (key is None or t not in it.text().lower())
+                it.setHidden(hide)
+                if not hide and key is not None and first is None:
+                    first = it
+            if first is not None:
+                lst.setCurrentItem(first)
+
+        def go() -> None:
+            it = lst.currentItem()
+            if it is not None and it.data(Qt.ItemDataRole.UserRole):
+                dlg.accept()
+                self._open_by_key(it.data(Qt.ItemDataRole.UserRole))
+
+        find.textChanged.connect(filt)
+        find.returnPressed.connect(go)
+        lst.itemActivated.connect(lambda _it: go())
+        filt("")
+        dlg.exec()
 
     def _build_corner(self) -> QWidget:
         """Menu search and the account menu, at the right end of the tab row -
