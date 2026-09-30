@@ -365,6 +365,9 @@ class JobBagMovement(Base, PKMixin, TimestampMixin):
     ref_kind: Mapped[str] = mapped_column(String(16), default="")   # stone_issue / inv_return
     ref_id: Mapped[int | None] = mapped_column(nullable=True)
     remark: Mapped[str] = mapped_column(String(200), default="")
+    # The issue / receive voucher line that moved these stones (F3 on the
+    # voucher), so deleting the voucher takes them back out again.
+    voucher_id: Mapped[int | None] = mapped_column(nullable=True)
 
     KINDS = ("rcvd", "iss", "rtn", "break", "lost", "back")
 

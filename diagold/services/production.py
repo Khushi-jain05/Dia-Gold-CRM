@@ -16,6 +16,7 @@ talking:
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
@@ -1436,10 +1437,12 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
         who = out.worker_id
     lines = {l.id: l for l in session.scalars(select(JobBagLine).where(
         JobBagLine.id.in_(list((ln.get("stones") or {}).keys()))))}
+    moved: list[JobBagMovement] = []
     try:
         if kind == "receive":
             for line_id, pcs in (ln.get("stones") or {}).items():
-                bag_move(session, lines[line_id], "back", pcs, worker_id=who, mv_date=vr_date)
+                moved.append(bag_move(session, lines[line_id], "back", pcs, worker_id=who,
+                                      mv_date=vr_date))
         extra = {k: ln.get(k) for k in ("scrap", "dust", "rej_pcs", "rej_wt", "stone_wt",
                                         "extra", "finding", "mould", "mt_price", "mt_amt",
                                         "manual_price", "manual_amt", "rej_type", "price_on",
@@ -1455,14 +1458,247 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
                          (allow_loss_pct if kind == "issue" else None), **extra)
         if kind == "issue":
             for line_id, pcs in (ln.get("stones") or {}).items():
-                bag_move(session, lines[line_id], "iss", pcs, worker_id=who, mv_date=vr_date)
+                moved.append(bag_move(session, lines[line_id], "iss", pcs, worker_id=who,
+                                      mv_date=vr_date))
             from diagold.services import inventory as INV
             for m in ln.get("metal") or []:
                 INV.metal_to_job_step(session, v, m["location_id"], m["metal_id"],
                                       m["weight"], m.get("pcs") or 0)
     except ProductionError as exc:
         raise ProductionError(f"Job {job.job_no}: {exc}") from exc
+    for m in moved:
+        m.voucher_id = v.id
+    session.flush()
     return v
+
+
+# --------------------------------------------------------------------------
+# Edit / Delete a saved issue or receive voucher (28 Sept §4.4: Add, Edit,
+# Save, Delete). One voucher number may carry several jobs; it is edited and
+# deleted as a whole, as on the legacy screen.
+# --------------------------------------------------------------------------
+# What may be changed on a saved line. Which jobs are on the voucher, and the
+# stones / metal sent with them (F3 / F5), change only by delete and redo.
+VOUCHER_EDIT_FIELDS = ("pcs", "gross_wt", "net_wt", "stone_wt", "finding", "mould",
+                       "allow_loss_pct", "rej_pcs", "rej_wt", "scrap", "dust", "mt_price",
+                       "mt_amt", "manual_price", "manual_amt", "rej_type", "price_on")
+
+
+def voucher_lines(session: Session, vr_no: int) -> list[JobVoucher]:
+    return list(session.scalars(select(JobVoucher).where(JobVoucher.vr_no == vr_no)
+                                .order_by(JobVoucher.id)))
+
+
+def voucher_rows(session: Session, vr_no: int) -> list[dict[str, Any]]:
+    """A saved voucher laid out like Show Pending rows, to open it on the
+    voucher screen for editing."""
+    rows = []
+    for v in voucher_lines(session, vr_no):
+        job = session.get(Job, v.job_id)
+        step = session.get(JobStep, v.step_id)
+        proc = session.get(ManufacturingProcess, step.process_id) if step else None
+        worker = session.get(Account, v.worker_id)
+        client = session.get(Account, job.account_id) if job.account_id else None
+        order = session.get(Order, job.order_id) if job.order_id else None
+        stones = sum(int(m.pcs or 0) for m in session.scalars(
+            select(JobBagMovement).where(JobBagMovement.voucher_id == v.id)))
+        metal = session.scalar(select(func.sum(StockMovement.weight)).where(
+            StockMovement.ref_kind == VOUCHER_REF, StockMovement.ref_no == v.vr_no,
+            StockMovement.job_id == v.job_id, StockMovement.material_class == "metal"))
+        opt = lambda x: _dec(x) or None
+        rows.append({
+            "_voucher_id": v.id, "_job_id": job.id, "_step_id": v.step_id,
+            "kind": v.kind, "vr_no": v.vr_no, "vr_date": v.vr_date, "vr_time": v.vr_time,
+            "worker_id": v.worker_id, "worker": worker.name if worker else "",
+            "job_no": job.job_no, "sku": job.product_sku.sku_code if job.product_sku else "",
+            "client": client.name if client else "stock",
+            "process": proc.name if proc else "", "process_id": step.process_id if step else None,
+            "weight_bearing": bool(step.weight_bearing) if step else True,
+            "c_ref": job.c_ref, "colour": job.colour,
+            "metal": (session.get(Metal, job.metal_id).name if job.metal_id else ""),
+            "size": _order_line_size(session, job),
+            "order_no": order.order_no if order else "",
+            "order_date": order.order_date if order else None,
+            "ref_no": order.ref if order else "", "vr_ref": v.ref_no, "remark": v.remark,
+            "pcs": v.pcs,
+            "gross": _dec(v.gross_wt) if v.gross_wt is not None else None,
+            "net": _dec(v.net_wt) if v.net_wt is not None else None,
+            "stone_wt": opt(v.stone_wt), "extra": opt(v.extra), "finding": opt(v.finding),
+            "mould": opt(v.mould), "allow": _dec(v.allow_loss_pct)
+            if v.allow_loss_pct is not None else None,
+            "rej_type": v.rej_type, "rej_pcs": v.rej_pcs or None, "rej_wt": opt(v.rej_wt),
+            "scrap": opt(v.scrap), "dust": opt(v.dust), "mt_price": opt(v.mt_price),
+            "mt_amt": opt(v.mt_amt), "manual_price": opt(v.manual_price),
+            "manual_amt": opt(v.manual_amt), "price_on": v.price_on or "NetWt",
+            "saved_stones": stones, "saved_metal": _dec(metal) if metal else ZERO,
+        })
+    return rows
+
+
+def _voucher_image(v: JobVoucher) -> dict[str, Any]:
+    return {c.name: getattr(v, c.name) for c in v.__table__.columns}
+
+
+def update_voucher(session: Session, vr_no: int, lines: dict[int, dict[str, Any]], *,
+                   vr_date: date | None = None, vr_time: str | None = None,
+                   ref_no: str | None = None, remark: str | None = None,
+                   user_id: int | None = None) -> list[JobVoucher]:
+    """Save changes typed over a saved voucher: its date / time / RefNo /
+    narration and, per line ({voucher id: {field: value}}), the weights and
+    prices. Loss and setting labour are worked out again from the new figures."""
+    rows = voucher_lines(session, vr_no)
+    if not rows:
+        raise ProductionError(f"Voucher {vr_no} does not exist.")
+    for v in rows:
+        job = session.get(Job, v.job_id)
+        if job.status == "transferred":
+            raise ProductionError(
+                f"Job {job.job_no} is already in ready stock - delete its stock item in "
+                "Item Search before changing this voucher.")
+    before = [_voucher_image(v) for v in rows]
+    for v in rows:
+        step = session.get(JobStep, v.step_id)
+        job = session.get(Job, v.job_id)
+        ch = lines.get(v.id) or {}
+        for key in VOUCHER_EDIT_FIELDS:
+            if key not in ch:
+                continue
+            val = ch[key]
+            if key in ("pcs", "rej_pcs"):
+                val = int(val or 0)
+            elif key in ("rej_type", "price_on"):
+                val = (val or ("NetWt" if key == "price_on" else ""))[:24]
+            elif key in ("gross_wt", "net_wt"):
+                val = None if val in (None, "") else _dec(val)
+            elif key == "allow_loss_pct":
+                val = None if val in (None, "") else _dec(val)
+                if val is not None and (val < 0 or val >= 100):
+                    raise ProductionError(f"Job {job.job_no}: allowed loss % must be "
+                                          "between 0 and 100.")
+            else:
+                val = _dec(val)
+            setattr(v, key, val)
+        if step.weight_bearing:
+            if v.kind == "receive" and not (v.net_wt and _dec(v.net_wt) > 0):
+                raise ProductionError(f"Job {job.job_no}: this step carries metal - the "
+                                      "net weight received back is required.")
+        elif (v.gross_wt and _dec(v.gross_wt) > 0) or (v.net_wt and _dec(v.net_wt) > 0):
+            raise ProductionError(f"Job {job.job_no}: this step (design only) carries no "
+                                  "metal weight. Leave the weights empty.")
+        if vr_date is not None:
+            v.vr_date = vr_date
+            if v.kind == "receive" and job.status == "complete" and job.steps \
+                    and v.step_id == job.steps[-1].id:
+                job.completed_on = vr_date
+        if vr_time is not None:
+            v.vr_time = vr_time
+        if ref_no is not None:
+            v.ref_no = ref_no[:40]
+        if remark is not None:
+            v.remark = remark[:200]
+    session.flush()
+    for v in rows:
+        if v.kind == "receive":
+            refresh_setting_labour(session, v)
+    from diagold.db.models import DeletionLog
+    session.add(DeletionLog(user_id=user_id, kind="job_voucher_edit",
+                            ref=f"{rows[0].kind.title()} Vr {vr_no}", reason="edited",
+                            before_json=json.dumps({"lines": before}, default=str)))
+    session.flush()
+    return rows
+
+
+def _later_vouchers(session: Session, v: JobVoucher) -> bool:
+    """Anything posted on this job after this voucher's step - a later step
+    issued, or (for an issue) the step already received back."""
+    job = session.get(Job, v.job_id)
+    order = [s.id for s in job.steps]
+    pos = order.index(v.step_id) if v.step_id in order else -1
+    later = order[pos + 1:]
+    if later and session.scalar(select(JobVoucher.id).where(
+            JobVoucher.job_id == job.id, JobVoucher.step_id.in_(later))):
+        return True
+    if v.kind == "issue" and session.scalar(select(JobVoucher.id).where(
+            JobVoucher.kind == "receive", JobVoucher.issue_id == v.id)):
+        return True
+    return False
+
+
+def delete_job_voucher(session: Session, vr_no: int, *, user_id: int | None = None,
+                       reason: str = "") -> list[int]:
+    """Delete a saved issue / receive voucher, every job on it. Stones sent or
+    handed back with it (F3) go back into the bag, metal sent with it (F5)
+    goes back to its location, and a finished job that was received on it is
+    open again. Only the last thing done on each job can be deleted - undo
+    the later steps first. The whole voucher is kept in the deletion log.
+    Returns the job numbers that were on it."""
+    rows = voucher_lines(session, vr_no)
+    if not rows:
+        raise ProductionError(f"Voucher {vr_no} does not exist.")
+    for v in rows:
+        job = session.get(Job, v.job_id)
+        if job.status == "transferred":
+            raise ProductionError(
+                f"Job {job.job_no} is already in ready stock - delete its stock item in "
+                "Item Search first, then this voucher.")
+        if _later_vouchers(session, v):
+            raise ProductionError(
+                f"Job {job.job_no} has moved on since Vr {vr_no} "
+                f"({'it was received back' if v.kind == 'issue' else 'a later step was issued'}"
+                ") - delete the later voucher first.")
+        if v.kind == "issue" and session.scalar(select(JobBagMovement.id).where(
+                JobBagMovement.kind == "back", JobBagMovement.ref_kind == VOUCHER_REF,
+                JobBagMovement.ref_id == v.id)):
+            raise ProductionError(
+                f"Job {job.job_no}: stones have already come back from this issue - "
+                "take them off in Job Card Bag first.")
+    image = {"lines": [_voucher_image(v) for v in rows], "stones": [], "metal": []}
+    jobs = []
+    for v in rows:
+        job = session.get(Job, v.job_id)
+        jobs.append(job.job_no)
+        # F3 stones posted with this line leave the bag ledger again.
+        for m in session.scalars(select(JobBagMovement).where(
+                JobBagMovement.voucher_id == v.id)).all():
+            image["stones"].append({c.name: getattr(m, c.name) for c in m.__table__.columns})
+            line = m.line
+            session.delete(m)
+            session.flush()
+            session.refresh(line)
+            if bag_row(line)["bal"][0] < 0:
+                raise ProductionError(
+                    f"Job {job.job_no}: the stones handed back on Vr {vr_no} have already "
+                    "been returned to stock - reverse that in Job Card Bag first.")
+        if v.kind == "issue":
+            # Stones issued from Job Card Bag and claimed by this issue are
+            # still with the karigar; they wait for the next issue to him.
+            for m in session.scalars(select(JobBagMovement).where(
+                    JobBagMovement.ref_kind == VOUCHER_REF, JobBagMovement.ref_id == v.id)):
+                m.ref_kind, m.ref_id = "", None
+            # F5 metal goes back to the location it came from.
+            for m in session.scalars(select(StockMovement).where(
+                    StockMovement.ref_kind == VOUCHER_REF, StockMovement.ref_no == v.vr_no,
+                    StockMovement.job_id == v.job_id)).all():
+                image["metal"].append({c.name: getattr(m, c.name)
+                                       for c in m.__table__.columns})
+                row = stock_row(session, m.location_id, m.material_class, m.ref_id,
+                                m.size, m.ref_text)
+                if row is not None:
+                    row.pcs = int(row.pcs) - int(m.pcs)
+                    row.weight = (_dec(row.weight) - _dec(m.weight)).quantize(D4)
+                session.delete(m)
+        session.delete(v)
+        session.flush()
+        if job.status == "complete":
+            job.status, job.completed_on = "in_progress", None
+        if not session.scalar(select(JobVoucher.id).where(JobVoucher.job_id == job.id)):
+            job.status = "mapped"
+    from diagold.db.models import DeletionLog
+    session.add(DeletionLog(user_id=user_id, kind="job_voucher",
+                            ref=f"{rows[0].kind.title()} Vr {vr_no}", reason=reason,
+                            before_json=json.dumps(image, default=str)))
+    session.flush()
+    return jobs
 
 
 def pending_stone_jobs(session: Session) -> list[dict[str, Any]]:

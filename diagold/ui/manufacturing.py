@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy import func, select
 
-from diagold.db.models import (Account, Job, JobVoucher, ManufacturingProcess, Metal,
+from diagold.db.models import (Account, Job, JobStep, JobVoucher, ManufacturingProcess, Metal,
                                MfgTransfer, StockItem)
 from diagold.db.session import SessionLocal
 from diagold.services import manufacturing as mfg
@@ -849,6 +849,13 @@ class ProcessVoucherWidget(_Screen):
     lists only the jobs waiting for this process; F3 / F5 work on the
     selected line, as on the legacy voucher."""
 
+    # Grid column -> the saved voucher's field, for Edit.
+    EDIT_FIELDS = {"pcs": "pcs", "gross": "gross_wt", "net": "net_wt", "stone_wt": "stone_wt",
+                   "finding": "finding", "mould": "mould", "allow": "allow_loss_pct",
+                   "rej_type": "rej_type", "rej_pcs": "rej_pcs", "rej_wt": "rej_wt",
+                   "scrap": "scrap", "dust": "dust", "mt_price": "mt_price",
+                   "manual_price": "manual_price", "manual_amt": "manual_amt"}
+
     def __init__(self, kind: str, user=None, parent=None):
         self.kind = kind
         issue = kind == "issue"
@@ -900,7 +907,10 @@ class ProcessVoucherWidget(_Screen):
         self.photo.mousePressEvent = lambda _e: self._enlarge_photo()
         self.toolbar.addWidget(self.photo)
         self.button("Show Pending", self.show_pending, primary=True)
+        self.button("Add", self.new_voucher, secondary=True)
+        self.button("Edit", self.edit_voucher, secondary=True)
         self.button("Save", self.save)
+        self.button("Delete", self.delete_voucher, secondary=True)
         self.button("F3 Stone", self.f3, secondary=True)
         if issue:
             self.button("F4 Finding", lambda: self._edit_cell("finding"), secondary=True)
@@ -969,6 +979,8 @@ class ProcessVoucherWidget(_Screen):
         legend.setObjectName("Muted")
         self.outer.addWidget(legend)
         self._last_vr: int | None = None
+        # The saved voucher open for editing (Edit), None on a new one.
+        self._edit_vr: int | None = None
         self._process_changed()
 
     # -- header ---------------------------------------------------------
@@ -980,8 +992,11 @@ class ProcessVoucherWidget(_Screen):
         self.refresh()
 
     def refresh(self) -> None:
-        with SessionLocal() as s:
-            self.vr.setText(str(production.next_number(s, JobVoucher.vr_no)))
+        if self._edit_vr is not None:
+            self.vr.setText(f"{self._edit_vr} (editing)")
+        else:
+            with SessionLocal() as s:
+                self.vr.setText(str(production.next_number(s, JobVoucher.vr_no)))
         self._render()
         self._worker_changed()
 
@@ -1034,6 +1049,8 @@ class ProcessVoucherWidget(_Screen):
 
     # -- lines ----------------------------------------------------------
     def show_pending(self) -> None:
+        if self._editing_blocked():
+            return
         with SessionLocal() as s:
             rows = production.pending_steps(s, self.kind, self.process.currentData(),
                                             worker_id=self.worker.currentData()
@@ -1075,6 +1092,133 @@ class ProcessVoucherWidget(_Screen):
                 self.lines.append(r)
         self._render()
 
+    # -- Add / Edit / Delete a saved voucher (28 Sept §4.4) -----------
+    def _editing_blocked(self) -> bool:
+        if self._edit_vr is None:
+            return False
+        _info(self, "Edit", f"Vr {self._edit_vr} is open for editing - only its weights, "
+              "prices, date, RefNo and narration can change. To change which jobs, stones "
+              "or metal are on it, Delete it and make it again (Add).")
+        return True
+
+    def new_voucher(self) -> None:
+        """Add: a fresh, empty voucher."""
+        self._edit_vr = None
+        self.lines = []
+        self.narration.clear()
+        self.vr_ref.clear()
+        self.refresh()
+
+    def _pick_voucher(self, title: str) -> int | None:
+        """The saved vouchers of this kind (this process first), newest on top."""
+        with SessionLocal() as s:
+            rows = s.execute(
+                select(JobVoucher.vr_no, JobVoucher.vr_date, JobVoucher.worker_id,
+                       JobVoucher.step_id, Job.job_no)
+                .join(Job, Job.id == JobVoucher.job_id)
+                .where(JobVoucher.kind == self.kind)
+                .order_by(JobVoucher.vr_no.desc(), JobVoucher.id).limit(1000)).all()
+            procs = {sid: pid for sid, pid in s.execute(
+                select(JobStep.id, JobStep.process_id).where(
+                    JobStep.id.in_({r.step_id for r in rows})))}
+            names = {a.id: a.name for a in s.scalars(select(Account))}
+            pnames = {p.id: p.name for p in s.scalars(select(ManufacturingProcess))}
+        vouchers: dict[int, dict] = {}
+        for r in rows:
+            v = vouchers.setdefault(r.vr_no, {"date": r.vr_date, "worker": names.get(r.worker_id, ""),
+                                              "process_id": procs.get(r.step_id), "jobs": []})
+            v["jobs"].append(str(r.job_no))
+        this = self.process.currentData()
+        order = sorted(vouchers, key=lambda n: (vouchers[n]["process_id"] != this, -n))
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumSize(640, 420)
+        lay = QVBoxLayout(dlg)
+        find = QLineEdit()
+        find.setPlaceholderText("Vr No, job no, karigar or process…")
+        lay.addWidget(find)
+        lst = QListWidget()
+        for n in order:
+            v = vouchers[n]
+            it = QListWidgetItem(
+                f"Vr {n}   {v['date']:%d-%m-%Y}   {pnames.get(v['process_id'], '')}   "
+                f"{v['worker']}   job {', '.join(v['jobs'])}")
+            it.setData(Qt.ItemDataRole.UserRole, n)
+            lst.addItem(it)
+        if not lst.count():
+            _info(self, title, "No voucher of this kind has been saved yet.")
+            return None
+        lst.setCurrentRow(0)
+        find.textChanged.connect(lambda t: [lst.item(i).setHidden(
+            t.strip().lower() not in lst.item(i).text().lower()) for i in range(lst.count())])
+        lst.itemDoubleClicked.connect(lambda _it: dlg.accept())
+        lay.addWidget(lst, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted or lst.currentItem() is None:
+            return None
+        return lst.currentItem().data(Qt.ItemDataRole.UserRole)
+
+    def edit_voucher(self) -> None:
+        """Edit: open a saved voucher, change its figures, Save."""
+        vr = self._pick_voucher("Edit — open a saved voucher")
+        if vr is None:
+            return
+        with SessionLocal() as s:
+            rows = production.voucher_rows(s, vr)
+        if not rows:
+            return
+        first = rows[0]
+        self._edit_vr = None
+        self.lines = []
+        i = self.process.findData(first["process_id"])
+        if i >= 0:
+            self.process.setCurrentIndex(i)
+        if self.kind == "issue":
+            i = self.worker.findData(first["worker_id"])
+            if i >= 0:
+                self.worker.setCurrentIndex(i)
+        self.date.setDate(_qdate(first["vr_date"]))
+        self.time.setText(first["vr_time"] or "")
+        self.vr_ref.setText(first["vr_ref"] or "")
+        self.narration.setText(first["remark"] or "")
+        for r in rows:
+            r["stones"], r["metal_lines"] = {}, []
+        self.lines = rows
+        self._edit_vr = self._last_vr = vr
+        self.refresh()
+        self.totals.setText(f"Editing Vr {vr} - change the green cells and Save.")
+
+    def delete_voucher(self) -> None:
+        """Delete: the voucher open for editing, or one picked from the list."""
+        vr = self._edit_vr or self._pick_voucher("Delete — pick the voucher")
+        if vr is None:
+            return
+        with SessionLocal() as s:
+            jobs = [str(r.job_no) for r in s.execute(
+                select(Job.job_no).join(JobVoucher, JobVoucher.job_id == Job.id)
+                .where(JobVoucher.vr_no == vr))]
+        if QMessageBox.question(
+                self, "Delete",
+                f"Delete Vr {vr} (job {', '.join(jobs)})?\n\nThe jobs go back to pending "
+                "for this step; stones and metal sent with it go back. It is kept in the "
+                "deletion log.") != QMessageBox.StandardButton.Yes:
+            return
+        with SessionLocal() as s:
+            try:
+                production.delete_job_voucher(s, vr, user_id=getattr(self.user, "id", None))
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot delete", str(exc))
+                return
+        self.new_voucher()
+        self._last_vr = None
+        self.totals.setText(f"Vr {vr} deleted.")
+
     def _render(self) -> None:
         self.grid.blockSignals(True)
         self.grid.setRowCount(0)
@@ -1083,7 +1227,14 @@ class ProcessVoucherWidget(_Screen):
             r = self.grid.rowCount()
             self.grid.insertRow(r)
             for c, (key, _h, editable) in enumerate(self.cols):
-                if key == "f3f5":
+                if key == "f3f5" and self._edit_vr is not None:
+                    parts = []
+                    if ln.get("saved_stones"):
+                        parts.append(f"{ln['saved_stones']} st")
+                    if ln.get("saved_metal"):
+                        parts.append(f"{ln['saved_metal']} g")
+                    v = " · ".join(parts)
+                elif key == "f3f5":
                     parts = []
                     if ln.get("stones"):
                         parts.append(f"{sum(ln['stones'].values())} st")
@@ -1101,6 +1252,8 @@ class ProcessVoucherWidget(_Screen):
                                                    "manual_amt"))
                 if key == "extra" and ln.get("metal_lines"):
                     edit = False        # F5 metal is the extra metal on this line
+                if self._edit_vr is not None and key not in self.EDIT_FIELDS:
+                    edit = False
                 it = _item(v if v is not None else "", TINT_RECEIVE if edit else None,
                            right=key not in ("sku", "c_ref", "metal", "colour", "worker",
                                              "client", "ref_no", "f3f5", "size",
@@ -1146,12 +1299,16 @@ class ProcessVoucherWidget(_Screen):
         return rows[0].row()
 
     def remove_line(self) -> None:
+        if self._editing_blocked():
+            return
         r = self._selected()
         if r is not None:
             self.lines.pop(r)
             self._render()
 
     def f3(self) -> None:
+        if self._editing_blocked():
+            return
         r = self._selected()
         if r is None:
             return
@@ -1164,6 +1321,8 @@ class ProcessVoucherWidget(_Screen):
             self._render()
 
     def f5(self) -> None:
+        if self._editing_blocked():
+            return
         r = self._selected()
         if r is None:
             return
@@ -1181,6 +1340,9 @@ class ProcessVoucherWidget(_Screen):
         issue = self.kind == "issue"
         if issue and not self.worker.currentData():
             _info(self, "Save", "Choose the karigar (Account).")
+            return
+        if self._edit_vr is not None:
+            self._save_edit()
             return
         what = (f"issue of {len(self.lines)} job(s) to {self.worker.currentText()}" if issue
                 else f"receipt of {len(self.lines)} job(s)")
@@ -1219,6 +1381,31 @@ class ProcessVoucherWidget(_Screen):
         self.vr_ref.clear()
         self.refresh()
         self.totals.setText(f"Saved Vr {vr}: {n} job(s). Print Voucher prints it.")
+
+    def _save_edit(self) -> None:
+        vr = self._edit_vr
+        if not confirm_save(self, f"the changes to Vr {vr}"):
+            return
+        changes = {}
+        for ln in self.lines:
+            ch = {field: ln.get(key) for key, field in self.EDIT_FIELDS.items()}
+            ch["mt_amt"] = ln.get("mt_amt")
+            changes[ln["_voucher_id"]] = ch
+        with SessionLocal() as s:
+            try:
+                production.update_voucher(
+                    s, vr, changes, vr_date=_pydate(self.date),
+                    vr_time=self.time.text().strip(), ref_no=self.vr_ref.text().strip(),
+                    remark=self.narration.text().strip(),
+                    user_id=getattr(self.user, "id", None))
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot save", str(exc))
+                return
+        self.new_voucher()
+        self._last_vr = vr
+        self.totals.setText(f"Vr {vr} updated. Print Voucher prints it.")
 
     def print_voucher(self) -> None:
         if self._last_vr is None:
