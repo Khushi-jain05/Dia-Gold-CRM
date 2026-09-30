@@ -41,6 +41,10 @@ Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping
 - **28 Sep Q17** We show **"Fine With Loss"** as FineWt × (1 + Loss%). Is that how the legacy screen works it out?
 - **28 Sep Q18** Item Search **"Delete SKU also"**: does it remove the Product SKU master itself, or only this SKU's stock entry? (Not built - it deletes a master.)
 - **28 Sep Q19** Tag List **"Diamond Tag"**: what is different on a diamond tag? ("Detail" is built to print the Dia / Polki / CS carats.)
+- **28 Sep Q20** Issue voucher **"P.O."** button: what does it print or open?
+- **28 Sep Q21** Stone Receipt **"Read Cert/Lot Here"**: what gets scanned there (certificate no., lot no.) and what should it fill in?
+- **28 Sep Q22** Job History **"Other Wt"** on the receive side: which weight goes there?
+- **28 Sep Q23** MFG Transfer **"Format-2"** print: please share one sample so ours matches (for now it prints each piece with its cost break-up).
 - **28 Sep C-05** Exports now also of **transactions**: open job cards, job bags, worker metal balances, location balances, stock with stock numbers.
 
 **Production Planning reports (18 Sept) — five one-line answers**

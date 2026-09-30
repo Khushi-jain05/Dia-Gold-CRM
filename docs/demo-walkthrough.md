@@ -115,6 +115,22 @@ Try the hot-keys on any weight-bearing process. Select a line first, then:
 - Every save asks "Save? Yes / No". This can be switched off in Tools ▸ Option.
 - **Show Pending** appears on the Issue, Received, MFG Transfer, Job History, Job Card Bag, Stone Issue and Inv Return screens.
 
+## 8. Edit, delete and the other voucher buttons
+
+| # | Where | Do | You should see |
+|---|---|---|---|
+| 8.1 | Manufacturing ▸ Received, process HandMade | Receive 28855 (14.300), Save. Then **Edit**, pick that voucher, change NetWt to 14.200, Save | Job History 28855 shows the HandMade receipt at 14.200. |
+| 8.2 | same | **Delete**, pick the voucher, Yes | 28855 is back in Show Pending for HandMade, with PRASENJIT. |
+| 8.3 | Manufacturing ▸ Issue | Issue a job, then Delete the voucher of the step *before* it | Refused: "delete the later voucher first". |
+| 8.4 | Manufacturing ▸ Received | **Attach Doc** before Save, add a file, then Save | Edit the voucher, Attach Doc: the file is listed and opens. |
+| 8.5 | Manufacturing ▸ MFG Transfer | After 5.7, **Edit**, pick the transfer, set Margin % to 40, Save | Price **1,84,335.91**, tag **184**, same Stock No. |
+| 8.6 | same | **Format-2** | A PDF: one block per piece with metal, each stone, labour, margin, price. |
+| 8.7 | same | **Delete**, pick the transfer | The piece leaves stock; 28856 is back in Pending for MFG Transfer. |
+| 8.8 | Inventory ▸ Metal ▸ Issue Outside / Worker | **Check Bal**, pick CHAND KUMAR HAZRA | Mt Bal 1.090 g / fine 0.643; 14KT 590 balance 0.590; RAJESH JI 199.375 in stock. |
+| 8.9 | Inventory ▸ Stone ▸ Issue Outside / Worker, then Receipt | Issue 10 Polki to CHAND, receive 4 back, then **Show O/S** on Receipt | 6 pcs / 0.480 ct outstanding. Tick it, OK: a new receipt opens filled in. |
+| 8.10 | anywhere | **F12** | More Reports: type "worker metal", Enter opens Worker Metal Ledger. |
+| 8.11 | Reports ▸ Inventory ▸ Account Ledger | FY dates | Purchase A/c Dr **1,24,64,400** (MP 1); SHRIKANT Cr **1,24,64,400**. |
+
 ## Menu items marked "to be explained"
 
 These are placeholders because the client has not yet said what they do (C-04):

@@ -28,6 +28,14 @@ a copy of the working database.
 - "Save? Yes / No" before every save (switch in Tools ▸ Option).
 - Lists always span their box — no blank strip after the last column.
 - Orders list shows Terms, Priority and Remark (they were saved but hidden from the list).
+- **30 Sept, closing the gaps found by re-reading the PDF line by line:**
+  - Issue / Received vouchers: **Add, Edit, Delete** a saved voucher. Edit changes weights, prices, date, RefNo and narration. Delete undoes the whole voucher (F3 stones and F5 metal go back, the job returns to pending) when nothing later has been done on its jobs. Both are kept in the deletion log.
+  - MFG Transfer: **Add, Edit, Delete** a saved transfer (Edit re-prices; the Stock Nos stay), and **Format-2**, a per-piece print with the cost break-up.
+  - **Attach Doc** on Received From <Process> and on every Inventory voucher.
+  - Metal Issue: **Check Bal** (the karigar's Mt Bal and metal balance, and the stock at each location).
+  - Stone Receipt: **Show O/S**. Stones out with a worker; the ticked lines open a new receipt.
+  - **F12**: More Reports.
+  - Purchases post **Dr Purchase A/c / Cr supplier**; new **Account Ledger** report.
 - **Demo data to try the whole flow:** `python -m diagold.demo` opens the app on its own database; `docs/demo-walkthrough.md` lists every step and the figure it should show.
 
 ## Client (C-01 … C-05) and open questions (Q1 … Q14)
@@ -43,3 +51,7 @@ are new ones found while building:
 - **Q17** "Fine With Loss" = FineWt × (1 + Loss%)?
 - **Q18** Item Search "Delete SKU also" — delete the Product SKU master?
 - **Q19** Tag List "Diamond Tag" — what changes on the tag?
+- **Q20** Issue voucher "P.O." button — what does it print or open?
+- **Q21** Stone Receipt "Read Cert/Lot Here" — what is scanned (a certificate no., a lot no.), and what should it fill in?
+- **Q22** Job History "Other Wt" (receive side) — which weight is it?
+- **Q23** MFG Transfer "Format-2" — a sample print, so ours matches it (built for now as a per-piece cost break-up).
