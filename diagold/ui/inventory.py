@@ -12,7 +12,10 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (QAbstractItemView, QDialog, QLabel, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget)
 
 from diagold.db.models import Account, InvVoucher, InvVoucherLine, Location, Metal, StoneSku
 from diagold.services import inventory as INV
@@ -203,14 +206,93 @@ def voucher_spec(vr_type: str) -> CrudSpec:
         AttachDocDialog(vr_type, selected.vr_no, f"{vt.title} Vr {selected.vr_no}",
                         parent=widget).exec()
 
+    buttons = [("Print", print_voucher), ("Attach Doc", attach_doc)]
+    if vr_type == "metal_issue":
+        buttons.insert(0, ("Check Bal", lambda w, sel: CheckBalDialog(
+            sel.account_id if sel is not None else None, w).exec()))
     return CrudSpec(
         key=f"inventory.{vr_type}", title=vt.title, model=InvVoucher, fields=head,
-        extra_buttons=[("Print", print_voucher), ("Attach Doc", attach_doc)],
+        extra_buttons=buttons,
         order_by="-vr_no", date_field="vr_date", search_hint="Search by ref, narration…",
         editable=False, before_save=prepare, after_save=saved, validate=validate,
         warn=warn, before_delete=before_delete, fixed={"vr_type": vr_type},
         form_width=1180, singular_title=vt.title,
     )
+
+
+class CheckBalDialog(QDialog):
+    """Check Bal (legacy Metal Issue header): what the karigar holds and what
+    each location has in stock, before metal is issued."""
+
+    def __init__(self, account_id: int | None = None, parent=None):
+        super().__init__(parent)
+        from PySide6.QtWidgets import QComboBox, QHBoxLayout
+        from sqlalchemy import select
+
+        from diagold.db.session import SessionLocal
+        self.setWindowTitle("Check Bal")
+        self.setMinimumSize(760, 520)
+        lay = QVBoxLayout(self)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Account"))
+        self.account = QComboBox()
+        self.account.addItem("(choose the karigar)", None)
+        with SessionLocal() as s:
+            for a in s.scalars(select(Account).where(Account.account_type == "Worker")
+                               .order_by(Account.name)):
+                self.account.addItem(a.name, a.id)
+        if account_id:
+            i = self.account.findData(account_id)
+            if i >= 0:
+                self.account.setCurrentIndex(i)
+        self.account.currentIndexChanged.connect(lambda _i: self._load())
+        row.addWidget(self.account, 1)
+        lay.addLayout(row)
+        self.bal = QLabel("")
+        self.bal.setObjectName("H2")
+        lay.addWidget(self.bal)
+        self.metals = self._grid(["Metal", "Issued", "Received", "Wastage", "Balance", "Fine"])
+        lay.addWidget(QLabel("Karigar's Inventory balance by metal"))
+        lay.addWidget(self.metals, 1)
+        lay.addWidget(QLabel("Stock in hand by location"))
+        self.stock = self._grid(["Location", "Metal", "Weight", "Fine"])
+        lay.addWidget(self.stock, 2)
+        self._load()
+
+    @staticmethod
+    def _grid(heads: list[str]) -> QTableWidget:
+        from diagold.ui.crud import auto_fit
+        t = QTableWidget(0, len(heads))
+        t.setHorizontalHeaderLabels(heads)
+        t.verticalHeader().setVisible(False)
+        t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        return auto_fit(t)
+
+    @staticmethod
+    def _fill(t: QTableWidget, rows: list[list], red: list[bool]) -> None:
+        t.setRowCount(0)
+        for vals, neg in zip(rows, red):
+            r = t.rowCount()
+            t.insertRow(r)
+            for c, v in enumerate(vals):
+                it = QTableWidgetItem(str(v))
+                if isinstance(v, Decimal):
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                if neg:
+                    it.setForeground(QColor("#B42318"))
+                t.setItem(r, c, it)
+
+    def _load(self) -> None:
+        from diagold.db.session import SessionLocal
+        with SessionLocal() as s:
+            d = INV.check_balance(s, self.account.currentData())
+        self.bal.setText(f"{d['worker']}: Mt Bal {d['bal_wt']:.3f} g / fine {d['bal_fine']:.3f}"
+                         if d["worker"] else "Choose the karigar to see what he holds.")
+        self._fill(self.metals, [[r["metal"], r["issued"], r["received"], r["wastage"],
+                                  r["balance"], r["fine"]] for r in d["per_metal"]],
+                   [r["_negative"] for r in d["per_metal"]])
+        self._fill(self.stock, [[r["location"], r["metal"], r["weight"], r["fine"]]
+                                for r in d["stock"]], [r["_negative"] for r in d["stock"]])
 
 
 class _NotYet(QWidget):

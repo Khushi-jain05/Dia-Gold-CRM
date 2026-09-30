@@ -33,6 +33,7 @@ from diagold.db.models import (
     InvVoucher,
     InvVoucherLine,
     Location,
+    MaterialStock,
     Metal,
     StockMovement,
     StoneSku,
@@ -357,6 +358,34 @@ def worker_balances(session: Session, date_to: date) -> list[dict[str, Any]]:
                      "fine": a["fine"].quantize(D3), "_negative": bal < 0})
     rows.sort(key=lambda r: (r["worker"].lower(), r["metal"].lower()))
     return rows
+
+
+def check_balance(session: Session, account_id: int | None,
+                  on_date: date | None = None) -> dict[str, Any]:
+    """Check Bal on Metal Issue (28 Sept §4.12): before issuing, what the
+    karigar already holds - the Worker Metal Ledger closing and, per metal,
+    the Inventory issue / receipt balance - and what each location has in
+    stock to issue from."""
+    on_date = on_date or date.today()
+    acct = session.get(Account, account_id) if account_id else None
+    wt = fine = ZERO
+    per_metal = []
+    if acct is not None:
+        wt, fine = production.worker_metal_balance(session, acct.id, on_date)
+        per_metal = [r for r in worker_balances(session, on_date) if r["worker"] == acct.name]
+    stock = []
+    for row in session.scalars(select(MaterialStock).where(
+            MaterialStock.material_class == "metal", MaterialStock.weight != 0)):
+        loc = session.get(Location, row.location_id)
+        metal = session.get(Metal, row.ref_id) if row.ref_id else None
+        stock.append({"location": loc.name if loc else "?",
+                      "metal": metal.name if metal else row.ref_text,
+                      "weight": _dec(row.weight).quantize(D3),
+                      "fine": line_fine(session, row.ref_id, row.weight).quantize(D3),
+                      "_negative": _dec(row.weight) < 0})
+    stock.sort(key=lambda r: (r["location"].lower(), r["metal"].lower()))
+    return {"worker": acct.name if acct else "", "bal_wt": wt, "bal_fine": fine,
+            "per_metal": per_metal, "stock": stock}
 
 
 def day_book(session: Session, date_from: date, date_to: date,
