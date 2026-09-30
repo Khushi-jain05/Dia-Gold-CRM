@@ -370,6 +370,9 @@ class MfgTransferWidget(_Screen):
         self._job_ids: list[int] = []
         self._last_transfer: int | None = None
         self._filling = False
+        # A saved transfer open for editing, and what was typed on its lines.
+        self._edit_tid: int | None = None
+        self._seed: dict[int, dict[str, Any]] = {}
 
         self.vr = QLabel("")
         self.vr.setObjectName("H2")
@@ -385,11 +388,15 @@ class MfgTransferWidget(_Screen):
         self.toolbar.addStretch(1)
         self.button("Show Pending", self.show_pending, primary=True)
         self.button("Fill Prices", self.fill_prices)
+        self.button("Add", self.new_transfer, secondary=True)
+        self.button("Edit", self.edit_transfer, secondary=True)
         self.button("Save", self.save)
+        self.button("Delete", self.delete_transfer, secondary=True)
         self.button("Remove Line", self.remove_line, secondary=True)
         self.button("Cost Break-up", self.show_breakup, secondary=True)
         self.button("Tag List", self.tag_list, secondary=True)
         self.button("Print", self.print_transfer, secondary=True)
+        self.button("Format-2", self.print_format2, secondary=True)
         self.button("Excel", self.export_excel, secondary=True)
         self.button("Item Search",
                     lambda: self.open_requested.emit("manufacturing.item_search"),
@@ -420,10 +427,117 @@ class MfgTransferWidget(_Screen):
     # -- data ---------------------------------------------------------
     def refresh(self) -> None:
         with SessionLocal() as s:
+            if self._edit_tid is not None:
+                t = s.get(MfgTransfer, self._edit_tid)
+                self.vr.setText(f"{t.vr_no} (editing)" if t else "")
+                return
             nxt = production.next_number(s, MfgTransfer.vr_no)
         self.vr.setText(f"{nxt}")
 
+    # -- Add / Edit / Delete a saved transfer (28 Sept §4.9) ----------
+    def _editing_blocked(self) -> bool:
+        if self._edit_tid is None:
+            return False
+        _info(self, "Edit", "A saved transfer is open for editing - change the green cells "
+              "and Save. To take a piece off it, delete that piece in Item Search; to add "
+              "jobs, make a new transfer (Add).")
+        return True
+
+    def new_transfer(self) -> None:
+        self._edit_tid, self._seed = None, {}
+        self._job_ids, self._results = [], {}
+        self.grid.setRowCount(0)
+        self.ref.clear()
+        self.refresh()
+        self.totals.setText("No jobs on this transfer yet - Show Pending.")
+
+    def _pick_transfer(self, title: str) -> int | None:
+        with SessionLocal() as s:
+            rows = []
+            for t in s.scalars(select(MfgTransfer).order_by(MfgTransfer.vr_no.desc())
+                               .limit(500)):
+                jobs = [str(s.get(Job, l.job_id).job_no) for l in t.lines]
+                rows.append((t.id, f"Vr {t.vr_no}   {t.vr_date:%d-%m-%Y}   "
+                             f"{t.ref_no or ''}   job {', '.join(jobs)}"))
+        if not rows:
+            _info(self, title, "No MFG transfer has been saved yet.")
+            return None
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumSize(560, 400)
+        lay = QVBoxLayout(dlg)
+        find = QLineEdit()
+        find.setPlaceholderText("Vr No, job no or ref…")
+        lay.addWidget(find)
+        lst = QListWidget()
+        for tid, text in rows:
+            it = QListWidgetItem(text)
+            it.setData(Qt.ItemDataRole.UserRole, tid)
+            lst.addItem(it)
+        lst.setCurrentRow(0)
+        find.textChanged.connect(lambda t: [lst.item(i).setHidden(
+            t.strip().lower() not in lst.item(i).text().lower()) for i in range(lst.count())])
+        lst.itemDoubleClicked.connect(lambda _it: dlg.accept())
+        lay.addWidget(lst, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted or lst.currentItem() is None:
+            return None
+        return lst.currentItem().data(Qt.ItemDataRole.UserRole)
+
+    def edit_transfer(self) -> None:
+        tid = self._pick_transfer("Edit — open a saved transfer")
+        if tid is None:
+            return
+        with SessionLocal() as s:
+            t = s.get(MfgTransfer, tid)
+            self._seed = mfg.transfer_overrides(t)
+            self._job_ids = [l.job_id for l in t.lines]
+            vr_date, ref = t.vr_date, t.ref_no
+        self._edit_tid = self._last_transfer = tid
+        self.date.blockSignals(True)
+        self.date.setDate(_qdate(vr_date))
+        self.date.blockSignals(False)
+        self.ref.setText(ref or "")
+        self.grid.setRowCount(0)
+        self.refresh()
+        self.fill_prices()
+        self.totals.setText(self.totals.text() + "    <b>Editing</b> - change the green "
+                            "cells and Save; the pieces keep their Stock Nos.")
+
+    def delete_transfer(self) -> None:
+        tid = self._edit_tid or self._pick_transfer("Delete — pick the transfer")
+        if tid is None:
+            return
+        with SessionLocal() as s:
+            t = s.get(MfgTransfer, tid)
+            vr = t.vr_no
+            nos = [str(i.stock_no) for i in mfg.stock_for_transfer(s, t)]
+        if QMessageBox.question(
+                self, "Delete",
+                f"Delete MFG Transfer Vr {vr}?\n\nStock No {', '.join(nos)} leave stock and "
+                "the jobs go back to Pending for MFG Transfer. Everything is kept in the "
+                "deletion log.") != QMessageBox.StandardButton.Yes:
+            return
+        with SessionLocal() as s:
+            try:
+                mfg.delete_transfer(s, s.get(MfgTransfer, tid),
+                                    user_id=getattr(self.user, "id", None))
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot delete", str(exc))
+                return
+        self.new_transfer()
+        self._last_transfer = None
+        self.totals.setText(f"MFG Transfer Vr {vr} deleted - its jobs are pending again.")
+
     def show_pending(self) -> None:
+        if self._editing_blocked():
+            return
         dlg = PendingPicker(set(self._job_ids), self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
@@ -446,7 +560,7 @@ class MfgTransferWidget(_Screen):
         }
 
     def fill_prices(self, keep_overrides: bool = True) -> None:
-        overrides = {}
+        overrides = dict(self._seed)
         if keep_overrides:
             for r, jid in enumerate(self._job_ids):
                 if r < self.grid.rowCount():
@@ -537,6 +651,8 @@ class MfgTransferWidget(_Screen):
             self.fill_prices()
 
     def remove_line(self) -> None:
+        if self._editing_blocked():
+            return
         rows = self.grid.selectionModel().selectedRows()
         if not rows:
             _info(self, "Remove Line", "Select a line first.")
@@ -562,9 +678,12 @@ class MfgTransferWidget(_Screen):
         if not self._job_ids:
             _info(self, "Save", "Show Pending and pick the jobs to transfer first.")
             return
+        lines = [{"job_id": jid, **self._overrides(r)} for r, jid in enumerate(self._job_ids)]
+        if self._edit_tid is not None:
+            self._save_edit(lines)
+            return
         if not confirm_save(self, f"MFG transfer of {len(self._job_ids)} job(s)"):
             return
-        lines = [{"job_id": jid, **self._overrides(r)} for r, jid in enumerate(self._job_ids)]
         with SessionLocal() as s:
             try:
                 t = mfg.post_transfer(s, lines, vr_date=_pydate(self.date),
@@ -584,6 +703,83 @@ class MfgTransferWidget(_Screen):
         self.refresh()
         self.totals.setText(f"Saved Vr {vr}: Stock No {', '.join(map(str, nos))} in Primary.")
         TagListDialog(tid, self).exec()
+
+    def _save_edit(self, lines: list[dict[str, Any]]) -> None:
+        tid = self._edit_tid
+        if not confirm_save(self, "the changes to this MFG transfer"):
+            return
+        with SessionLocal() as s:
+            try:
+                t = mfg.update_transfer(s, s.get(MfgTransfer, tid), lines,
+                                        vr_date=_pydate(self.date),
+                                        ref_no=self.ref.text().strip(),
+                                        user_id=getattr(self.user, "id", None))
+                s.commit()
+                vr = t.vr_no
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot save", str(exc))
+                return
+        self.new_transfer()
+        self._last_transfer = tid
+        self.totals.setText(f"MFG Transfer Vr {vr} updated. Tag List reprints its tags.")
+
+    def print_format2(self) -> None:
+        """Format-2: the saved transfer piece by piece - one block per job with
+        its cost break-up (metal, each stone, labour, margin, price, tag)."""
+        from diagold.services import documents
+        tid = self._edit_tid or self._last_transfer
+        with SessionLocal() as s:
+            if tid is None:
+                tid = s.scalar(select(func.max(MfgTransfer.id)))
+            if tid is None:
+                _info(self, "Format-2", "No MFG transfer has been saved yet.")
+                return
+            t = s.get(MfgTransfer, tid)
+            import json as _json
+            parts = [f"<h2>MFG Ready Stock Transfer — Vr {t.vr_no} dt {t.vr_date:%d-%m-%Y}"
+                     + (f" · Ref {t.ref_no}" if t.ref_no else "") + "</h2>"]
+            items = {i.line_id: i for i in mfg.stock_for_transfer(s, t)}
+            for l in t.lines:
+                job = s.get(Job, l.job_id)
+                it = items.get(l.id)
+                sku = job.product_sku.sku_code if job.product_sku else ""
+                parts.append(
+                    f"<h3>{l.sno}. Job {job.job_no} · {sku} · C-Ref {job.c_ref or ''}"
+                    + (f" · Stock No {it.stock_no}" if it else "") + "</h3>"
+                    f"<p>Pcs {l.pcs} · G-Wt {l.gross_wt:.3f} · N-Wt {l.net_wt:.3f} · "
+                    f"Title {l.title:.0f} · FineWt {l.fine_wt:.3f} · Loss {l.loss_pct:.2f}%"
+                    + (f" · Stamp {l.stamp}" if l.stamp else "") + "</p>"
+                    "<table border=1 cellspacing=0 cellpadding=3 width=100%>"
+                    "<tr><th>Component</th><th>Detail</th><th>Amount</th></tr>"
+                    f"<tr><td>Metal</td><td>{l.net_wt:.3f} g × {l.metal_rate:,.2f}</td>"
+                    f"<td align=right>{l.metal_amount:,.2f}</td></tr>")
+                for st in _json.loads(l.stones_json or "[]"):
+                    parts.append(
+                        f"<tr><td>Stone {st.get('s_type') or ''}</td><td>{st.get('label') or ''}"
+                        f" · {st.get('pcs') or 0} pcs / {st.get('weight') or 0} ct @ "
+                        f"{st.get('price') or 0} per {st.get('unit') or 'ct'}</td>"
+                        f"<td align=right>{Decimal(str(st.get('amount') or 0)):,.2f}</td></tr>")
+                for label, amt in (("Setting", l.setting_amount),
+                                   ("Ex Metal", l.ex_metal_amount),
+                                   ("Finding Labour", l.finding_labour)):
+                    if amt:
+                        parts.append(f"<tr><td>{label}</td><td></td>"
+                                     f"<td align=right>{amt:,.2f}</td></tr>")
+                parts.append(
+                    f"<tr><td>Labour</td><td>{l.labour_rate:,.2f} × {l.labour_weight:.3f} g"
+                    f"</td><td align=right>{l.labour:,.2f}</td></tr>"
+                    + (f"<tr><td>Manual</td><td></td><td align=right>"
+                       f"{l.manual_amount:,.2f}</td></tr>" if l.manual_amount else "")
+                    + f"<tr><td><b>Total cost</b></td><td></td><td align=right><b>"
+                    f"{l.total:,.2f}</b></td></tr>"
+                    f"<tr><td>Margin</td><td>{Decimal(str(l.margin_pct)).normalize():f}%</td><td align=right>"
+                    f"{l.margin_amount:,.2f}</td></tr>"
+                    f"<tr><td><b>Price / pcs</b></td><td>Tag {l.tag_text}</td>"
+                    f"<td align=right><b>{l.price_per_pcs:,.2f}</b></td></tr></table>")
+        path = documents.PRINT_DIR / f"mfg_transfer_f2_{datetime.now():%Y%m%d-%H%M%S}.pdf"
+        documents.to_pdf("".join(parts), path)
+        _info(self, "Format-2", f"Saved {path}")
 
     def _grid_rows(self) -> tuple[list[str], list[list[str]]]:
         heads = [h.replace("\n", " ") for _k, h, _e in COLS]
@@ -644,7 +840,7 @@ class MfgTransferWidget(_Screen):
                                  str(l.pcs), f"{l.gross_wt:.3f}", f"{l.net_wt:.3f}",
                                  f"{l.fine_wt:.3f}", f"{l.metal_amount:,.2f}",
                                  f"{l.stone_amount:,.2f}", f"{l.labour:,.2f}",
-                                 f"{l.total:,.2f}", f"{l.margin_pct:g}",
+                                 f"{l.total:,.2f}", f"{Decimal(str(l.margin_pct)).normalize():f}",
                                  f"{l.price_per_pcs:,.2f}", l.tag_text, l.stamp or ""])
                 title = (f"MFG Ready Stock Transfer — Vr {t.vr_no} dt {t.vr_date:%d-%m-%Y}"
                          + (f" · Ref {t.ref_no}" if t.ref_no else ""))

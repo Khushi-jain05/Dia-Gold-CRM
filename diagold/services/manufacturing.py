@@ -147,24 +147,9 @@ def post_transfer(session: Session, lines: list[dict[str, Any]], *,
                       is_repair=bool(spec.get("is_repair")))
         if p.net_wt <= 0:
             raise ProductionError(f"Job {job.job_no} has no received net weight to price.")
-        total_loss, loss_pct, _n = production.job_loss_total(session, job)
-        line = MfgTransferLine(
-            transfer_id=transfer.id, sno=sno, job_id=job.id,
-            location_id=location.id if location else None, pcs=p.pcs,
-            gross_wt=last_gross(session, job), net_wt=p.net_wt, title=p.title,
-            fine_wt=p.fine_wt, loss_pct=loss_pct or 0, fine_rate=p.fine_rate,
-            metal_rate=p.metal_rate, metal_amount=p.metal_amount,
-            stone_amount=p.stone_amount, setting_amount=p.setting_amount,
-            ex_metal_amount=p.ex_metal_amount, finding_labour=p.finding_labour,
-            labour_rate=p.labour_rate, labour_weight=p.labour_weight, labour=p.labour,
-            manual_amount=p.manual_amount, total=p.total, margin_pct=p.margin_pct,
-            margin_amount=p.margin_amount, price_per_pcs=p.price_per_pcs,
-            total_value=p.total_value, tag_price=p.tag_price, tag_text=p.tag_text,
-            is_repair=bool(spec.get("is_repair")), stamp=(spec.get("stamp") or "")[:32],
-            rej_pcs=job_rejections(session, job)[0], rej_wt=job_rejections(session, job)[1],
-            stones_json=json.dumps([{**asdict(s), "amount": str(s.amount)} for s in p.stones],
-                                   default=str),
-        )
+        line = MfgTransferLine(transfer_id=transfer.id, sno=sno, job_id=job.id,
+                               location_id=location.id if location else None)
+        _store_price(session, line, job, p, spec)
         session.add(line)
         session.flush()
         session.add(StockItem(
@@ -178,6 +163,103 @@ def post_transfer(session: Session, lines: list[dict[str, Any]], *,
         session.flush()
     session.refresh(transfer)
     return transfer
+
+
+def _store_price(session: Session, line: MfgTransferLine, job: Job,
+                 p: mfg_pricing.TransferPrice, spec: dict[str, Any]) -> None:
+    """Every figure of the priced job goes on the line, so history never
+    re-prices."""
+    _total, loss_pct, _n = production.job_loss_total(session, job)
+    rej_pcs, rej_wt = job_rejections(session, job)
+    for key, val in dict(
+            pcs=p.pcs, gross_wt=last_gross(session, job), net_wt=p.net_wt, title=p.title,
+            fine_wt=p.fine_wt, loss_pct=loss_pct or 0, fine_rate=p.fine_rate,
+            metal_rate=p.metal_rate, metal_amount=p.metal_amount,
+            stone_amount=p.stone_amount, setting_amount=p.setting_amount,
+            ex_metal_amount=p.ex_metal_amount, finding_labour=p.finding_labour,
+            labour_rate=p.labour_rate, labour_weight=p.labour_weight, labour=p.labour,
+            manual_amount=p.manual_amount, total=p.total, margin_pct=p.margin_pct,
+            margin_amount=p.margin_amount, price_per_pcs=p.price_per_pcs,
+            total_value=p.total_value, tag_price=p.tag_price, tag_text=p.tag_text,
+            is_repair=bool(spec.get("is_repair")), stamp=(spec.get("stamp") or "")[:32],
+            rej_pcs=rej_pcs, rej_wt=rej_wt,
+            stones_json=json.dumps([{**asdict(s), "amount": str(s.amount)} for s in p.stones],
+                                   default=str)).items():
+        setattr(line, key, val)
+
+
+def _image(obj) -> dict[str, Any]:
+    return {c.name: getattr(obj, c.name) for c in obj.__table__.columns} if obj else {}
+
+
+def _items_of(session: Session, transfer: MfgTransfer) -> list[StockItem]:
+    items = stock_for_transfer(session, transfer)
+    for it in items:
+        if it.status != "in_stock":
+            raise ProductionError(
+                f"Stock No {it.stock_no} on Vr {transfer.vr_no} is {it.status} - a transfer "
+                "can only be changed while every piece on it is still in stock.")
+    return items
+
+
+def transfer_overrides(transfer: MfgTransfer) -> dict[int, dict[str, Any]]:
+    """What was typed over Fill Prices on each saved line, by job - to open
+    the transfer for editing."""
+    return {l.job_id: {"labour_weight": _dec(l.labour_weight), "margin_pct": _dec(l.margin_pct),
+                       "manual_amount": _dec(l.manual_amount), "is_repair": bool(l.is_repair),
+                       "stamp": l.stamp or ""} for l in transfer.lines}
+
+
+def update_transfer(session: Session, transfer: MfgTransfer, lines: list[dict[str, Any]], *,
+                    vr_date: date | None = None, ref_no: str | None = None,
+                    user_id: int | None = None) -> MfgTransfer:
+    """Edit a saved transfer (28 Sept §4.9: Add, Edit, Save, Delete): the
+    lines are priced again with what is typed now - labour weight, margin,
+    manual amount, repair, stamp - at the voucher date. The pieces keep
+    their Stock Nos; their cost, price and tag follow the new figures. The
+    transfer as it was is kept in the deletion log."""
+    items = {it.line_id: it for it in _items_of(session, transfer)}
+    by_job = {spec["job_id"]: spec for spec in lines}
+    before = {"transfer": _image(transfer), "lines": [_image(l) for l in transfer.lines]}
+    if vr_date is not None:
+        transfer.vr_date = vr_date
+    if ref_no is not None:
+        transfer.ref_no = ref_no[:64]
+    for line in transfer.lines:
+        job = session.get(Job, line.job_id)
+        spec = by_job.get(job.id, {})
+        p = price_job(session, job, transfer.vr_date, labour_weight=spec.get("labour_weight"),
+                      margin_pct=spec.get("margin_pct"),
+                      manual_amount=spec.get("manual_amount") or 0,
+                      is_repair=bool(spec.get("is_repair")))
+        _store_price(session, line, job, p, spec)
+        it = items.get(line.id)
+        if it is not None:
+            it.pcs, it.gross_wt, it.net_wt = line.pcs, line.gross_wt, line.net_wt
+            it.cost, it.price = p.total, p.price_per_pcs
+            it.tag_price, it.tag_text = p.tag_price, p.tag_text
+    session.add(DeletionLog(user_id=user_id, kind="mfg_transfer_edit",
+                            ref=f"MFG Transfer Vr {transfer.vr_no}", reason="edited",
+                            before_json=json.dumps(before, default=str)))
+    session.flush()
+    return transfer
+
+
+def delete_transfer(session: Session, transfer: MfgTransfer, *,
+                    user_id: int | None = None, reason: str = "") -> list[int]:
+    """Delete a whole saved transfer: every piece on it leaves stock and its
+    job goes back to Pending for MFG Transfer - the same as deleting each
+    piece in Item Search. Returns the job numbers."""
+    vr = transfer.vr_no
+    jobs = []
+    for it in _items_of(session, transfer):
+        job = delete_stock_item(session, it, user_id=user_id,
+                                reason=reason or f"MFG Transfer Vr {vr} deleted")
+        jobs.append(job.job_no if job else None)
+    if session.get(MfgTransfer, transfer.id) is not None:
+        session.delete(transfer)
+    session.flush()
+    return jobs
 
 
 def stock_for_transfer(session: Session, transfer: MfgTransfer) -> list[StockItem]:
