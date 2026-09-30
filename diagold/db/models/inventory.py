@@ -75,3 +75,20 @@ class InvVoucherLine(Base, PKMixin):
     remark: Mapped[str] = mapped_column(String(200), default="")
 
     voucher: Mapped[InvVoucher] = relationship(back_populates="lines")
+
+
+class AccountEntry(Base, PKMixin):
+    """One side of the accounting a voucher posts - a purchase is "Dr
+    Purchase A/c, Cr supplier" (28 Sept §4.12, T-01). A party row carries
+    the Account; a nominal ledger such as Purchase A/c carries only its name."""
+
+    __tablename__ = "account_entries"
+
+    entry_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    ledger: Mapped[str] = mapped_column(String(80), default="")
+    debit: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    credit: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    ref_kind: Mapped[str] = mapped_column(String(24), default="", index=True)
+    ref_no: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    narration: Mapped[str] = mapped_column(String(200), default="")

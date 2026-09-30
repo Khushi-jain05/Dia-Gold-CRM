@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from diagold.db.models import (
     Account,
+    AccountEntry,
     DeletionLog,
     InvVoucher,
     InvVoucherLine,
@@ -204,6 +205,70 @@ def post_voucher(session: Session, v: InvVoucher) -> None:
             fine_wt=vt.direction * _dec(l.fine_wt),
             value=(vt.direction * _dec(l.amount)) if _dec(l.amount) else None,
         )
+    post_accounts(session, v)
+
+
+PURCHASE_LEDGER = "Purchase A/c"
+
+
+def post_accounts(session: Session, v: InvVoucher) -> None:
+    """The accounting of a purchase: Dr Purchase A/c, Cr the supplier, for
+    the voucher's total (28 Sept §4.12). Issues and receipts move stock
+    only and post nothing here."""
+    if not v.vr_type.endswith("_purchase"):
+        return
+    total = sum((_dec(l.amount) for l in v.lines), ZERO).quantize(Decimal("0.01"))
+    if not total:
+        return
+    vt = VOUCHER_TYPES[v.vr_type]
+    supplier = session.get(Account, v.account_id) if v.account_id else None
+    text = f"{vt.title} Vr {v.vr_no}" + (f" · Ref {v.ref_no}" if v.ref_no else "")
+    session.add(AccountEntry(entry_date=v.vr_date, ledger=PURCHASE_LEDGER, debit=total,
+                             ref_kind=v.vr_type, ref_no=v.vr_no, narration=text))
+    session.add(AccountEntry(entry_date=v.vr_date, account_id=v.account_id,
+                             ledger=supplier.name if supplier else "?", credit=total,
+                             ref_kind=v.vr_type, ref_no=v.vr_no, narration=text))
+    session.flush()
+
+
+def backfill_accounts(session: Session) -> int:
+    """Post the accounting of purchases saved before it was posted. Safe to
+    run every start: a voucher that already has its entries is skipped."""
+    done = {(k, n) for k, n in session.execute(
+        select(AccountEntry.ref_kind, AccountEntry.ref_no))}
+    n = 0
+    for v in session.scalars(select(InvVoucher).where(
+            InvVoucher.vr_type.in_(("metal_purchase", "stone_purchase")))):
+        if (v.vr_type, v.vr_no) not in done:
+            post_accounts(session, v)
+            n += 1
+    return n
+
+
+def account_ledger(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Account Ledger: every accounting entry with a running balance per
+    ledger (Dr positive, Cr negative); entries before the From date make up
+    each ledger's opening."""
+    rows, bal = [], {}
+    q = select(AccountEntry).where(AccountEntry.entry_date <= date_to).order_by(
+        AccountEntry.entry_date, AccountEntry.id)
+    for e in session.scalars(q):
+        name = e.ledger
+        if e.account_id:
+            acct = session.get(Account, e.account_id)
+            name = acct.name if acct else name
+        b = bal.get(name, ZERO) + _dec(e.debit) - _dec(e.credit)
+        bal[name] = b
+        if e.entry_date < date_from:
+            continue
+        rows.append({"ledger": name, "date": e.entry_date,
+                     "vrtype": VOUCHER_TYPES[e.ref_kind].legacy
+                     if e.ref_kind in VOUCHER_TYPES else e.ref_kind,
+                     "vrno": e.ref_no, "narration": e.narration,
+                     "debit": _dec(e.debit) or None, "credit": _dec(e.credit) or None,
+                     "balance": abs(b), "drcr": "Dr" if b >= 0 else "Cr"})
+    rows.sort(key=lambda r: (r["ledger"].lower(), r["date"]))
+    return rows
 
 
 def metal_to_job_step(session: Session, voucher: Any, location_id: int, metal_id: int,
@@ -244,6 +309,9 @@ def delete_voucher(session: Session, v: InvVoucher, *, user_id: int | None = Non
                     f"{vt.title} {v.vr_no} cannot be deleted - what it brought in has "
                     "already gone out again.")
         session.delete(m)
+    for e in session.scalars(select(AccountEntry).where(
+            AccountEntry.ref_kind == v.vr_type, AccountEntry.ref_no == v.vr_no)).all():
+        session.delete(e)
 
     def image(obj) -> dict[str, Any]:
         return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}

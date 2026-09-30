@@ -40,4 +40,6 @@ def init_db() -> None:
     repair_dangling_references(engine)  # a rebuild runs with foreign keys off
     with SessionLocal() as session:
         seed_initial_data(session)
+        from diagold.services.inventory import backfill_accounts
+        backfill_accounts(session)  # purchases saved before they posted accounts
         session.commit()

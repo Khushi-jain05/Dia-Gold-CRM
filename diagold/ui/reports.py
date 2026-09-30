@@ -1234,6 +1234,17 @@ def build_specs() -> dict[str, ReportSpec]:
             note="What each karigar holds from Inventory ▸ Metal: issued − received − "
                  "wastage allowed, as of the To date. Metal that moves with a job step is in "
                  "the Worker Metal Ledger."),
+        "account_ledger": ReportSpec(
+            key="account_ledger", title="Account Ledger",
+            columns=static([Col("ledger", "LEDGER"), Col("date", "DATE"),
+                            Col("vrtype", "VRTYPE"), Col("vrno", "VRNO"),
+                            Col("narration", "NARRATION"), money("debit", "DEBIT"),
+                            money("credit", "CREDIT"), money("balance", "BALANCE"),
+                            Col("drcr", "DR/CR")]),
+            query=lambda s, a, b, **_k: INV.account_ledger(s, a, b),
+            group_by="ledger", filter_column="ledger",
+            note="What the purchases post: Dr Purchase A/c, Cr the supplier, for each "
+                 "voucher's total. Balance runs per ledger from the start of records."),
         "inv_metal_day_book": ReportSpec(
             key="inv_metal_day_book", title="Metal Day Book",
             columns=static([Col("date", "DATE"), Col("vrtype", "VRTYPE"), Col("vrno", "VRNO"),
@@ -1399,7 +1410,7 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Analysis", ("job_analysis", "process_analysis", "job_card_analysis_stone",
                   "job_stock_analysis")),
     ("Inventory", ("metal_analysis", "worker_metal_balance", "inv_metal_day_book",
-                   "inv_stone_day_book")),
+                   "inv_stone_day_book", "account_ledger")),
     ("Manufacturing", ("pending_mfg_transfer", "mfg_transfer_day_book", "ready_stock")),
     ("Karigar", ("worker_metal_ledger", "worker_stone_ledger", "worker_stone_balance",
                  "setting_labour_statement", "issue_day_book", "received_day_book")),
