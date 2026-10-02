@@ -83,8 +83,8 @@ Login <b>admin</b> / <b>admin</b>.</p>
 Ye ek alag demo database kholta hai (~/DiaGoldDemo) — asli data ko kuch nahi hota. Isme aaj ke rates
 (24K fine 14,713/g → 14KT 590 = 8,680.67/g), labour 1,200/g, margin 50%, karigar CHAND KUMAR HAZRA, aur
 demo jobs 28854–28856 pehle se hain. Neeche window ke status bar me <b>DiaGoldDemo</b> dikhna chahiye.""") + """
-""" + BOX.format("""<b>Aapka job:</b> step 10 me order save hote hi ek naya Job No milega (fresh demo me
-<b>28857</b>). Wahi number likh lein — step 11 se aakhir tak har jagah wahi job chunna hai. Demo jobs
+""" + BOX.format("""<b>Aapka job:</b> step 11 me order save hote hi ek naya Job No milega (fresh demo me
+<b>28857</b>). Wahi number likh lein — step 12 se aakhir tak har jagah wahi job chunna hai. Demo jobs
 (28854–28856) aur BANG-577 (28853) pe apne steps mat karein.<br>
 <b>Har Save pe</b> "Save? Yes / No" popup aana chahiye — Yes dabayein. <b>Steps skip na karein</b> —
 har step agle step ko data deta hai. Koi cheez dropdown / Show Pending me na mile to pichhla step reh gaya.""") + """
@@ -105,19 +105,36 @@ har step agle step ko data deta hai. Koi cheez dropdown / Show Pending me na mil
 ) + step(
     "Master ▸ Account → + New (ek naya karigar)", [
         ("Code", "RAHUL"), ("Name", "RAHUL JI"), ("Type", "Worker")],
-    ["Save → Manufacturing ▸ Issue ke Account dropdown me RAHUL JI dikhega (step 17 — HandMade — me use hoga)."],
-) + part("B. Inventory — stock andar lao, karigar ko do") + step(
+    ["Save → Manufacturing ▸ Issue ke Account dropdown me RAHUL JI dikhega (step 18 — HandMade — me use hoga)."],
+) + step(
+    "Master ▸ Account → + New (ek naya supplier — jisse maal khareedenge)", [
+        ("Code", "TESTSUP"), ("Name", "TEST SUPPLIER"),
+        ("Type", "<b>Accounts</b> (supplier ka alag type nahi hai — Accounts hi chunein)"),
+        ("Group", "<b>Accounts Payable</b>"),
+        ("Phone / City / GSTIN", "9876543210 / Mumbai / 27ABCDE1234F1Z5 (optional)"),
+        ("Opening Balance", "khaali chhodein")],
+    ["Save → Accounts list me <b>TEST SUPPLIER</b>, Type Accounts.",
+     "Inventory ▸ Stone / Metal ▸ Purchase ke <b>Supplier</b> dropdown me ab TEST SUPPLIER dikhega "
+     "(step 7 aur 8 me isi se purchase hogi).",
+     "Code ya Name khaali karke Save → refuse."],
+) + part("B. Inventory — supplier se stock andar lao, karigar ko do") + step(
     "Inventory ▸ Stone ▸ Purchase → + New", [
-        ("Supplier", "SHRIKANT"), ("Ref No", "TEST-ST"),
+        ("Supplier", "<b>TEST SUPPLIER</b> (step 6 wala)"), ("Ref No", "TEST-ST"),
         ("Line 1", "Location <b>Primary</b> · SSKU <b>POLKI 12-14</b> · Pcs <b>20</b> · Weight <b>1.600</b> · Price <b>8100</b> · Per Cts"),
         ("Line 2", "Location <b>Primary</b> · SSKU <b>EMERALD PEAR 3*4</b> · Pcs <b>10</b> · Weight <b>1.000</b> · Price <b>2000</b> · Per Cts")],
     ["Amount khud: line 1 <b>12,960.00</b>, line 2 <b>2,000.00</b>; neeche summary 2 lines · 30 pcs · 2.600 ct · amount <b>14,960.00</b>.",
      "Save → Vr No khud. Row select → <b>Print</b> → PDF."],
 ) + step(
     "Inventory ▸ Metal ▸ Purchase → + New", [
-        ("Supplier", "SHRIKANT"), ("Ref No", "TEST-MT"),
+        ("Supplier", "<b>TEST SUPPLIER</b>"), ("Ref No", "TEST-MT"),
         ("Line", "Location <b>RAJESH JI</b> · Metal <b>14KT 590</b> · Colour Y · Weight <b>50.000</b> · Price <b>8680.67</b>")],
-    ["Amount <b>4,34,033.50</b>; Save ke baad Fine <b>29.500</b> (50 × 0.590)."],
+    ["Amount <b>4,34,033.50</b>; Save ke baad Fine <b>29.500</b> (50 × 0.590).",
+     "Row select → <b>Attach Doc</b> → Add… → koi bhi PDF / photo (supplier ka bill) → list me dikhe, "
+     "Open se khule.",
+     "<b>Reports ▸ Inventory ▸ Account Ledger</b> (FY dates) → <b>TEST SUPPLIER</b>: SP Cr "
+     "<b>14,960.00</b>, MP Cr <b>4,34,033.50</b>, balance <b>4,48,993.50 Cr</b>. "
+     "<b>Purchase A/c</b> me dono Dr; uska closing <b>1,47,24,327.50 Dr</b> (demo purchases ke saath).",
+     "Supplier ka hisaab: har purchase pe Dr Purchase A/c, Cr supplier — khud banta hai."],
 ) + step(
     "Inventory ▸ Metal ▸ Issue Outside / Worker → + New", [
         ("Account (worker)", "CHAND KUMAR HAZRA"),
@@ -130,7 +147,7 @@ har step agle step ko data deta hai. Koi cheez dropdown / Show Pending me na mil
         ("Account (worker)", "CHAND KUMAR HAZRA"),
         ("Line", "Location <b>RAJESH JI</b> · Metal <b>14KT 590</b> · Weight <b>1.800</b> · Wastage % <b>2.5</b>")],
     ["Save → Wastage Wt khud <b>0.045</b>.",
-     "CHAND ke paas ab is voucher se bacha: 2.000 − 1.800 − 0.045 = <b>0.155 g</b> (step 35 me check)."],
+     "CHAND ke paas ab is voucher se bacha: 2.000 − 1.800 − 0.045 = <b>0.155 g</b> (step 36 me check)."],
 ) + part("C. Order → Job → Route → Stones") + step(
     "Production Planning ▸ Order → + New", [
         ("Ord Type / Customer", "Customer / <b>KK JEWELS</b>"), ("Ref", "<b>TEST-1</b>"),
@@ -214,7 +231,7 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
      "Setting row ka Labour <b>240.00</b>. <b>Setting Labour</b> button → yahi statement.",
      "Kisi pink cell pe double-click → us issue ka voucher; green cell → receipt voucher.",
      "Neeche stones grid me POLKI aur EMERALD lines — page scroll karke sab dikhna chahiye.",
-     "<b>MFG Price</b> button → step 28 wale hi figures.",
+     "<b>MFG Price</b> button → step 29 wale hi figures.",
      "<b>Show Pending</b> → abhi koi step pending nahi (job complete)."],
 ) + part("F. MFG Transfer → Stock → Tag → Item Search") + step(
     "Manufacturing ▸ Pending for MFG Transfer", [],
@@ -284,7 +301,7 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
 ) + part("I. Settings aur UI") + step(
     "Tools ▸ Option", [],
     ["Behaviour: <b>Ask \"Save? Yes / No\" before every save</b> untick → Save → ab kisi save pe popup nahi; wapas tick.",
-     "<b>Inventory: when a location would go below zero</b> → <b>Block the save</b> → step 8 wala 500 g issue ab seedha refuse; "
+     "<b>Inventory: when a location would go below zero</b> → <b>Block the save</b> → step 9 wala 500 g issue ab seedha refuse; "
      "wapas <b>Warn, then allow (default)</b>.",
      "<b>Tag price on the tag</b> dropdown badlo → MFG Transfer ka Tag column naye format me.",
      "Production Planning ke items untick → Save → menu se gayab; wapas tick."],
