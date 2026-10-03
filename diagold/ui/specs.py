@@ -1388,9 +1388,10 @@ def _validate_order(values: dict, children: dict[str, list[dict]]) -> str | None
                 "Ord Type to Stock if this is for stock.")
     lines = [r for r in children.get("lines", [])
              if r.get("product_sku_id") or (r.get("sku_desc") or "").strip()]
-    if not lines:
+    if not lines and not values.get("is_repair"):
         return ("An order needs at least one SKU line.\n\nPick a SKU on the line (or "
-                "type a description), then Save.")
+                "type a description), then Save. For a repair order tick Repair - its "
+                "pieces are added with Repair List.")
     empty = [n for n, r in enumerate(lines, start=1) if int(r.get("pcs") or 0) <= 0]
     if empty:
         return (f"Line {empty[0]} has no pieces.\n\nEvery line needs Pcs of 1 or more - "
@@ -1419,6 +1420,41 @@ def _order_saved(order, children, session) -> None:
 
 def _order_delete(order, session) -> None:
     production.delete_order(session, order)
+
+
+def _order_repair_list(widget, order) -> None:
+    """Repair List (2 Oct §4.11): pick existing pieces for a repair order -
+    Select, Location, Barcode, Job No, SKU, C-Ref, Metal, Color, Pcs, G-Wt,
+    N-Wt - and they become its lines, with a job each."""
+    from PySide6.QtWidgets import QDialog, QMessageBox
+
+    from diagold.services import sales
+    from diagold.services.production import ProductionError
+    from diagold.ui.ready_vouchers import PiecePicker
+    if order is None:
+        QMessageBox.information(widget, "Repair List", "Select a repair order first.")
+        return
+    if not order.is_repair:
+        QMessageBox.information(widget, "Repair List", f"Order {order.order_no} is not ticked "
+                                "Repair - edit it, tick Repair and Save first.")
+        return
+    with SessionLocal() as s:
+        rows = sales.repair_stock(s)
+    dlg = PiecePicker(rows, f"Repair Stock — Order {order.order_no}", widget)
+    if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.picked():
+        return
+    with SessionLocal() as s:
+        try:
+            n = sales.attach_repair_pieces(s, s.get(Order, order.id),
+                                           [r["stock_item_id"] for r in dlg.picked()])
+            s.commit()
+        except ProductionError as exc:
+            s.rollback()
+            QMessageBox.warning(widget, "Repair List", str(exc))
+            return
+    widget.reload()
+    QMessageBox.information(widget, "Repair List", f"{n} piece(s) added to order "
+                            f"{order.order_no}, each with its job.")
 
 
 def _order_requirement_sheet(widget, order) -> None:
@@ -1462,7 +1498,7 @@ _register(CrudSpec(
     before_delete=_order_delete,
     form_width=1180,
     extra_buttons=[("Requirement Sheet", _order_requirement_sheet),
-                   ("Day Book", _order_day_book)],
+                   ("Day Book", _order_day_book), ("Repair List", _order_repair_list)],
     fields=[
         Field("order_no", "Ord No", type="int", readonly=True,
               help_text="Allotted on save. Live numbers migrate as they are."),
@@ -1478,6 +1514,10 @@ _register(CrudSpec(
               help_text="Heard as an order-time field; values and effect not yet "
                         "explained (Q9). Free text until then."),
         Field("remark", "Remark"),
+        Field("is_repair", "Repair", type="bool", default=False,
+              help_text="A repair order: its lines are existing pieces, picked with Repair "
+                        "List on the order list. The old piece's stone detail is not "
+                        "carried forward (to confirm, 2 Oct Q9)."),
         Field("lines", "SKU Lines", type="child",
               help_text="One job is allotted per line when the order is saved. "
                         "Field rules were explained on the call but the audio was "

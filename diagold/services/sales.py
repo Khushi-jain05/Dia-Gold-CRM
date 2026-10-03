@@ -284,7 +284,9 @@ def pending_orders(session: Session, account_id: int | None,
     already), Price."""
     on_invoice = on_invoice or {}
     rows = []
-    q = select(OrderLine, Order).join(Order).order_by(Order.order_no, OrderLine.sno)
+    # A repair order's lines are the customer's own pieces, not goods to ship.
+    q = select(OrderLine, Order).join(Order).where(Order.is_repair.is_(False)).order_by(
+        Order.order_no, OrderLine.sno)
     if account_id:
         q = q.where(Order.account_id == account_id)
     for ol, o in session.execute(q):
@@ -772,3 +774,47 @@ def repair_register(session: Session, date_from: date, date_to: date) -> list[di
         r["days"] = (date_to - r["date"]).days if r["status"] == "Out for repair" else None
         rows.append(r)
     return rows
+
+
+
+# --------------------------------------------------------------------------
+# Repair order: Repair List (2 Oct §4.11, T-10)
+# --------------------------------------------------------------------------
+def repair_stock(session: Session) -> list[dict[str, Any]]:
+    """The Repair Stock picker: pieces in stock or already out for repair."""
+    q = select(StockItem).where(StockItem.status.in_(("in_stock", "in_repair"))).order_by(
+        StockItem.stock_no)
+    return [describe(session, i) for i in session.scalars(q)]
+
+
+def attach_repair_pieces(session: Session, order: Order, item_ids: list[int],
+                         on_date: date | None = None) -> int:
+    """Add the picked pieces to a repair order as its lines - SKU, C-Ref,
+    metal, colour, size, pcs, weights and the metal amount at the day's rate
+    - and allot their jobs. Returns how many were added."""
+    if not order.is_repair:
+        raise ProductionError(f"Order {order.order_no} is not ticked Repair.")
+    have = {l.stock_item_id for l in order.lines if l.stock_item_id}
+    sno = max([l.sno for l in order.lines], default=0)
+    n = 0
+    for iid in item_ids:
+        if iid in have:
+            continue
+        item = session.get(StockItem, iid)
+        info = describe(session, item)
+        rate = production.metal_price(session, info["metal_id"], on_date or date.today())
+        pcs = max(int(item.pcs or 1), 1)
+        sno += 1
+        session.add(OrderLine(
+            order_id=order.id, sno=sno, product_sku_id=item.product_sku_id,
+            sku_desc=info["sku"], c_ref=info["c_ref"], metal_id=info["metal_id"],
+            colour=info["colour"], size=info["size"], pcs=pcs,
+            net_wt_per_pcs=(_dec(item.net_wt) / pcs).quantize(D3),
+            tot_gross_wt=_dec(item.gross_wt), metal_rate_unit=f"{rate}",
+            metal_amount=_money(_dec(item.net_wt) * rate), stock_item_id=item.id,
+            remark=f"Repair of Stock No {item.stock_no}"))
+        n += 1
+    session.flush()
+    session.refresh(order)
+    production.sync_jobs_for_order(session, order)
+    return n

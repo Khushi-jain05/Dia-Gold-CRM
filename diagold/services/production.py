@@ -268,6 +268,11 @@ def _job_has_movements(session: Session, job: Job) -> bool:
 def seed_bag_requirements(session: Session, job: Job) -> None:
     """A new job's bag starts with the SKU's stone lines as its requirement,
     so Req and Pnd are visible before a single stone is issued."""
+    order = session.get(Order, job.order_id) if job.order_id else None
+    if order is not None and order.is_repair:
+        # UNCONFIRMED (2 Oct Q9 / D8, probable): a repair does not carry the
+        # old piece's stone detail forward, so its bag starts empty.
+        return
     stones = session.scalars(
         select(ProductSkuStone).where(ProductSkuStone.product_id == job.product_sku_id)
     ).all() if job.product_sku_id else []

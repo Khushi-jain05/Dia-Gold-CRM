@@ -47,6 +47,9 @@ class Order(Base, PKMixin, TimestampMixin):
     # Heard as a field entered at order time; values and effect unknown (Q9).
     priority: Mapped[str] = mapped_column(String(24), default="")
     remark: Mapped[str] = mapped_column(String(200), default="")
+    # Repair order (2 Oct §4.11, T-10): its lines are existing pieces picked
+    # with Repair List, not new SKUs.
+    is_repair: Mapped[bool] = mapped_column(Boolean, default=False)
 
     ORDER_TYPES = ("Customer", "Stock")
 
@@ -82,6 +85,9 @@ class OrderLine(Base, PKMixin):
     delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     priority: Mapped[str] = mapped_column(String(24), default="")
     remark: Mapped[str] = mapped_column(String(200), default="")
+    # A repair order's line is an existing piece (2 Oct §4.11): its Stock No.
+    stock_item_id: Mapped[int | None] = mapped_column(ForeignKey("stock_items.id"),
+                                                      nullable=True)
 
     order: Mapped[Order] = relationship(back_populates="lines")
 
