@@ -140,7 +140,7 @@ class MainWindow(QMainWindow):
                     shown += 1
                     continue
                 label = item.label
-                if not has_real_screen(item.key):
+                if not has_real_screen(item.key) and item.key not in self.ACTIONS:
                     label += "  ·  soon"
                 action = menu.addAction(label)
                 action.triggered.connect(
@@ -313,7 +313,32 @@ class MainWindow(QMainWindow):
                     label = it.label
         self._open_screen(key, label)
 
+    # Menu items that act on the window rather than open a screen.
+    ACTIONS = {"tools.change_password", "tools.read_barcode", "window.close_all"}
+
+    def _action(self, menu_key: str) -> None:
+        if menu_key == "tools.change_password":
+            self._change_password()
+        elif menu_key == "tools.read_barcode":
+            # The dashboard's BARCODE READ, as a prompt.
+            from PySide6.QtWidgets import QInputDialog
+            text, ok = QInputDialog.getText(self, "Read Barcode",
+                                            "Stock ID / SKU, or J followed by a Job No (J28856):")
+            text = text.strip()
+            if ok and text:
+                if text[:1] in "jJ" and text[1:].isdigit():
+                    self._barcode_read("job", text[1:])
+                else:
+                    self._barcode_read("item", text)
+        elif menu_key == "window.close_all":
+            for i in range(self.tabs.count() - 1, -1, -1):
+                if self.tabs.widget(i) is not self._tabs_by_key.get("__dashboard__"):
+                    self._close_tab(i)
+
     def _open_screen(self, menu_key: str, label: str) -> None:
+        if menu_key in self.ACTIONS:
+            self._action(menu_key)
+            return
         if not self.user.can_view(menu_key):
             QMessageBox.warning(self, "Access denied",
                                 f"You do not have permission to open '{label}'.")

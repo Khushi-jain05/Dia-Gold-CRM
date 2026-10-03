@@ -42,6 +42,9 @@ MENU_DEFAULT_HIDDEN: dict[str, str] = {
     "purchase.approval_return": "Purchase ▸ Approval Return - sale side only (2 Oct D3)",
     "purchase.stone_approval": "Purchase ▸ Stone Approval - until confirmed (2 Oct C-03)",
     "purchase.stone_app_return": "Purchase ▸ Stone App Return - until confirmed (2 Oct C-03)",
+    # Screens open as tabs here, so the legacy window arrangement has nothing to do.
+    "window.cascade": "Window ▸ Cascade - screens open as tabs, nothing to arrange",
+    "window.tile": "Window ▸ Tile - screens open as tabs, nothing to arrange",
 }
 
 # Behaviour switches (Tools > Option). Metal / mould / finding returns are
