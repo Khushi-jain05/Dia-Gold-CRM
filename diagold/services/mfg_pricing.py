@@ -283,7 +283,8 @@ def job_stones(session: Session, job: Job) -> list[StoneCost]:
 
 def fill_prices(session: Session, job: Job, on_date: date | None = None, *,
                 labour_weight: Any = None, margin_pct: Any = None,
-                manual_amount: Any = 0, zero_tag: bool = False) -> TransferPrice:
+                manual_amount: Any = 0, zero_tag: bool = False,
+                setting_amount: Any = 0, net_wt: Any = None) -> TransferPrice:
     """"Fill Prices" for one job from the masters, as of ``on_date``.
 
     Reads: title from the Metal master, fine rate from Daily Metal Rate (Q11:
@@ -307,7 +308,9 @@ def fill_prices(session: Session, job: Job, on_date: date | None = None, *,
     if margin_pct in (None, ""):
         margin_pct, m_src = margin_for(session)
         notes.append(m_src)
-    net = latest_net(session, job)
+    # Job Costing passes the setting labour paid on the job and, for a job
+    # still in work (WIP costing), the net weight as last weighed.
+    net = latest_net(session, job) if net_wt in (None, "") else _dec(net_wt)
     if labour_weight in (None, ""):
         notes.append("Labour is on the final net weight - which net weight the client "
                      "uses is to be confirmed (28 Sept Q2).")
@@ -316,6 +319,7 @@ def fill_prices(session: Session, job: Job, on_date: date | None = None, *,
         net_wt=net, title=title_of(metal), fine_rate=info.rate,
         stones=job_stones(session, job), labour_rate=lab_rate,
         labour_weight=labour_weight, manual_amount=manual_amount,
+        setting_amount=setting_amount,
         margin_pct=margin_pct, pcs=job.pcs, zero_tag=zero_tag, tag_rule=rule,
     )
     result.notes = notes

@@ -1164,7 +1164,10 @@ def build_specs() -> dict[str, ReportSpec]:
     def pcs(k: str, l: str) -> Col:
         return Col(k, l, "measure", 0, total=True)
 
+    from diagold.ui.job_costing import job_costing_spec
+
     return {
+        "job_costing": job_costing_spec(),
         # -- day books ---------------------------------------------------
         "order_day_book": ReportSpec(
             key="order_day_book", title="Order Day Book",
@@ -1490,7 +1493,8 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
                   "job_stock_analysis")),
     ("Inventory", ("metal_analysis", "worker_metal_balance", "inv_metal_day_book",
                    "inv_stone_day_book", "account_ledger")),
-    ("Manufacturing", ("pending_mfg_transfer", "mfg_transfer_day_book", "ready_stock")),
+    ("Manufacturing", ("job_costing", "pending_mfg_transfer", "mfg_transfer_day_book",
+                       "ready_stock")),
     ("Karigar", ("worker_metal_ledger", "worker_stone_ledger", "worker_stone_balance",
                  "setting_labour_statement", "issue_day_book", "received_day_book")),
     ("Other", ("job_os_pct", "data_quality")),
