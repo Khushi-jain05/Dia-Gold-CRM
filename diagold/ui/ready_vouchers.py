@@ -546,6 +546,7 @@ class ReadyVoucherWidget(_Screen):
         self.button("Delete", self.delete_voucher)
         if new:
             self.button("Add Piece", self.add_piece, secondary=True)
+            self.button("SKU Search", self.sku_search, secondary=True)
         elif vr_type in ("rs_approval_return",):
             self.button("Show App", lambda: self._pick("Show App — out on approval"),
                         secondary=True)
@@ -565,6 +566,14 @@ class ReadyVoucherWidget(_Screen):
         self.button("Print", self.print_voucher, secondary=True)
         if vr_type == "rs_sale":
             self.button("Excel Invoice", self.excel_invoice, secondary=True)
+        if vr_type in ("rp_purchase", "rp_opening", "rp_return"):
+            # The legacy Ready Stock Purchase actions (2 Oct §4.5).
+            self.button("BreakUp Sheet", self.breakup_sheet, secondary=True)
+            self.button("Packing List", self.packing_list, secondary=True)
+            self.button("Picture Invoice", self.picture_invoice, secondary=True)
+            self.button("St. Summ.", self.stone_summary, secondary=True)
+            if new:
+                self.button("Tag Print", self.tag_print, secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
 
         self.grid = _table([h for _k, h, _e in LINE_COLS], ledger=True)
@@ -1043,3 +1052,177 @@ class ReadyVoucherWidget(_Screen):
                 return
             S.excel_invoice(s, v, path)
         _info(self, "Excel Invoice", f"Saved {path}")
+
+    # -- purchase actions (2 Oct §4.5) ------------------------------------
+    def sku_search(self) -> None:
+        """SKU Search: find the SKU by code / description, then Add Piece on it."""
+        if self._editing_blocked():
+            return
+        with SessionLocal() as s:
+            skus = [(p.id, p.sku_code, p.description or "", p.category or "")
+                    for p in s.scalars(select(ProductSku).order_by(ProductSku.sku_code))]
+        dlg = QDialog(self)
+        dlg.setWindowTitle("SKU Search")
+        dlg.setMinimumSize(560, 420)
+        lay = QVBoxLayout(dlg)
+        find = QLineEdit()
+        find.setPlaceholderText("SKU code, description, category…")
+        lay.addWidget(find)
+        lst = QListWidget()
+        for sid, code, desc, cat in skus:
+            it = QListWidgetItem(f"{code}   {desc}   {cat}".strip())
+            it.setData(Qt.ItemDataRole.UserRole, sid)
+            lst.addItem(it)
+        find.textChanged.connect(lambda t: [lst.item(i).setHidden(
+            t.strip().lower() not in lst.item(i).text().lower()) for i in range(lst.count())])
+        lst.itemDoubleClicked.connect(lambda _i: dlg.accept())
+        lay.addWidget(lst, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted or lst.currentItem() is None:
+            return
+        piece = NewPieceDialog(self)
+        i = piece.sku.findData(lst.currentItem().data(Qt.ItemDataRole.UserRole))
+        if i >= 0:
+            piece.sku.setCurrentIndex(i)
+        if piece.exec() == QDialog.DialogCode.Accepted:
+            self.lines.append(piece.values())
+            self._render()
+
+    def _pdf(self, name: str, html: str) -> None:
+        from diagold.services import documents
+        path = documents.PRINT_DIR / f"{name}_{datetime.now():%Y%m%d-%H%M%S}.pdf"
+        documents.to_pdf(html, path)
+        _info(self, "Print", f"Saved {path}")
+
+    def _rows_for(self, vid: int) -> tuple[str, list[dict]]:
+        with SessionLocal() as s:
+            v = s.get(ReadyVoucher, vid)
+            a = s.get(Account, v.account_id) if v.account_id else None
+            head = (f"{self.t.title} — Vr {v.vr_no} dt {v.vr_date:%d-%m-%Y}"
+                    + (f" · {a.name}" if a else "") + (f" · Ref {v.ref_no}" if v.ref_no else "")
+                    + (f" · Bill {v.bill_no} dt {v.bill_date:%d-%m-%Y}" if v.bill_no and v.bill_date
+                       else ""))
+            rows = []
+            for l in v.lines:
+                item = s.get(StockItem, l.stock_item_id) if l.stock_item_id else None
+                sku = s.get(ProductSku, l.product_sku_id) if l.product_sku_id else None
+                metal = s.get(Metal, l.metal_id) if l.metal_id else None
+                rows.append({"sno": l.sno, "stock_no": item.stock_no if item else "",
+                             "sku": sku.sku_code if sku else "", "metal": metal.name if metal else "",
+                             "pcs": l.pcs, "g": D(str(l.gross_wt)), "n": D(str(l.net_wt)),
+                             "st": D(str(l.st_wt)), "fine": D(str(l.fine_wt)), "line": l,
+                             "stones": json.loads(l.stones_json or "[]"),
+                             "photo": (sku.image_finished or sku.image_design) if sku else "",
+                             "total": D(str(l.total))})
+        return head, rows
+
+    def breakup_sheet(self) -> None:
+        """BreakUp Sheet: each piece with metal, every stone and labour."""
+        vid = self._voucher_for_print()
+        if vid is None:
+            return
+        head, rows = self._rows_for(vid)
+        parts = [f"<h2>BreakUp Sheet</h2><p>{head}</p>"]
+        for r in rows:
+            l = r["line"]
+            parts.append(
+                f"<h3>{r['sno']}. Stock {r['stock_no']} · {r['sku']} · {r['metal']} · "
+                f"{r['pcs']} pc · G {r['g']:.3f} · N {r['n']:.3f}</h3>"
+                "<table border=1 cellspacing=0 cellpadding=3 width=100%>"
+                "<tr><th>Item</th><th>Pcs</th><th>Cts / Wt</th><th>Rate</th><th>Amount</th></tr>"
+                f"<tr><td>Metal</td><td></td><td align=right>{r['n']:.3f}</td>"
+                f"<td align=right>{D(str(l.metal_rate)):,.2f}</td>"
+                f"<td align=right>{D(str(l.metal_amount)):,.2f}</td></tr>"
+                + "".join(f"<tr><td>{st.get('label', '')} {st.get('size') or ''}</td>"
+                          f"<td align=right>{st.get('pcs') or 0}</td>"
+                          f"<td align=right>{st.get('weight') or 0}</td>"
+                          f"<td align=right>{D(str(st.get('price') or 0)):,.2f}</td>"
+                          f"<td align=right>{S.stone_amount(st):,.2f}</td></tr>"
+                          for st in r["stones"])
+                + f"<tr><td>Labour</td><td></td><td align=right>{r['n']:.3f}</td>"
+                f"<td align=right>{D(str(l.labour_rate)):,.2f}</td>"
+                f"<td align=right>{D(str(l.labour)):,.2f}</td></tr>"
+                f"<tr><td colspan=4><b>Total</b></td><td align=right><b>{r['total']:,.2f}</b>"
+                "</td></tr></table>")
+        self._pdf(f"{self.vr_type}_breakup", "".join(parts))
+
+    def packing_list(self) -> None:
+        """Packing List: the pieces with their weights, no prices."""
+        vid = self._voucher_for_print()
+        if vid is None:
+            return
+        head, rows = self._rows_for(vid)
+        body = "".join(f"<tr><td>{r['sno']}</td><td>{r['stock_no']}</td><td>{r['sku']}</td>"
+                       f"<td>{r['metal']}</td><td align=right>{r['pcs']}</td>"
+                       f"<td align=right>{r['g']:.3f}</td><td align=right>{r['n']:.3f}</td>"
+                       f"<td align=right>{r['st']:.3f}</td><td align=right>{r['fine']:.3f}</td></tr>"
+                       for r in rows)
+        tot = lambda k: sum((r[k] for r in rows), D(0))          # noqa: E731
+        self._pdf(f"{self.vr_type}_packing",
+                  f"<h2>Packing List</h2><p>{head}</p><table border=1 cellspacing=0 "
+                  "cellpadding=3 width=100%><tr><th>#</th><th>Barcode</th><th>SKU</th>"
+                  "<th>Metal</th><th>Pcs</th><th>Gross</th><th>Net</th><th>St Wt</th>"
+                  "<th>Fine</th></tr>" + body +
+                  f"<tr><td colspan=4><b>Total</b></td><td align=right><b>"
+                  f"{sum(r['pcs'] for r in rows)}</b></td><td align=right><b>{tot('g'):.3f}</b>"
+                  f"</td><td align=right><b>{tot('n'):.3f}</b></td><td align=right><b>"
+                  f"{tot('st'):.3f}</b></td><td align=right><b>{tot('fine'):.3f}</b></td></tr>"
+                  "</table>")
+
+    def picture_invoice(self) -> None:
+        """Catalog / Picture Invoice: each piece with its photo."""
+        vid = self._voucher_for_print()
+        if vid is None:
+            return
+        head, rows = self._rows_for(vid)
+        cells = "".join(
+            "<td width=33% valign=top align=center style='border:1px solid #ccc;padding:6px'>"
+            + (f"<img src='{r['photo']}' height=110><br>" if r["photo"] else "<br>[no photo]<br>")
+            + f"<b>{r['sku']}</b><br>Stock {r['stock_no']}<br>G {r['g']:.3f} · N {r['n']:.3f}"
+            f"<br>{r['total']:,.2f}</td>" + ("</tr><tr>" if (i + 1) % 3 == 0 else "")
+            for i, r in enumerate(rows))
+        self._pdf(f"{self.vr_type}_picture", f"<h2>Picture Invoice</h2><p>{head}</p>"
+                  f"<table width=100% cellspacing=4><tr>{cells}</tr></table>")
+
+    def stone_summary(self) -> None:
+        """St. Summ.: the stones on the voucher by group - pcs, carats, amount."""
+        source = self.lines
+        if not source:
+            vid = self._voucher_for_print()
+            if vid is None:
+                return
+            _head, rows = self._rows_for(vid)
+            source = [{"stones": r["stones"]} for r in rows]
+        acc: dict[str, list] = {}
+        for ln in source:
+            for st in ln.get("stones") or []:
+                a = acc.setdefault(S.stone_block(st), [0, D(0), D(0)])
+                a[0] += int(st.get("pcs") or 0)
+                a[1] += D(str(st.get("weight") or 0))
+                a[2] += S.stone_amount(st)
+        t = QTableWidget(len(acc), 4)
+        t.setHorizontalHeaderLabels(["Stone", "Pcs", "Cts", "Amount"])
+        t.verticalHeader().setVisible(False)
+        for r, (k, (p, w, a)) in enumerate(sorted(acc.items())):
+            for c, v in enumerate((k, str(p), f"{w:.3f}", f"{a:,.2f}")):
+                t.setItem(r, c, QTableWidgetItem(v))
+        auto_fit(t)
+        show_in_dialog(self, t, "St. Summ. — stones by group", (520, 300))
+
+    def tag_print(self) -> None:
+        """Tag Print: the barcode tags of the pieces this voucher brought in."""
+        vid = self._voucher_for_print()
+        if vid is None:
+            return
+        from diagold.ui.manufacturing import TagListDialog
+        with SessionLocal() as s:
+            v = s.get(ReadyVoucher, vid)
+            items = [s.get(StockItem, l.stock_item_id) for l in v.lines if l.stock_item_id]
+            dlg = TagListDialog(None, self)
+            dlg._add_items(s, items)
+        dlg._fill()
+        dlg.exec()

@@ -20,7 +20,13 @@ SUBMENUS: dict[str, list[tuple[str, str]]] = {
         ("stone_approval_return", "Approval Return"),
     ],
 }
-_HEAD = {"sale.ready_stock": "Ready Stock", "sale.stone": "Stone"}
+# Purchase ▸ Opening Stock ▸ … (2 Oct §4.5, T-07) - stock held when the
+# system started, by kind.
+SUBMENUS["purchase.opening_stock"] = [
+    ("rp_opening", "Ready Items"), ("metal_opening", "Metal"), ("stone_opening", "Stone"),
+]
+_HEAD = {"sale.ready_stock": "Ready Stock", "sale.stone": "Stone",
+         "purchase.opening_stock": "Opening Stock"}
 
 # Screens that are only a note until the client explains them.
 PENDING_EXPLANATION = {"settings"}
@@ -40,6 +46,10 @@ BUILDERS: dict[str, object] = {
     "stone_sale": lambda user: _inv("stone_sale", user),
     "stone_approval": lambda user: _inv("stone_approval", user),
     "stone_approval_return": lambda user: _inv("stone_approval_return", user),
+    "rp_opening": _ready("rp_opening"),
+    "metal_opening": lambda user: _inv("metal_opening", user),
+    "stone_opening": lambda user: __import__(
+        "diagold.ui.production", fromlist=["OpeningStockWidget"]).OpeningStockWidget(user),
 }
 
 

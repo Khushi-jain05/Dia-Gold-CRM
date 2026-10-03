@@ -70,6 +70,9 @@ VOUCHER_TYPES: dict[str, VoucherType] = {v.key: v for v in (
     VoucherType("stone_approval", "Stone Approval", "stone", -1, "customer", "SA"),
     VoucherType("stone_approval_return", "Stone Approval Return", "stone", +1, "customer",
                 "SAR"),
+    # Purchase ▸ Opening Stock ▸ Metal (2 Oct §4.5, T-07): metal a location
+    # already held when the system started - no party, no accounts.
+    VoucherType("metal_opening", "Metal Opening Stock", "metal", +1, "none", "MO"),
 )}
 SALE_TYPES = ("metal_sale", "stone_sale")
 SALES_LEDGER = "Sales A/c"
@@ -136,7 +139,7 @@ def check_lines(session: Session, vr_type: str, account_id: int | None,
                 rows: list[dict[str, Any]]) -> str | None:
     """A sentence to refuse the save with, or None."""
     vt = VOUCHER_TYPES[vr_type]
-    if not account_id:
+    if not account_id and vt.party != "none":
         return f"Choose the {'supplier' if vt.party == 'supplier' else 'customer' if vt.party == 'customer' else 'worker / party'}."
     real = [r for r in rows if _dec(r.get("weight")) or int(r.get("pcs") or 0)]
     if not real:

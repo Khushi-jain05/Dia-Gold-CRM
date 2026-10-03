@@ -124,11 +124,12 @@ def voucher_spec(vr_type: str) -> CrudSpec:
     head = [
         Field("vr_no", "Vr No", type="int", readonly=True),
         Field("vr_date", "Date", type="date", default=date.today, required=True),
-        Field("account_id", "Supplier" if vt.party == "supplier" else
-              "Account (customer)" if vt.party == "customer" else "Account (worker)",
-              type="fk", fk_model=Account, fk_label=_account_label, required=True),
-        Field("ref_no", "Ref No"),
     ]
+    if vt.party != "none":
+        head.append(Field("account_id", "Supplier" if vt.party == "supplier" else
+                          "Account (customer)" if vt.party == "customer" else "Account (worker)",
+                          type="fk", fk_model=Account, fk_label=_account_label, required=True))
+    head.append(Field("ref_no", "Ref No"))
     if vt.party in ("supplier", "customer"):
         head += [Field("currency_code", "Currency", type="choice",
                        choices=["INR", "USD", "AED", "EUR"], default="INR", in_list=False),

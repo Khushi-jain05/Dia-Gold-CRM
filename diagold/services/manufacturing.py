@@ -333,7 +333,7 @@ def find_items(session: Session, text: str) -> list[StockItem]:
 
 def item_detail(session: Session, item: StockItem) -> dict[str, Any]:
     """Everything the legacy Item Search shows for one piece."""
-    job = session.get(Job, item.job_id)
+    job = session.get(Job, item.job_id) if item.job_id else None
     line = session.get(MfgTransferLine, item.line_id) if item.line_id else None
     transfer = session.get(MfgTransfer, line.transfer_id) if line else None
     sku = session.get(ProductSku, item.product_sku_id) if item.product_sku_id else None
@@ -374,7 +374,7 @@ def delete_stock_item(session: Session, item: StockItem, *, user_id: int | None 
             ReadyVoucherLine.stock_item_id == item.id)):
         raise ProductionError(f"Stock No {item.stock_no} has been on a sale / approval / "
                               "repair voucher - it cannot be deleted; undo those vouchers first.")
-    job = session.get(Job, item.job_id)
+    job = session.get(Job, item.job_id) if item.job_id else None
     line = session.get(MfgTransferLine, item.line_id) if item.line_id else None
     transfer = session.get(MfgTransfer, line.transfer_id) if line else None
     # A job split into pieces (Split Jobs) comes back whole: every piece of
@@ -450,7 +450,7 @@ def ready_stock(session: Session, date_to: date) -> list[dict[str, Any]]:
         transfer = session.get(MfgTransfer, line.transfer_id) if line else None
         if transfer is not None and transfer.vr_date > date_to:
             continue
-        job = session.get(Job, item.job_id)
+        job = session.get(Job, item.job_id) if item.job_id else None
         sku = session.get(ProductSku, item.product_sku_id) if item.product_sku_id else None
         client = session.get(Account, job.account_id) if job and job.account_id else None
         loc = session.get(Location, item.location_id) if item.location_id else None

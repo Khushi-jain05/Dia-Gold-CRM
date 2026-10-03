@@ -992,7 +992,7 @@ class ItemSearchWidget(_Screen):
         self._items = []
         with SessionLocal() as s:
             for it in mfg.find_items(s, self.search.text()):
-                job = s.get(Job, it.job_id)
+                job = s.get(Job, it.job_id) if it.job_id else None
                 sku = job.product_sku.sku_code if job and job.product_sku else ""
                 r = self.results.rowCount()
                 self.results.insertRow(r)
@@ -1084,7 +1084,7 @@ class ItemSearchWidget(_Screen):
         with SessionLocal() as s:
             it = s.get(StockItem, iid)
             no = it.stock_no
-            job = s.get(Job, it.job_id)
+            job = s.get(Job, it.job_id) if it.job_id else None
             jn = job.job_no if job else ""
         reason, ok = QInputDialog.getText(
             self, "Delete History & Purchase",

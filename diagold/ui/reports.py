@@ -1335,6 +1335,15 @@ def _sale_specs(money, wt, pcs) -> dict[str, ReportSpec]:
             query=lambda s, a, b, **_k: INV.stone_approval_analysis(s, a, b), date_mode="to",
             group_by="particulars", filter_column="particulars",
             note="Per party and stone: sent on approval, returned, and still out."),
+        "rp_register": ReportSpec(
+            key="rp_register", title="Ready Items Purchase Register",
+            columns=static([*piece[:2], Col("vrtype", "TYPE"), *piece[2:],
+                            money("metal_amount", "METAL AMT"), *vals]),
+            query=lambda s, a, b, **_k: SL.ready_register(
+                s, a, b, ("rp_purchase", "rp_return", "rp_opening")),
+            group_by="particulars", filter_column="vrtype",
+            note="Pieces bought in ready (RP), returned to the supplier (RPR) or loaded as "
+                 "opening stock (OPR), each with its new barcode."),
         "repair_register": ReportSpec(
             key="repair_register", title="Repair Register",
             columns=static([*piece, money("price", "VALUE"), Col("status", "STATUS"),
@@ -1693,6 +1702,7 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Sale", ("rs_sale_register", "rs_approval_register", "rs_approval_balance",
               "rs_approval_analysis", "metal_sale_register", "stone_sale_register",
               "stone_approval_register", "stone_approval_analysis", "repair_register")),
+    ("Purchase", ("rp_register",)),
     ("Registers", ("metal_loss_register", "stone_loss_register", "dust_register",
                    "wip_register", "wip_process_summary", "wip_stone")),
     ("Karigar", ("worker_metal_ledger", "worker_stone_ledger", "worker_stone_balance",

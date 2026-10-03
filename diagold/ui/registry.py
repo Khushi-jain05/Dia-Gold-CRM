@@ -52,6 +52,12 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "manufacturing.mfg_transfer_day_book":
         lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
     "sale.metal": lambda user: sales_ui._inv("metal_sale", user),
+    # Purchase (2 Oct §4.5, T-07): Metal / Stones are the Inventory purchase
+    # vouchers; Ready Items and Ready Item Return bring barcoded pieces in / out.
+    "purchase.metal": lambda user: sales_ui._inv("metal_purchase", user),
+    "purchase.stones": lambda user: sales_ui._inv("stone_purchase", user),
+    "purchase.ready_items": sales_ui._ready("rp_purchase"),
+    "purchase.ready_item_return": sales_ui._ready("rp_return"),
     "manufacturing.worker_statement":
         lambda user: ReportWidget(build_specs()["worker_metal_ledger"], user),
 }
@@ -70,6 +76,8 @@ REPORT_MENUS: dict[str, list[tuple[str | None, tuple[str, ...]]]] = {
                                                          "Karigar")],
     "inventory.reports": [(t, _SECTIONS[t]) for t in ("Inventory", "Registers", "Karigar")],
     "sale.reports": [(None, _SECTIONS["Sale"] + ("ready_stock", "account_ledger"))],
+    "purchase.reports": [(None, ("rp_register", "inv_metal_day_book", "inv_stone_day_book",
+                                 "account_ledger"))],
     "inventory.metal._reports": [(None, (
         "metal_analysis", "worker_metal_balance", "inv_metal_day_book",
         "worker_metal_ledger"))],
