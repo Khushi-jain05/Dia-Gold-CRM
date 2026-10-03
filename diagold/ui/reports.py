@@ -98,6 +98,10 @@ class ReportSpec:
     # analysis reports open (overdays are counted as of the From date).
     date_default: str = "fy"
     note: str = ""
+    # Extra actions on the toolbar: (label, shortcut or "", callback(widget)) -
+    # e.g. Job Costing's Ctrl+P "Excel Job Costing" (2 Oct T-02).
+    actions: list[tuple[str, str, Callable[["ReportWidget"], None]]] = field(
+        default_factory=list)
 
 
 def static(cols: list[Col]) -> Callable[[date, date], list[Col]]:
@@ -545,6 +549,15 @@ class ReportWidget(QWidget):
             b = QPushButton(label)
             b.clicked.connect(slot)
             bar.addWidget(b)
+        for label, keys, callback in spec.actions:
+            b = QPushButton(f"{label}  ({keys})" if keys else label)
+            b.clicked.connect(lambda _c=False, cb=callback: cb(self))
+            bar.addWidget(b)
+            if keys:
+                QShortcut(QKeySequence(keys), self, activated=lambda cb=callback: cb(self))
+        # F1 Show All, as on every legacy register (2 Oct UX6): every filter
+        # off and the whole history in range.
+        QShortcut(QKeySequence("F1"), self, activated=self.show_all)
         bar.addStretch(1)
         self.option_boxes: dict[str, QCheckBox] = {}
         for key, (label, default) in spec.options.items():
@@ -946,13 +959,79 @@ class ReportWidget(QWidget):
             return
         self.set_adv_filter(dlg.conditions())
 
+    def show_all(self) -> None:
+        """F1 Show All: search, group, filters off; From the start of records."""
+        self.search.clear()
+        self._adv = []
+        self.group.setCurrentIndex(0)
+        self.set_dates(date(2000, 1, 1), max(self.dates()[1], date.today()))
+        self.run()
+
     def _export(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "Export", f"{self.spec.key}.csv",
-                                              "CSV (*.csv)")
+        path, kind = QFileDialog.getSaveFileName(
+            self, "Export", f"{self.spec.key}.xlsx", "Excel (*.xlsx);;CSV (*.csv)")
         if not path:
             return
-        self.export_csv(path)
+        if path.lower().endswith(".csv") or kind.startswith("CSV"):
+            self.export_csv(path)
+        else:
+            if not path.lower().endswith(".xlsx"):
+                path += ".xlsx"
+            self.export_xlsx(path)
         QMessageBox.information(self, "Export", f"Saved {path}")
+
+    def export_xlsx(self, path: str) -> int:
+        """Excel with numbers as numbers (not text), the header frozen and the
+        group / total rows shaded - opens ready to sum (2 Oct TR6 / TR7)."""
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        from openpyxl.utils import get_column_letter
+        cols = self.visible_cols()
+        wb = Workbook()
+        ws = wb.active
+        ws.title = self.spec.title[:31]
+        d0, d1 = self.dates()
+        ws.append([self.spec.title, f"{d0:%d-%m-%Y} to {d1:%d-%m-%Y}"])
+        ws["A1"].font = Font(bold=True, size=13)
+        ws.append([f"{c.group} {c.label}".strip() for c in cols])
+        for cell in ws[2]:
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill("solid", fgColor="E4E7EC")
+        n = 0
+        for kind, row in self.model.rows:
+            if kind == "group":
+                ws.append([row.get("_label", "")])
+                ws.cell(ws.max_row, 1).font = Font(bold=True)
+                continue
+            vals = []
+            for c in cols:
+                v = row.get(c.key)
+                if isinstance(v, Decimal):
+                    v = float(v)
+                elif isinstance(v, datetime):
+                    v = v.replace(tzinfo=None)
+                vals.append(v)
+            ws.append(vals)
+            r = ws.max_row
+            for i, c in enumerate(cols, start=1):
+                v = row.get(c.key)
+                if isinstance(v, (Decimal, float)):
+                    places = c.decimals if c.decimals is not None else (
+                        3 if ("wt" in c.key or "weight" in c.key) else 2)
+                    ws.cell(r, i).number_format = "#,##0." + "0" * places
+                elif isinstance(v, date):
+                    ws.cell(r, i).number_format = "dd-mm-yyyy"
+            if kind != "row":
+                for cell in ws[r]:
+                    cell.font = Font(bold=True)
+                    cell.fill = PatternFill("solid", fgColor="D9DDE5")
+            else:
+                n += 1
+        ws.freeze_panes = "A3"
+        for i, c in enumerate(cols, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = max(10, min(40, len(c.label) + 4))
+        wb.save(path)
+        return n
 
     def export_csv(self, path: str) -> int:
         cols = self.visible_cols()
