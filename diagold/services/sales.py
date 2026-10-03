@@ -420,6 +420,13 @@ def post_ready(session: Session, vr_type: str, head: dict[str, Any],
             seen.add(item.id)
             check_piece(session, vr_type, item, v.account_id)
             row.stock_item_id = item.id
+            if vr_type == "rs_sale_return" and not row.order_line_id:
+                # Back against the order it was sold on, so that order's
+                # Shipped / Bal opens up again.
+                sold = session.scalars(select(ReadyVoucherLine).join(ReadyVoucher).where(
+                    ReadyVoucherLine.stock_item_id == item.id,
+                    ReadyVoucher.vr_type == "rs_sale").order_by(ReadyVoucherLine.id.desc())).first()
+                row.order_line_id = sold.order_line_id if sold else None
             if vr_type == "rs_sale" and item.status == "on_approval":
                 # Read Barcode From Approval: the approval line it closes.
                 row.source_line_id = row.source_line_id or _open_line(
