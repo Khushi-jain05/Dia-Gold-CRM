@@ -93,7 +93,7 @@ class ReportSpec:
     options: dict[str, tuple[str, bool]] = field(default_factory=dict)
     on_activate: Callable[["ReportWidget", dict], None] | None = None
     negative_key: str | None = None
-    date_mode: str = "range"
+    date_mode: str = "range"         # "range" | "to" (as on one day) | "none"
     # "fy": the financial year; "month": this month so far; "week": today to today + 7, as the legacy
     # analysis reports open (overdays are counted as of the From date).
     date_default: str = "fy"
@@ -519,6 +519,12 @@ class ReportWidget(QWidget):
             head.addWidget(QLabel("From"))
             head.addWidget(self.d_from)
             head.addWidget(QLabel("To"))
+            head.addWidget(self.d_to)
+        elif spec.date_mode == "to":
+            # A position on one day (WIP as on …): only the To date, today.
+            today = date.today()
+            self.d_to.setDate(QDate(today.year, today.month, today.day))
+            head.addWidget(QLabel("As on"))
             head.addWidget(self.d_to)
         self.btn_run = QPushButton("Run")
         self.btn_run.setObjectName("Primary")
@@ -1152,6 +1158,103 @@ def _drill_metal(widget: ReportWidget, row: dict) -> None:
     show_in_dialog(widget, ReportWidget(spec, widget.user), spec.title, (980, 560))
 
 
+def _register_specs(money, wt, pcs) -> dict[str, ReportSpec]:
+    """Loss, Dust and WIP registers (2 Oct T-08) - legacy Inventory ▸ Reports."""
+    from diagold.services import registers as RG
+    job = [Col("job_no", "JOBNO"), Col("sku", "SKU")]
+    order = [Col("ord_no", "ORD NO"), Col("ord_date", "ORD DATE"), Col("ref_no", "REFNO"),
+             Col("ccode", "CCODE")]
+    pct = lambda k, l: Col(k, l, "measure", 2)                 # noqa: E731
+    return {
+        "metal_loss_register": ReportSpec(
+            key="metal_loss_register", title="Metal Loss Register",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("worker", "WORKER"),
+                            Col("process", "PROCESS"), *job, Col("metal", "METAL"),
+                            wt("iss_net", "ISSUED N-WT"), wt("rcv_net", "RECEIVED N-WT"),
+                            wt("scrap", "SCRAP"), wt("dust", "DUST"), wt("loss", "LOSS WT"),
+                            pct("loss_pct", "LOSS %"), pct("alw_pct", "ALW %"),
+                            wt("alw_wt", "ALW WT"), wt("excess", "EXCESS"),
+                            wt("fine_loss", "FINE LOSS")]),
+            query=lambda s, a, b, **_k: RG.metal_loss_register(s, a, b),
+            group_by="process", filter_column="process", negative_key="_negative",
+            on_activate=lambda w, r: w.open_job(r),
+            note="Loss per received step = issued net - received net - scrap - dust, beside "
+                 "the allowance. Red: loss above the allowance. Double-click opens the job."),
+        "stone_loss_register": ReportSpec(
+            key="stone_loss_register", title="Stone Loss Register",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("worker", "WORKER"),
+                            Col("process", "PROCESS"), Col("kind", "BROKEN / LOST"),
+                            Col("job_no", "JOBNO"), Col("location", "LOCATION"),
+                            Col("sku", "SKU"), Col("ssku", "SSKU"), Col("stone", "STONE"),
+                            Col("size", "SIZE"), pcs("st_pcs", "PCS"), wt("weight", "WEIGHT"),
+                            Col("price", "PRICE", "measure", 2), Col("unit", "UNIT"),
+                            money("amount", "AMOUNT"), Col("s_type", "S TYPE"), *order]),
+            query=lambda s, a, b, **_k: RG.stone_loss_register(s, a, b),
+            group_by="kind", filter_column="kind", on_activate=lambda w, r: w.open_job(r),
+            note="Stones broken or lost out of job bags, at the stone's price."),
+        "dust_register": ReportSpec(
+            key="dust_register", title="Dust Register",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("worker", "WORKER"),
+                            Col("process", "PROCESS"), *job, Col("metal", "METAL"),
+                            wt("dust", "DUST"), wt("dust_fine", "DUST FINE"),
+                            wt("scrap", "SCRAP"), wt("scrap_fine", "SCRAP FINE")]),
+            query=lambda s, a, b, **_k: RG.dust_register(s, a, b),
+            group_by="worker", filter_column="process", on_activate=lambda w, r: w.open_job(r),
+            note="Dust and scrap recorded on the receipts, by karigar and process."),
+        "wip_register": ReportSpec(
+            key="wip_register", title="WIP Register",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("type", "TYPE"),
+                            Col("process", "PROCESS"), Col("particulars", "PARTICULARS"),
+                            *job, Col("cref", "CREF"), Col("metal", "METAL"), Col("col", "COL"),
+                            Col("size", "SIZE"), pcs("pcs", "PCS"), wt("g_wt", "G-WT"),
+                            wt("n_wt", "N-WT"), wt("fine_wt", "FINE-WT"), wt("st_wt", "ST-WT"),
+                            wt("ex_wt", "EX-WT"), wt("find_wt", "FIND-WT"),
+                            Col("ord_no", "ORDNO"), Col("group", "GROUP"), wt("loss", "LOSS"),
+                            money("value", "VALUE")]),
+            query=lambda s, a, b, **_k: RG.wip_register(s, a, b),
+            group_by="process", filter_column="type", date_mode="to",
+            on_activate=lambda w, r: w.open_job(r),
+            note="Every job in work as on the To date. WIP = out with the karigar named; PND = "
+                 "waiting for its next step. Value = net weight at the day's metal rate + the "
+                 "stones in the job at their price. Double-click opens the job."),
+        "wip_process_summary": ReportSpec(
+            key="wip_process_summary", title="WIP Register — Process Summary",
+            columns=static([Col("process", "PROCESS"),
+                            Col("pnd_pcs", "PCS", "measure", 1, "PENDING", True),
+                            Col("pnd_g", "G-WT", "measure", 3, "PENDING", True),
+                            Col("pnd_n", "N-WT", "measure", 3, "PENDING", True),
+                            Col("pnd_val", "VALUE", "measure", 2, "PENDING", True),
+                            Col("wip_pcs", "PCS", "measure", 1, "WIP", True),
+                            Col("wip_g", "G-WT", "measure", 3, "WIP", True),
+                            Col("wip_n", "N-WT", "measure", 3, "WIP", True),
+                            Col("st_wt", "STONE", "measure", 3, "WIP", True),
+                            Col("find_wt", "FINDING", "measure", 3, "WIP", True),
+                            Col("mould_wt", "MOULD", "measure", 3, "WIP", True),
+                            Col("ex_wt", "EXTRA WT", "measure", 3, "WIP", True),
+                            Col("wip_val", "VALUE", "measure", 2, "WIP", True),
+                            Col("tot_pcs", "TOT PCS", "measure", 1, "", True),
+                            money("tot_val", "TOT VAL"), pcs("tot_wrk", "TOT WRK")]),
+            query=lambda s, a, b, **_k: RG.wip_process_summary(s, a, b), date_mode="to",
+            note="The WIP Register by process - every process on the master, pending and "
+                 "with karigars, and how many karigars are working on each."),
+        "wip_stone": ReportSpec(
+            key="wip_stone", title="WIP Stone",
+            columns=static([Col("location", "LOCATION"), Col("type", "TYPE"), *job,
+                            Col("stone_group", "STONE GROUP"), Col("barcode", "BARCODE"),
+                            Col("stone", "STONE"), Col("quality", "QUALITY"),
+                            Col("ssku", "SSKU"), Col("size", "SIZE"), Col("lot_no", "LOTNO"),
+                            pcs("st_pcs", "PCS"), wt("weight", "WEIGHT"),
+                            Col("price", "PRICE", "measure", 2), Col("unit", "UNIT"),
+                            money("amount", "AMOUNT"), Col("process", "PROCESS"),
+                            Col("worker", "WORKER")]),
+            query=lambda s, a, b, **_k: RG.wip_stone(s, a, b),
+            group_by="stone_group", filter_column="type", date_mode="to",
+            on_activate=lambda w, r: w.open_job(r),
+            note="Stones in jobs still in work: WIP = out with the karigar named, BAG = still "
+                 "in the job bag. Barcode / lot are not recorded on job-bag stones yet."),
+    }
+
+
 def build_specs() -> dict[str, ReportSpec]:
     from diagold.services.production import order_day_book
 
@@ -1168,6 +1271,7 @@ def build_specs() -> dict[str, ReportSpec]:
 
     return {
         "job_costing": job_costing_spec(),
+        **_register_specs(money, wt, pcs),
         # -- day books ---------------------------------------------------
         "order_day_book": ReportSpec(
             key="order_day_book", title="Order Day Book",
@@ -1495,6 +1599,8 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
                    "inv_stone_day_book", "account_ledger")),
     ("Manufacturing", ("job_costing", "pending_mfg_transfer", "mfg_transfer_day_book",
                        "ready_stock")),
+    ("Registers", ("metal_loss_register", "stone_loss_register", "dust_register",
+                   "wip_register", "wip_process_summary", "wip_stone")),
     ("Karigar", ("worker_metal_ledger", "worker_stone_ledger", "worker_stone_balance",
                  "setting_labour_statement", "issue_day_book", "received_day_book")),
     ("Other", ("job_os_pct", "data_quality")),
