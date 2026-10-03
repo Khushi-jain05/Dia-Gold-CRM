@@ -64,7 +64,15 @@ VOUCHER_TYPES: dict[str, VoucherType] = {v.key: v for v in (
     VoucherType("stone_purchase", "Stone Purchase", "stone", +1, "supplier", "SP"),
     VoucherType("stone_issue", "Stone Issue Outside / Worker", "stone", -1, "worker", "SI"),
     VoucherType("stone_receipt", "Stone Receipt", "stone", +1, "worker", "SR"),
+    # Sale side (2 Oct Session 3 §4.10, T-09): Sale ▸ Metal, Sale ▸ Stone ▸ …
+    VoucherType("metal_sale", "Metal Sale", "metal", -1, "customer", "MS"),
+    VoucherType("stone_sale", "Stone Sale", "stone", -1, "customer", "SS"),
+    VoucherType("stone_approval", "Stone Approval", "stone", -1, "customer", "SA"),
+    VoucherType("stone_approval_return", "Stone Approval Return", "stone", +1, "customer",
+                "SAR"),
 )}
+SALE_TYPES = ("metal_sale", "stone_sale")
+SALES_LEDGER = "Sales A/c"
 
 NEGATIVE_SETTING = "inventory.negative_stock"
 NEGATIVE_MODES = ("block", "warn", "allow")
@@ -117,7 +125,9 @@ def fill_line(session: Session, vr_type: str, row: dict[str, Any]) -> None:
             row["size"] = row.get("size") or sku.size or ""
             row["s_type"] = row.get("s_type") or sku.stone_type or ""
             if not _dec(row.get("price")):
-                row["price"] = _dec(sku.cost_price) or _dec(sku.sale_price)
+                # Selling and approval are at the sale price; everything else at cost.
+                row["price"] = (_dec(sku.sale_price) or _dec(sku.cost_price)) \
+                    if vt.party == "customer" else (_dec(sku.cost_price) or _dec(sku.sale_price))
     row["amount"] = line_amount(vt.material, row.get("pcs"), row.get("weight"),
                                 row.get("price"), row.get("unit") or "")
 
@@ -127,7 +137,7 @@ def check_lines(session: Session, vr_type: str, account_id: int | None,
     """A sentence to refuse the save with, or None."""
     vt = VOUCHER_TYPES[vr_type]
     if not account_id:
-        return f"Choose the {'supplier' if vt.party == 'supplier' else 'worker / party'}."
+        return f"Choose the {'supplier' if vt.party == 'supplier' else 'customer' if vt.party == 'customer' else 'worker / party'}."
     real = [r for r in rows if _dec(r.get("weight")) or int(r.get("pcs") or 0)]
     if not real:
         return "Enter at least one line with a weight (or pieces)."
@@ -212,21 +222,26 @@ PURCHASE_LEDGER = "Purchase A/c"
 
 
 def post_accounts(session: Session, v: InvVoucher) -> None:
-    """The accounting of a purchase: Dr Purchase A/c, Cr the supplier, for
-    the voucher's total (28 Sept §4.12). Issues and receipts move stock
-    only and post nothing here."""
-    if not v.vr_type.endswith("_purchase"):
+    """The accounting a voucher posts, for its total: a purchase is Dr
+    Purchase A/c, Cr the supplier (28 Sept §4.12); a metal / stone sale is Dr
+    the customer, Cr Sales A/c (2 Oct TR5). Issues, receipts and approvals
+    move stock only and post nothing here."""
+    sale = v.vr_type in SALE_TYPES
+    if not (v.vr_type.endswith("_purchase") or sale):
         return
     total = sum((_dec(l.amount) for l in v.lines), ZERO).quantize(Decimal("0.01"))
     if not total:
         return
     vt = VOUCHER_TYPES[v.vr_type]
-    supplier = session.get(Account, v.account_id) if v.account_id else None
+    party = session.get(Account, v.account_id) if v.account_id else None
     text = f"{vt.title} Vr {v.vr_no}" + (f" · Ref {v.ref_no}" if v.ref_no else "")
-    session.add(AccountEntry(entry_date=v.vr_date, ledger=PURCHASE_LEDGER, debit=total,
+    nominal = SALES_LEDGER if sale else PURCHASE_LEDGER
+    session.add(AccountEntry(entry_date=v.vr_date, ledger=nominal,
+                             **({"credit": total} if sale else {"debit": total}),
                              ref_kind=v.vr_type, ref_no=v.vr_no, narration=text))
     session.add(AccountEntry(entry_date=v.vr_date, account_id=v.account_id,
-                             ledger=supplier.name if supplier else "?", credit=total,
+                             ledger=party.name if party else "?",
+                             **({"debit": total} if sale else {"credit": total}),
                              ref_kind=v.vr_type, ref_no=v.vr_no, narration=text))
     session.flush()
 
@@ -277,7 +292,7 @@ def backfill_accounts(session: Session) -> int:
         select(AccountEntry.ref_kind, AccountEntry.ref_no))}
     n = 0
     for v in session.scalars(select(InvVoucher).where(
-            InvVoucher.vr_type.in_(("metal_purchase", "stone_purchase")))):
+            InvVoucher.vr_type.in_(("metal_purchase", "stone_purchase") + SALE_TYPES))):
         if (v.vr_type, v.vr_no) not in done:
             post_accounts(session, v)
             n += 1
@@ -560,4 +575,82 @@ def day_book(session: Session, date_from: date, date_to: date,
             "fine": _dec(line.fine_wt), "price": _dec(line.price), "amount": _dec(line.amount),
             "wastage": _dec(line.wastage_wt) or None,
         })
+    return rows
+
+
+# --------------------------------------------------------------------------
+# Sale-side registers (2 Oct §4.10, T-09)
+# --------------------------------------------------------------------------
+def _lines(session: Session, date_from: date, date_to: date, types: tuple[str, ...]):
+    q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
+         .where(InvVoucher.vr_type.in_(types), InvVoucher.vr_date >= date_from,
+                InvVoucher.vr_date <= date_to)
+         .order_by(InvVoucher.vr_date, InvVoucher.vr_no, InvVoucherLine.sno))
+    return session.execute(q)
+
+
+def metal_sale_register(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    rows = []
+    for line, v in _lines(session, date_from, date_to, ("metal_sale",)):
+        acct = session.get(Account, v.account_id) if v.account_id else None
+        loc = session.get(Location, line.location_id) if line.location_id else None
+        metal = session.get(Metal, line.metal_id) if line.metal_id else None
+        rows.append({"date": v.vr_date, "vrno": v.vr_no, "ref_no": v.ref_no,
+                     "particulars": acct.name if acct else "", "location": loc.name if loc else "",
+                     "metal": metal.name if metal else "", "col": line.colour, "pcs": line.pcs,
+                     "weight": _dec(line.weight), "fine": _dec(line.fine_wt),
+                     "curr": v.currency_code, "price": _dec(line.price), "unit": line.unit,
+                     "amount": _dec(line.amount)})
+    return rows
+
+
+def stone_register(session: Session, date_from: date, date_to: date,
+                   types: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Stone Sale Register / Stone Approval Register: DATE, VRNO, REFNO,
+    PARTICULARS, LOCATION, SSKU, SIZE, LOTNO, PCS, WEIGHT, CURR, PRICE, UNIT,
+    AMOUNT."""
+    rows = []
+    for line, v in _lines(session, date_from, date_to, types):
+        acct = session.get(Account, v.account_id) if v.account_id else None
+        loc = session.get(Location, line.location_id) if line.location_id else None
+        sku = session.get(StoneSku, line.stone_sku_id) if line.stone_sku_id else None
+        rows.append({"date": v.vr_date, "vrno": v.vr_no, "vrtype": VOUCHER_TYPES[v.vr_type].legacy,
+                     "ref_no": v.ref_no, "particulars": acct.name if acct else "",
+                     "location": loc.name if loc else "",
+                     "ssku": (sku.sku_code if sku else line.particulars) or "",
+                     "size": line.size, "lot_no": line.lot_no, "pcs": line.pcs,
+                     "weight": _dec(line.weight), "curr": v.currency_code,
+                     "price": _dec(line.price), "unit": line.unit, "amount": _dec(line.amount)})
+    return rows
+
+
+def stone_approval_analysis(session: Session, date_from: date,
+                            date_to: date) -> list[dict[str, Any]]:
+    """Per party and stone: sent on approval, returned, balance still out."""
+    acc: dict[tuple, dict[str, Any]] = {}
+    for line, v in _lines(session, date(2000, 1, 1), date_to,
+                          ("stone_approval", "stone_approval_return")):
+        key = (v.account_id, line.stone_sku_id, line.particulars or "", line.size or "")
+        a = acc.setdefault(key, {"out_pcs": 0, "out_wt": ZERO, "ret_pcs": 0, "ret_wt": ZERO,
+                                 "price": ZERO, "unit": line.unit})
+        if v.vr_type == "stone_approval":
+            a["out_pcs"] += int(line.pcs or 0)
+            a["out_wt"] += _dec(line.weight)
+            a["price"] = _dec(line.price)
+        else:
+            a["ret_pcs"] += int(line.pcs or 0)
+            a["ret_wt"] += _dec(line.weight)
+    rows = []
+    for (acct_id, sku_id, part, size), a in acc.items():
+        acct = session.get(Account, acct_id) if acct_id else None
+        sku = session.get(StoneSku, sku_id) if sku_id else None
+        bal_pcs, bal_wt = a["out_pcs"] - a["ret_pcs"], a["out_wt"] - a["ret_wt"]
+        rows.append({"particulars": acct.name if acct else "",
+                     "ssku": (sku.sku_code if sku else part) or "", "size": size,
+                     "out_pcs": a["out_pcs"], "out_wt": a["out_wt"], "ret_pcs": a["ret_pcs"],
+                     "ret_wt": a["ret_wt"], "bal_pcs": bal_pcs, "bal_wt": bal_wt,
+                     "price": a["price"], "unit": a["unit"],
+                     "bal_amount": line_amount("stone", bal_pcs, bal_wt, a["price"],
+                                               a["unit"] or "")})
+    rows.sort(key=lambda r: (r["particulars"].lower(), r["ssku"].lower()))
     return rows

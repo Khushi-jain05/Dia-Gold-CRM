@@ -72,6 +72,8 @@ class InvVoucherLine(Base, PKMixin):
     wastage_wt: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
     job_no: Mapped[int | None] = mapped_column(nullable=True)
     s_type: Mapped[str] = mapped_column(String(24), default="")
+    # Stone lot / certificate number (Stone Sale Register LOTNO, 2 Oct §4.10).
+    lot_no: Mapped[str] = mapped_column(String(40), default="")
     remark: Mapped[str] = mapped_column(String(200), default="")
 
     voucher: Mapped[InvVoucher] = relationship(back_populates="lines")

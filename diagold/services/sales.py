@@ -667,3 +667,108 @@ def excel_invoice(session: Session, v: ReadyVoucher, path: str) -> None:
                 c.number_format = "#,##0.00" if c.column not in (4, 6, 7) else "#,##0.000"
     ws.freeze_panes = ws.cell(hr + 1, 4)
     wb.save(path)
+
+
+# --------------------------------------------------------------------------
+# Sale reports (2 Oct §4.10 R15, T-09)
+# --------------------------------------------------------------------------
+def _groups(line: ReadyVoucherLine) -> dict[str, Decimal]:
+    out = {"DIAMOND": ZERO, "POLKI": ZERO, "COLOR STONE": ZERO}
+    for st in json.loads(line.stones_json or "[]"):
+        out[stone_block(st)] += stone_amount(st)
+    return out
+
+
+def _line_row(session: Session, v: ReadyVoucher, l: ReadyVoucherLine) -> dict[str, Any]:
+    acct = session.get(Account, v.account_id) if v.account_id else None
+    item = session.get(StockItem, l.stock_item_id) if l.stock_item_id else None
+    sku = session.get(ProductSku, l.product_sku_id) if l.product_sku_id else None
+    metal = session.get(Metal, l.metal_id) if l.metal_id else None
+    loc = session.get(Location, l.location_id) if l.location_id else None
+    g = _groups(l)
+    return {"date": v.vr_date, "vrno": v.vr_no, "vrtype": READY_TYPES[v.vr_type].code,
+            "particulars": acct.name if acct else "", "ref_no": v.ref_no,
+            "location": loc.name if loc else "", "barcode": item.stock_no if item else "",
+            "sku": sku.sku_code if sku else "", "metal": metal.name if metal else "",
+            "col": l.colour, "pcs": l.pcs, "g_wt": _dec(l.gross_wt), "n_wt": _dec(l.net_wt),
+            "fine_wt": _dec(l.fine_wt), "metal_amount": _dec(l.metal_amount),
+            "dia": g["DIAMOND"], "polki": g["POLKI"], "cs": g["COLOR STONE"],
+            "stone_amount": _dec(l.stone_amount), "labour": _dec(l.labour),
+            "price": _dec(l.total), "_job_id": l.job_id}
+
+
+def ready_register(session: Session, date_from: date, date_to: date,
+                   types: tuple[str, ...]) -> list[dict[str, Any]]:
+    rows = []
+    q = (select(ReadyVoucher).where(ReadyVoucher.vr_type.in_(types),
+                                    ReadyVoucher.vr_date >= date_from,
+                                    ReadyVoucher.vr_date <= date_to)
+         .order_by(ReadyVoucher.vr_date, ReadyVoucher.vr_no))
+    for v in session.scalars(q):
+        for l in v.lines:
+            rows.append(_line_row(session, v, l))
+    return rows
+
+
+def approval_balance(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Ready Stock Approval Balance: pieces out on approval now - with whom,
+    since when, for how many days."""
+    rows = []
+    for item in session.scalars(select(StockItem).where(StockItem.status == "on_approval")
+                                .order_by(StockItem.stock_no)):
+        line = session.scalars(select(ReadyVoucherLine).join(ReadyVoucher).where(
+            ReadyVoucherLine.stock_item_id == item.id, ReadyVoucher.vr_type == "rs_approval")
+            .order_by(ReadyVoucherLine.id.desc())).first()
+        if line is None or line.voucher.vr_date > date_to:
+            continue
+        r = _line_row(session, line.voucher, line)
+        r["days"] = (date_to - line.voucher.vr_date).days
+        rows.append(r)
+    return rows
+
+
+def approval_analysis(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Ready Stock Approval Analysis: every piece sent on approval in the
+    period, and what became of it - returned (weights back), sold, or still
+    out (balance = out - returned - sold)."""
+    rows = []
+    q = (select(ReadyVoucher).where(ReadyVoucher.vr_type == "rs_approval",
+                                    ReadyVoucher.vr_date >= date_from,
+                                    ReadyVoucher.vr_date <= date_to)
+         .order_by(ReadyVoucher.vr_date, ReadyVoucher.vr_no))
+    for v in session.scalars(q):
+        for l in v.lines:
+            r = _line_row(session, v, l)
+            ret = session.scalars(select(ReadyVoucherLine).join(ReadyVoucher).where(
+                ReadyVoucherLine.stock_item_id == l.stock_item_id,
+                ReadyVoucher.vr_type == "rs_approval_return",
+                ReadyVoucherLine.id > l.id).order_by(ReadyVoucherLine.id)).first()
+            sold = session.scalars(select(ReadyVoucherLine).join(ReadyVoucher).where(
+                ReadyVoucherLine.stock_item_id == l.stock_item_id,
+                ReadyVoucher.vr_type == "rs_sale", ReadyVoucherLine.id > l.id)
+                .order_by(ReadyVoucherLine.id)).first()
+            first = min([x for x in (ret, sold) if x], key=lambda x: x.id, default=None)
+            if first is ret and ret is not None:
+                r.update(status="Returned", ret_g=_dec(ret.gross_wt), ret_n=_dec(ret.net_wt),
+                         ret_fine=_dec(ret.fine_wt), on=ret.voucher.vr_date)
+            elif first is sold and sold is not None:
+                r.update(status="Sold", on=sold.voucher.vr_date)
+            else:
+                r.update(status="Out")
+            rows.append(r)
+    return rows
+
+
+def repair_register(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Repair Register (2 Oct §4.11, T-10): every Ready Repair Issue - the
+    piece, the party, and whether it is still out for repair."""
+    rows = []
+    for r in ready_register(session, date_from, date_to, ("rs_repair_issue",)):
+        item = session.scalar(select(StockItem).where(StockItem.stock_no == r["barcode"])) \
+            if r["barcode"] != "" else None
+        r["status"] = ("Out for repair" if item is not None and item.status == "in_repair"
+                       else STATE_LABEL.get(item.status, item.status).capitalize()
+                       if item is not None else "")
+        r["days"] = (date_to - r["date"]).days if r["status"] == "Out for repair" else None
+        rows.append(r)
+    return rows

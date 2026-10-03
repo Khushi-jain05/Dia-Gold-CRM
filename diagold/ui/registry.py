@@ -51,6 +51,7 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
         lambda user: ReportWidget(build_specs()["pending_mfg_transfer"], user),
     "manufacturing.mfg_transfer_day_book":
         lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
+    "sale.metal": lambda user: sales_ui._inv("metal_sale", user),
     "manufacturing.worker_statement":
         lambda user: ReportWidget(build_specs()["worker_metal_ledger"], user),
 }
@@ -68,7 +69,7 @@ REPORT_MENUS: dict[str, list[tuple[str | None, tuple[str, ...]]]] = {
     "manufacturing.reports": [(t, _SECTIONS[t]) for t in ("Manufacturing", "Registers",
                                                          "Karigar")],
     "inventory.reports": [(t, _SECTIONS[t]) for t in ("Inventory", "Registers", "Karigar")],
-    "sale.reports": [(None, ("ready_stock",))],
+    "sale.reports": [(None, _SECTIONS["Sale"] + ("ready_stock", "account_ledger"))],
     "inventory.metal._reports": [(None, (
         "metal_analysis", "worker_metal_balance", "inv_metal_day_book",
         "worker_metal_ledger"))],

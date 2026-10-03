@@ -37,7 +37,18 @@ BUILDERS: dict[str, object] = {
     "sale": _ready("rs_sale"), "sale_return": _ready("rs_sale_return"),
     "approval": _ready("rs_approval"), "approval_return": _ready("rs_approval_return"),
     "repair_issue": _ready("rs_repair_issue"),
+    "stone_sale": lambda user: _inv("stone_sale", user),
+    "stone_approval": lambda user: _inv("stone_approval", user),
+    "stone_approval_return": lambda user: _inv("stone_approval_return", user),
 }
+
+
+def _inv(vr_type: str, user):
+    """Metal / stone sale and stone approval are inventory vouchers - stock
+    leaves (or comes back to) a location - on the customer's account."""
+    from diagold.ui.crud import CrudWidget
+    from diagold.ui.inventory import voucher_spec
+    return CrudWidget(voucher_spec(vr_type), rights=getattr(user, "rights", None))
 
 
 def sub_key(parent: str, key: str) -> str:

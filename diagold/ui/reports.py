@@ -1255,6 +1255,96 @@ def _register_specs(money, wt, pcs) -> dict[str, ReportSpec]:
     }
 
 
+def _sale_specs(money, wt, pcs) -> dict[str, ReportSpec]:
+    """Sale registers (2 Oct T-09 / T-10) - legacy Sale ▸ Reports."""
+    from diagold.services import inventory as INV
+    from diagold.services import sales as SL
+    piece = [Col("date", "DATE"), Col("vrno", "VRNO"), Col("particulars", "PARTICULARS"),
+             Col("ref_no", "REFNO"), Col("barcode", "BARCODE"), Col("sku", "SKU"),
+             Col("metal", "METAL"), Col("col", "COL"), pcs("pcs", "PCS"), wt("g_wt", "G-WT"),
+             wt("n_wt", "N-WT")]
+    vals = [money("dia", "DIA"), money("polki", "POL"), money("cs", "CS"),
+            money("labour", "LABOUR"), money("price", "PRICE")]
+    stone = [Col("date", "DATE"), Col("vrno", "VRNO"), Col("ref_no", "REFNO"),
+             Col("particulars", "PARTICULARS"), Col("location", "LOCATION"),
+             Col("ssku", "SSKU"), Col("size", "SIZE"), Col("lot_no", "LOTNO"),
+             pcs("pcs", "PCS"), wt("weight", "WEIGHT"), Col("curr", "CURR"),
+             Col("price", "PRICE", "measure", 2), Col("unit", "UNIT"), money("amount", "AMOUNT")]
+    open_job = lambda w, r: w.open_job(r)                       # noqa: E731
+    return {
+        "rs_sale_register": ReportSpec(
+            key="rs_sale_register", title="Ready Stock Sale Register",
+            columns=static([*piece[:2], Col("vrtype", "TYPE"), *piece[2:], money("metal_amount", "METAL AMT"), *vals]),
+            query=lambda s, a, b, **_k: SL.ready_register(s, a, b, ("rs_sale", "rs_sale_return")),
+            group_by="particulars", filter_column="vrtype", on_activate=open_job,
+            note="Every piece sold (RS) or returned (RSR), with its metal, stone and labour."),
+        "rs_approval_register": ReportSpec(
+            key="rs_approval_register", title="Ready Stock Approval Register",
+            columns=static([*piece[:2], Col("vrtype", "TYPE"), *piece[2:], *vals]),
+            query=lambda s, a, b, **_k: SL.ready_register(
+                s, a, b, ("rs_approval", "rs_approval_return")),
+            group_by="particulars", filter_column="vrtype", on_activate=open_job,
+            note="Every piece sent on approval (RA) or back from approval (RAR)."),
+        "rs_approval_balance": ReportSpec(
+            key="rs_approval_balance", title="Ready Stock Approval Balance",
+            columns=static([*piece, money("price", "PRICE"), Col("days", "DAYS OUT", "measure", 0)]),
+            query=lambda s, a, b, **_k: SL.approval_balance(s, a, b), date_mode="to",
+            group_by="particulars", filter_column="particulars", on_activate=open_job,
+            note="Pieces out on approval as on the day - with whom and for how long. Balance "
+                 "= sent out - returned - sold."),
+        "rs_approval_analysis": ReportSpec(
+            key="rs_approval_analysis", title="Ready Stock Approval Analysis",
+            columns=static([*piece, wt("ret_g", "RET G-WT"), wt("ret_n", "RET N-WT"),
+                            wt("ret_fine", "RET FN-WT"), *vals, Col("status", "STATUS"),
+                            Col("on", "ON")]),
+            query=lambda s, a, b, **_k: SL.approval_analysis(s, a, b),
+            group_by="particulars", filter_column="status", on_activate=open_job,
+            note="Every piece sent on approval in the period and what became of it: returned "
+                 "(weights back), sold, or still out."),
+        "metal_sale_register": ReportSpec(
+            key="metal_sale_register", title="Metal Sale Register",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("ref_no", "REFNO"),
+                            Col("particulars", "PARTICULARS"), Col("location", "LOCATION"),
+                            Col("metal", "METAL"), Col("col", "COL"), pcs("pcs", "PCS"),
+                            wt("weight", "WEIGHT"), wt("fine", "FINE"), Col("curr", "CURR"),
+                            Col("price", "PRICE", "measure", 2), Col("unit", "UNIT"),
+                            money("amount", "AMOUNT")]),
+            query=lambda s, a, b, **_k: INV.metal_sale_register(s, a, b),
+            group_by="particulars", filter_column="metal",
+            note="Every Sale ▸ Metal voucher line (e.g. 24KT Gold 10 g @ 15,050)."),
+        "stone_sale_register": ReportSpec(
+            key="stone_sale_register", title="Stone Sale Register", columns=static(stone),
+            query=lambda s, a, b, **_k: INV.stone_register(s, a, b, ("stone_sale",)),
+            group_by="particulars", filter_column="ssku",
+            note="Every Sale ▸ Stone ▸ Sale line."),
+        "stone_approval_register": ReportSpec(
+            key="stone_approval_register", title="Stone Approval Register",
+            columns=static([stone[0], stone[1], Col("vrtype", "TYPE"), *stone[2:]]),
+            query=lambda s, a, b, **_k: INV.stone_register(
+                s, a, b, ("stone_approval", "stone_approval_return")),
+            group_by="particulars", filter_column="vrtype",
+            note="Stones sent on approval (SA) and back (SAR)."),
+        "stone_approval_analysis": ReportSpec(
+            key="stone_approval_analysis", title="Stone Approval Analysis",
+            columns=static([Col("particulars", "PARTICULARS"), Col("ssku", "SSKU"),
+                            Col("size", "SIZE"), pcs("out_pcs", "OUT PCS"),
+                            wt("out_wt", "OUT WT"), pcs("ret_pcs", "RET PCS"),
+                            wt("ret_wt", "RET WT"), pcs("bal_pcs", "BAL PCS"),
+                            wt("bal_wt", "BAL WT"), Col("price", "PRICE", "measure", 2),
+                            Col("unit", "UNIT"), money("bal_amount", "BAL AMOUNT")]),
+            query=lambda s, a, b, **_k: INV.stone_approval_analysis(s, a, b), date_mode="to",
+            group_by="particulars", filter_column="particulars",
+            note="Per party and stone: sent on approval, returned, and still out."),
+        "repair_register": ReportSpec(
+            key="repair_register", title="Repair Register",
+            columns=static([*piece, money("price", "VALUE"), Col("status", "STATUS"),
+                            Col("days", "DAYS OUT", "measure", 0)]),
+            query=lambda s, a, b, **_k: SL.repair_register(s, a, b),
+            group_by="status", filter_column="status", on_activate=open_job,
+            note="Every Ready Repair Issue and whether the piece is still out for repair."),
+    }
+
+
 def build_specs() -> dict[str, ReportSpec]:
     from diagold.services.production import order_day_book
 
@@ -1272,6 +1362,7 @@ def build_specs() -> dict[str, ReportSpec]:
     return {
         "job_costing": job_costing_spec(),
         **_register_specs(money, wt, pcs),
+        **_sale_specs(money, wt, pcs),
         # -- day books ---------------------------------------------------
         "order_day_book": ReportSpec(
             key="order_day_book", title="Order Day Book",
@@ -1599,6 +1690,9 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
                    "inv_stone_day_book", "account_ledger")),
     ("Manufacturing", ("job_costing", "pending_mfg_transfer", "mfg_transfer_day_book",
                        "ready_stock")),
+    ("Sale", ("rs_sale_register", "rs_approval_register", "rs_approval_balance",
+              "rs_approval_analysis", "metal_sale_register", "stone_sale_register",
+              "stone_approval_register", "stone_approval_analysis", "repair_register")),
     ("Registers", ("metal_loss_register", "stone_loss_register", "dust_register",
                    "wip_register", "wip_process_summary", "wip_stone")),
     ("Karigar", ("worker_metal_ledger", "worker_stone_ledger", "worker_stone_balance",

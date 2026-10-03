@@ -117,17 +117,19 @@ def voucher_spec(vr_type: str) -> CrudSpec:
             Field("unit", "Per", type="choice", choices=["Cts", "Pcs"], default="Cts"),
             Field("amount", "Amount", type="float", decimals=2, readonly=True),
             Field("s_type", "S Type"),
+            Field("lot_no", "Lot No"),
         ]
     line_fields += [Field("remark", "Remark")]
 
     head = [
         Field("vr_no", "Vr No", type="int", readonly=True),
         Field("vr_date", "Date", type="date", default=date.today, required=True),
-        Field("account_id", "Supplier" if vt.party == "supplier" else "Account (worker)",
+        Field("account_id", "Supplier" if vt.party == "supplier" else
+              "Account (customer)" if vt.party == "customer" else "Account (worker)",
               type="fk", fk_model=Account, fk_label=_account_label, required=True),
         Field("ref_no", "Ref No"),
     ]
-    if vt.party == "supplier":
+    if vt.party in ("supplier", "customer"):
         head += [Field("currency_code", "Currency", type="choice",
                        choices=["INR", "USD", "AED", "EUR"], default="INR", in_list=False),
                  Field("salesperson", "Salesperson", in_list=False),
@@ -150,7 +152,9 @@ def voucher_spec(vr_type: str) -> CrudSpec:
               help_text=("Each line leaves its Location." if vt.direction < 0 else
                          "Each line comes into its Location.")
               + (" Fine = weight × the metal's title, worked out on save."
-                 if metal else " Price defaults to the Stone SKU's cost price.")
+                 if metal else (" Price defaults to the Stone SKU's sale price."
+                                if vt.party == "customer"
+                                else " Price defaults to the Stone SKU's cost price."))
               + (" Wastage % of the weight received is allowed to the karigar "
                  "(how wastage is settled: 28 Sept C-04)." if vr_type == "metal_receipt"
                  else ""),
