@@ -113,6 +113,7 @@ def voucher_spec(vr_type: str) -> CrudSpec:
             Field("pcs", "Pcs", type="int", on_change=_fill_weight_amount),
             Field("weight", "Weight (ct)", type="float", decimals=3,
                   on_change=_fill_weight_amount),
+            Field("wt_per_pcs", "Wt/Pcs", type="float", decimals=4, readonly=True),
             Field("price", "Price", type="float", decimals=2, on_change=_fill_weight_amount),
             Field("unit", "Per", type="choice", choices=["Cts", "Pcs"], default="Cts"),
             Field("amount", "Amount", type="float", decimals=2, readonly=True),
@@ -220,7 +221,26 @@ def voucher_spec(vr_type: str) -> CrudSpec:
         AttachDocDialog(vr_type, selected.vr_no, f"{vt.title} Vr {selected.vr_no}",
                         parent=widget).exec()
 
-    buttons = [("Print", print_voucher), ("Attach Doc", attach_doc)]
+    def account_info(widget, selected) -> None:
+        """Account Information (2 Oct TR5): the Dr / Cr the voucher posted."""
+        from PySide6.QtWidgets import QMessageBox
+        from sqlalchemy import select
+
+        from diagold.db.models import AccountEntry
+        from diagold.db.session import SessionLocal
+        if selected is None:
+            QMessageBox.information(widget, "Account Information", "Select a voucher first.")
+            return
+        with SessionLocal() as s:
+            rows = s.scalars(select(AccountEntry).where(AccountEntry.ref_kind == vr_type,
+                                                        AccountEntry.ref_no == selected.vr_no))
+            text = "\n".join(f"{'Dr' if e.debit else 'Cr'}  {e.ledger}   "
+                              f"{_dec(e.debit or e.credit):,.2f}" for e in rows)
+        QMessageBox.information(widget, f"Account Information — {vt.title} Vr {selected.vr_no}",
+                                text or "This voucher moves stock only - it posts no accounts.")
+
+    buttons = [("Print", print_voucher), ("Attach Doc", attach_doc),
+               ("Account Information", account_info)]
     if vr_type == "metal_issue":
         buttons.insert(0, ("Check Bal", lambda w, sel: CheckBalDialog(
             sel.account_id if sel is not None else None, w).exec()))

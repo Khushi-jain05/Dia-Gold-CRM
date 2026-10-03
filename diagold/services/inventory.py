@@ -123,6 +123,9 @@ def fill_line(session: Session, vr_type: str, row: dict[str, Any]) -> None:
                 row["wastage_wt"] = (_dec(row.get("weight")) * pct / 100).quantize(D3)
     else:
         row["unit"] = row.get("unit") or "Cts"
+        pcs = int(row.get("pcs") or 0)
+        row["wt_per_pcs"] = (_dec(row.get("weight")) / pcs).quantize(Decimal("0.0001")) \
+            if pcs else ZERO
         sku = session.get(StoneSku, row.get("stone_sku_id")) if row.get("stone_sku_id") else None
         if sku is not None:
             row["size"] = row.get("size") or sku.size or ""
@@ -286,6 +289,17 @@ def _vr_code(ref_kind: str) -> str:
     if ref_kind in sales.READY_TYPES:
         return sales.READY_TYPES[ref_kind].code
     return ref_kind
+
+
+def backfill_wt_per_pcs(session: Session) -> int:
+    """Wt/Pcs on stone lines saved before the column existed."""
+    n = 0
+    for l in session.scalars(select(InvVoucherLine).where(
+            InvVoucherLine.stone_sku_id.is_not(None) | (InvVoucherLine.particulars != ""),
+            InvVoucherLine.pcs > 0, InvVoucherLine.wt_per_pcs == 0)):
+        l.wt_per_pcs = (_dec(l.weight) / int(l.pcs)).quantize(Decimal("0.0001"))
+        n += 1
+    return n
 
 
 def backfill_accounts(session: Session) -> int:

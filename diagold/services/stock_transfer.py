@@ -40,7 +40,8 @@ ZERO = Decimal("0")
 D3 = Decimal("0.001")
 REF = "stock_transfer"
 PANES = ("ready_out", "metal", "stone", "ready_transfer")
-_LINE_FIELDS = ("location_id", "to_location_id", "stock_item_id", "mt_type", "metal_id",
+_LINE_FIELDS = ("location_id", "to_location_id", "stock_item_id", "mt_type", "metal_mould",
+                "wt_per_pcs", "item_size", "st_size", "metal_id",
                 "colour", "stone_sku_id", "particulars", "s_type", "size", "in_pcs", "in_wt",
                 "in_loss_pcs", "in_loss_wt", "out_pcs", "out_wt", "out_loss_pcs",
                 "out_loss_wt", "price", "unit", "amount", "job_no", "remark")

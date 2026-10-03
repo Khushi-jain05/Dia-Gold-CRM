@@ -50,6 +50,10 @@ class StockTransferLine(Base, PKMixin):
     prev_location_id: Mapped[int | None] = mapped_column(nullable=True)
     # metal / stone panes
     mt_type: Mapped[str] = mapped_column(String(16), default="Actual")
+    metal_mould: Mapped[str] = mapped_column(String(8), default="Metal")   # Metal / Mould
+    wt_per_pcs: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
+    item_size: Mapped[str] = mapped_column(String(24), default="")
+    st_size: Mapped[str] = mapped_column(String(24), default="")
     metal_id: Mapped[int | None] = mapped_column(ForeignKey("metals.id"), nullable=True)
     colour: Mapped[str] = mapped_column(String(16), default="")
     stone_sku_id: Mapped[int | None] = mapped_column(ForeignKey("stone_skus.id"), nullable=True)

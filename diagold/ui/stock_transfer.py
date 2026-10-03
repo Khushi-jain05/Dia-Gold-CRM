@@ -51,13 +51,15 @@ PANE_COLS: dict[str, list[tuple[str, str]]] = {
                   ("sku", "SKU"), ("metal", "Metal"), ("colour", "Col"), ("size", "Size"),
                   ("gross_wt", "GrossWt"), ("out_pcs", "Pcs"), ("out_wt", "Weight"),
                   ("price", "Price"), ("amount", "Amount"), ("remark", "Remark")],
-    "metal": [("location", "Location"), ("mt_type", "MtType"), ("name", "Metal"),
-              ("colour", "Col"), ("in_pcs", "In-Pcs"), ("in_wt", "In-Wt"),
+    "metal": [("location", "Location"), ("mt_type", "MtType"), ("metal_mould", "Metal/Mould"),
+              ("name", "Metal"), ("colour", "Col"), ("wt_per_pcs", "Wt/Pcs"),
+              ("in_pcs", "In-Pcs"), ("in_wt", "In-Wt"),
               ("in_loss_wt", "In-Loss"), ("out_pcs", "Out-Pcs"), ("out_wt", "Out-Wt"),
               ("out_loss_wt", "Out-Loss"), ("price", "Price"), ("unit", "Unit"),
-              ("amount", "Amount"), ("job_no", "JobNo")],
+              ("amount", "Amount"), ("job_no", "JobNo"), ("item_size", "Item Size"),
+              ("st_size", "St Size")],
     "stone": [("location", "Location"), ("s_type", "StType"), ("name", "SSKU"), ("size", "Size"),
-              ("in_pcs", "In-Pcs"), ("in_wt", "In-Wt"), ("in_loss_pcs", "In-LossPcs"),
+              ("wt_per_pcs", "Wt/Pcs"), ("in_pcs", "In-Pcs"), ("in_wt", "In-Wt"), ("in_loss_pcs", "In-LossPcs"),
               ("in_loss_wt", "In-LossWt"), ("out_pcs", "Out-Pcs"), ("out_wt", "Out-Wt"),
               ("out_loss_pcs", "Out-LossPcs"), ("out_loss_wt", "Out-LossWt"),
               ("price", "Price"), ("unit", "Unit"), ("amount", "Amount"), ("remark", "Remark")],
@@ -104,6 +106,9 @@ class LineDialog(QDialog):
                                                    str(k.cost_price or 0)))
         self.item.currentIndexChanged.connect(lambda _i: self._item_changed())
         self.mt_type, self.colour = QLineEdit("Actual"), QLineEdit("Y")
+        self.metal_mould = QComboBox()
+        self.metal_mould.addItems(["Metal", "Mould"])
+        self.item_size, self.st_size = QLineEdit(), QLineEdit()
         self.size, self.s_type = QLineEdit(), QLineEdit()
         self.in_pcs, self.out_pcs = QSpinBox(), QSpinBox()
         self.in_loss_pcs, self.out_loss_pcs = QSpinBox(), QSpinBox()
@@ -118,8 +123,11 @@ class LineDialog(QDialog):
         form.addRow("Location", self.loc)
         if pane == "metal":
             form.addRow("MtType", self.mt_type)
+            form.addRow("Metal / Mould", self.metal_mould)
             form.addRow("Metal", self.item)
             form.addRow("Col", self.colour)
+            form.addRow("Item Size", self.item_size)
+            form.addRow("St Size", self.st_size)
         else:
             form.addRow("SSKU", self.item)
             form.addRow("StType", self.s_type)
@@ -160,9 +168,14 @@ class LineDialog(QDialog):
              "price": D(str(self.price.value())), "unit": self.unit.currentText(),
              "job_no": int(self.job_no.text()) if self.job_no.text().strip().isdigit() else None,
              "remark": self.remark.text().strip()}
+        pcs = v["in_pcs"] or v["out_pcs"]
+        wt = v["in_wt"] or v["out_wt"]
+        v["wt_per_pcs"] = (wt / pcs).quantize(D("0.0001")) if pcs else D(0)
         if self.pane == "metal":
             v.update(metal_id=self.item.currentData(), mt_type=self.mt_type.text().strip(),
-                     colour=self.colour.text().strip())
+                     colour=self.colour.text().strip(),
+                     metal_mould=self.metal_mould.currentText(),
+                     item_size=self.item_size.text().strip(), st_size=self.st_size.text().strip())
         else:
             data = self.item.currentData()
             v.update(stone_sku_id=data[0] if isinstance(data, tuple) else None,
