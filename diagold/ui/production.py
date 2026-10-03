@@ -2550,6 +2550,15 @@ class OptionsWidget(QWidget):
                 self.checks[item.key] = cb
                 bl.addWidget(cb)
         outer.addWidget(box)
+        hbox = QGroupBox("Other menu items - off unless the client wants them back")
+        hl = QVBoxLayout(hbox)
+        with SessionLocal() as s:
+            for key, label in settings.MENU_DEFAULT_HIDDEN.items():
+                cb = QCheckBox(label)
+                cb.setChecked(settings.menu_visible(key, s))
+                self.checks[key] = cb
+                hl.addWidget(cb)
+        outer.addWidget(hbox)
         fbox = QGroupBox("Behaviour")
         fl = QVBoxLayout(fbox)
         self.flags: dict[str, QCheckBox] = {}

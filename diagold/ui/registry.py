@@ -9,6 +9,7 @@ from diagold.menu import MENU_BY_KEY
 from diagold.services.auth import CurrentUser
 from diagold.ui.crud import CrudWidget
 from diagold.ui import inventory as inventory_ui
+from diagold.ui import sales as sales_ui
 from diagold.ui.manufacturing import ItemSearchWidget, MfgTransferWidget, ProcessVoucherWidget
 from diagold.ui.permissions import PermissionMatrixWidget
 from diagold.ui.placeholder import PlaceholderWidget
@@ -48,7 +49,6 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
         lambda user: ReportWidget(build_specs()["pending_mfg_transfer"], user),
     "manufacturing.mfg_transfer_day_book":
         lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
-    "sale.ready_stock": lambda user: ReportWidget(build_specs()["ready_stock"], user),
     "manufacturing.worker_statement":
         lambda user: ReportWidget(build_specs()["worker_metal_ledger"], user),
 }
@@ -65,6 +65,7 @@ REPORT_MENUS: dict[str, list[tuple[str | None, tuple[str, ...]]]] = {
         "Day Books", "Outstanding", "Analysis", "Other")],
     "manufacturing.reports": [(t, _SECTIONS[t]) for t in ("Manufacturing", "Karigar")],
     "inventory.reports": [(t, _SECTIONS[t]) for t in ("Inventory", "Karigar")],
+    "sale.reports": [(None, ("ready_stock",))],
     "inventory.metal._reports": [(None, (
         "metal_analysis", "worker_metal_balance", "inv_metal_day_book",
         "worker_metal_ledger"))],
@@ -87,10 +88,13 @@ EXTRA_SCREENS: dict[str, str] = {**{report_key(k): report_title(k)
                                      for _t, keys in SECTIONS for k in keys},
                                   "manufacturing.item_search": "Item Search",
                                   "manufacturing.worker_statement": "Worker Metal Ledger",
-                                  **inventory_ui.sub_labels()}
-# Menu items that open a submenu rather than a screen (Inventory ▸ Metal ▸ …).
+                                  **inventory_ui.sub_labels(), **sales_ui.sub_labels()}
+# Menu items that open a submenu rather than a screen (Inventory ▸ Metal ▸ …,
+# Sale ▸ Ready Stock ▸ …).
 SUBMENUS = {parent: [(inventory_ui.sub_key(parent, k), label) for k, label in items]
             for parent, items in inventory_ui.SUBMENUS.items()}
+SUBMENUS.update({parent: [(sales_ui.sub_key(parent, k), label) for k, label in items]
+                 for parent, items in sales_ui.SUBMENUS.items()})
 
 
 def _group_label(menu_key: str) -> str:
@@ -116,6 +120,8 @@ def build_widget(menu_key: str, user: CurrentUser) -> QWidget:
         return ReportWidget(build_specs()[REPORT_MENUS[menu_key][0][1][0]], user)
     if menu_key in _CUSTOM:
         return _CUSTOM[menu_key](user)
+    if menu_key.rsplit(".", 1)[0] in sales_ui.SUBMENUS:
+        return sales_ui.build_screen(menu_key, user)
     if menu_key.rsplit(".", 1)[0] in SUBMENUS:
         return inventory_ui.build_screen(menu_key, user)
 
@@ -133,6 +139,8 @@ def build_widget(menu_key: str, user: CurrentUser) -> QWidget:
 def has_real_screen(menu_key: str) -> bool:
     if menu_key.startswith(REPORT_PREFIX) or menu_key in REPORT_MENUS:
         return True
+    if menu_key.rsplit(".", 1)[0] in sales_ui.SUBMENUS:
+        return sales_ui.has_screen(menu_key)
     if menu_key.rsplit(".", 1)[0] in SUBMENUS:
         return menu_key.rsplit(".", 1)[1] not in inventory_ui.PENDING_EXPLANATION
     return menu_key in _CUSTOM or menu_key in SPECS or menu_key in SUBMENUS

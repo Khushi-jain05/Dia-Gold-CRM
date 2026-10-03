@@ -128,11 +128,13 @@ MENU: list[MenuGroup] = [
         ("ready_item_receipt", "Ready Item Receipt"),
         ("reports", "Reports"),
     ]),
+    # 2 Oct (Session 3 D3): Approval is taken on the sale side only, so it
+    # sits under Sale ▸ Ready Stock (and Sale ▸ Stone), not as its own item.
     _g("sale", "Sale", [
         ("ready_stock", "Ready Stock"),
         ("metal", "Metal"),
         ("stone", "Stone"),
-        ("approval", "Approval"),
+        ("reports", "Reports"),
     ]),
     _g("account", "Account", [
         ("groups", "Groups"),

@@ -33,6 +33,17 @@ PP_DEFAULT_VISIBLE: frozenset[str] = frozenset({
     "production_planning.opening_stone",
 })
 
+# Menu items outside Production Planning that are switched off by default but
+# kept in the code, so the client can bring one back from Tools > Option
+# (2 Oct Session 3, TR8 - "hidden by configuration, not deleted").
+MENU_DEFAULT_HIDDEN: dict[str, str] = {
+    "manufacturing.waxing": "Manufacturing ▸ Waxing - \"not of any use\" (2 Oct D2)",
+    "purchase.approval": "Purchase ▸ Approval - approvals are on the sale side (2 Oct D3)",
+    "purchase.approval_return": "Purchase ▸ Approval Return - sale side only (2 Oct D3)",
+    "purchase.stone_approval": "Purchase ▸ Stone Approval - until confirmed (2 Oct C-03)",
+    "purchase.stone_app_return": "Purchase ▸ Stone App Return - until confirmed (2 Oct C-03)",
+}
+
 # Behaviour switches (Tools > Option). Metal / mould / finding returns are
 # "not used, never needed" (18 Sept D1) - off unless the client says otherwise.
 FLAGS: dict[str, tuple[str, bool]] = {
@@ -64,11 +75,14 @@ def set_setting(session: Session, key: str, value: str) -> None:
 
 
 def menu_visible(menu_key: str, session: Session | None = None) -> bool:
-    """Is this menu item shown? Only Production-Planning items are switchable
-    for now; everything else follows the menu definition."""
-    if not menu_key.startswith("production_planning."):
+    """Is this menu item shown? Production-Planning items and the ones in
+    MENU_DEFAULT_HIDDEN are switchable; everything else follows the menu."""
+    if menu_key in MENU_DEFAULT_HIDDEN:
+        default = "0"
+    elif not menu_key.startswith("production_planning."):
         return True
-    default = "1" if menu_key in PP_DEFAULT_VISIBLE else "0"
+    else:
+        default = "1" if menu_key in PP_DEFAULT_VISIBLE else "0"
     if session is not None:
         return get_setting(session, _MENU_PREFIX + menu_key, default) == "1"
     with SessionLocal() as s:
