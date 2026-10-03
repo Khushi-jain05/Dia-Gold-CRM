@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -48,6 +49,8 @@ class _Card(QFrame):
 
 class DashboardWidget(QWidget):
     open_requested = Signal(str)  # menu key
+    # BARCODE READ (2 Oct T-12): ("item", Stock ID / SKU) or ("job", Job No).
+    barcode_requested = Signal(str, str)
 
     def __init__(self, user, parent=None):
         super().__init__(parent)
@@ -67,6 +70,26 @@ class DashboardWidget(QWidget):
         sub = QLabel("Dia Gold CRM — jewellery manufacturing, end to end.")
         sub.setObjectName("Muted")
         outer.addWidget(sub)
+
+        # BARCODE READ, as on the legacy home screen (2 Oct T-12 / UX3): scan a
+        # Stock ID or type a SKU to open Item Search, or a Job No for Job History.
+        scan = QFrame()
+        scan.setObjectName("Card")
+        sl = QHBoxLayout(scan)
+        sl.setContentsMargins(18, 12, 18, 12)
+        sl.setSpacing(10)
+        head = QLabel("BARCODE READ")
+        head.setObjectName("CardLabel")
+        sl.addWidget(head)
+        self.item_box = QLineEdit()
+        self.item_box.setPlaceholderText("Item Search — Stock ID / SKU, Enter")
+        self.item_box.returnPressed.connect(lambda: self._scan("item", self.item_box))
+        sl.addWidget(self.item_box, 1)
+        self.job_box = QLineEdit()
+        self.job_box.setPlaceholderText("Job History — Job No, Enter")
+        self.job_box.returnPressed.connect(lambda: self._scan("job", self.job_box))
+        sl.addWidget(self.job_box, 1)
+        outer.addWidget(scan)
 
         # stat cards
         grid = QGridLayout()
@@ -128,3 +151,9 @@ class DashboardWidget(QWidget):
         note.setObjectName("Muted")
         note.setWordWrap(True)
         outer.addWidget(note)
+
+    def _scan(self, kind: str, box: QLineEdit) -> None:
+        text = box.text().strip()
+        if text:
+            self.barcode_requested.emit(kind, text)
+            box.clear()

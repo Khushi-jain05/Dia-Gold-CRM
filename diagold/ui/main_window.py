@@ -295,6 +295,7 @@ class MainWindow(QMainWindow):
     def _open_dashboard(self) -> None:
         dash = DashboardWidget(self.user)
         dash.open_requested.connect(self._open_by_key)
+        dash.barcode_requested.connect(self._barcode_read)
         idx = self.tabs.addTab(dash, "  Dashboard  ")
         self.tabs.setCurrentIndex(idx)
         # dashboard tab is not closable
@@ -344,6 +345,30 @@ class MainWindow(QMainWindow):
         job_id = getattr(source, "job_id", None)
         if target is not None and job_id and hasattr(target, "show_job"):
             target.show_job(job_id)
+
+    def _barcode_read(self, kind: str, text: str) -> None:
+        """Dashboard BARCODE READ: a Stock ID / SKU opens Item Search on it, a
+        Job No opens Job History on that job."""
+        if kind == "item":
+            self._open_by_key("manufacturing.item_search")
+            w = self._tabs_by_key.get("manufacturing.item_search")
+            if w is not None:
+                w.search.setText(text)
+                w.refresh()
+            return
+        from sqlalchemy import select
+
+        from diagold.db.models import Job
+        with SessionLocal() as s:
+            job_id = s.scalar(select(Job.id).where(Job.job_no == int(text))) \
+                if text.isdigit() else None
+        if job_id is None:
+            QMessageBox.information(self, "Job History", f"Job {text} not found.")
+            return
+        self._open_by_key("production_planning.job_history")
+        w = self._tabs_by_key.get("production_planning.job_history")
+        if w is not None and hasattr(w, "show_job"):
+            w.show_job(job_id)
 
     def _close_tab(self, index: int) -> None:
         widget = self.tabs.widget(index)
