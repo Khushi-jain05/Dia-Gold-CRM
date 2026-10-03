@@ -91,7 +91,8 @@ class StockItem(Base, PKMixin, TimestampMixin):
     __tablename__ = "stock_items"
 
     stock_no: Mapped[int] = mapped_column(unique=True, index=True)   # also the bar code
-    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"))
+    # Empty for a piece bought in ready or loaded as opening stock (2 Oct T-07).
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), nullable=True)
     line_id: Mapped[int | None] = mapped_column(
         ForeignKey("mfg_transfer_lines.id", ondelete="SET NULL"), nullable=True)
     product_sku_id: Mapped[int | None] = mapped_column(
@@ -108,8 +109,22 @@ class StockItem(Base, PKMixin, TimestampMixin):
     cert_no: Mapped[str] = mapped_column(String(40), default="")
     huid: Mapped[str] = mapped_column(String(16), default="")
     tag_printed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Where the piece came from: "mfg" (MFG transfer), "purchase" (Ready Items),
+    # "opening" (opening stock); the ready voucher line that brought it in.
+    source: Mapped[str] = mapped_column(String(12), default="mfg")
+    in_line_id: Mapped[int | None] = mapped_column(nullable=True)
+    # Self-describing for a piece with no job (bought in).
+    metal_id: Mapped[int | None] = mapped_column(ForeignKey("metals.id"), nullable=True)
+    colour: Mapped[str] = mapped_column(String(16), default="")
+    size: Mapped[str] = mapped_column(String(24), default="")
+    c_ref: Mapped[str] = mapped_column(String(64), default="")
+    # The party holding it while it is out on approval or for repair.
+    holder_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"),
+                                                          nullable=True)
 
-    STATUSES = ("in_stock", "sold")
+    # in_stock · sold · on_approval (with a party) · in_repair (issued to
+    # repair for a party) · returned (sent back to the supplier).
+    STATUSES = ("in_stock", "sold", "on_approval", "in_repair", "returned")
 
 
 class DeletionLog(Base, PKMixin):

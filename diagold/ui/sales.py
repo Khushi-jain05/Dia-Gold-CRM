@@ -25,8 +25,19 @@ _HEAD = {"sale.ready_stock": "Ready Stock", "sale.stone": "Stone"}
 # Screens that are only a note until the client explains them.
 PENDING_EXPLANATION = {"settings"}
 
-# key -> builder(user) for the screens that exist; filled in as they are built.
-BUILDERS: dict[str, object] = {}
+def _ready(vr_type: str):
+    def build(user):
+        from diagold.ui.ready_vouchers import ReadyVoucherWidget
+        return ReadyVoucherWidget(vr_type, user)
+    return build
+
+
+# key -> builder(user) for the screens that exist.
+BUILDERS: dict[str, object] = {
+    "sale": _ready("rs_sale"), "sale_return": _ready("rs_sale_return"),
+    "approval": _ready("rs_approval"), "approval_return": _ready("rs_approval_return"),
+    "repair_issue": _ready("rs_repair_issue"),
+}
 
 
 def sub_key(parent: str, key: str) -> str:

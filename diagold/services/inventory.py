@@ -231,6 +231,45 @@ def post_accounts(session: Session, v: InvVoucher) -> None:
     session.flush()
 
 
+def post_entry(session: Session, *, on: date, amount: Decimal, ref_kind: str, ref_no: int,
+               narration: str, debit_ledger: str = "", debit_account_id: int | None = None,
+               credit_ledger: str = "", credit_account_id: int | None = None) -> None:
+    """One double entry: Dr one side, Cr the other, for ``amount``. A party
+    side names its Account; a nominal side (Sales A/c) only its ledger name."""
+    amount = _dec(amount).quantize(Decimal("0.01"))
+    if not amount:
+        return
+
+    def name(ledger: str, acct_id: int | None) -> str:
+        if acct_id:
+            a = session.get(Account, acct_id)
+            return a.name if a else "?"
+        return ledger
+    session.add(AccountEntry(entry_date=on, account_id=debit_account_id,
+                             ledger=name(debit_ledger, debit_account_id), debit=amount,
+                             ref_kind=ref_kind, ref_no=ref_no, narration=narration))
+    session.add(AccountEntry(entry_date=on, account_id=credit_account_id,
+                             ledger=name(credit_ledger, credit_account_id), credit=amount,
+                             ref_kind=ref_kind, ref_no=ref_no, narration=narration))
+    session.flush()
+
+
+def remove_entries(session: Session, ref_kind: str, ref_no: int) -> None:
+    for e in session.scalars(select(AccountEntry).where(
+            AccountEntry.ref_kind == ref_kind, AccountEntry.ref_no == ref_no)).all():
+        session.delete(e)
+    session.flush()
+
+
+def _vr_code(ref_kind: str) -> str:
+    if ref_kind in VOUCHER_TYPES:
+        return VOUCHER_TYPES[ref_kind].legacy
+    from diagold.services import sales
+    if ref_kind in sales.READY_TYPES:
+        return sales.READY_TYPES[ref_kind].code
+    return ref_kind
+
+
 def backfill_accounts(session: Session) -> int:
     """Post the accounting of purchases saved before it was posted. Safe to
     run every start: a voucher that already has its entries is skipped."""
@@ -262,8 +301,7 @@ def account_ledger(session: Session, date_from: date, date_to: date) -> list[dic
         if e.entry_date < date_from:
             continue
         rows.append({"ledger": name, "date": e.entry_date,
-                     "vrtype": VOUCHER_TYPES[e.ref_kind].legacy
-                     if e.ref_kind in VOUCHER_TYPES else e.ref_kind,
+                     "vrtype": _vr_code(e.ref_kind),
                      "vrno": e.ref_no, "narration": e.narration,
                      "debit": _dec(e.debit) or None, "credit": _dec(e.credit) or None,
                      "balance": abs(b), "drcr": "Dr" if b >= 0 else "Cr"})

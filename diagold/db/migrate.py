@@ -79,6 +79,7 @@ def sync_schema(engine: Engine) -> list[str]:
         _carry_over_metal_values(conn, inspector, existing)
         _carry_over_account_types(conn, existing)
         changes += _drop_orphan_not_null_columns(conn, inspector, existing)
+        changes += _relax_not_null(inspector, existing)
         _create_unique_indexes(conn, inspector, existing)
         _enforce_stone_group(conn, inspector, existing)
         _drop_broken_orphan_tables(conn, inspector, existing)
@@ -360,6 +361,26 @@ def _drop_orphan_not_null_columns(conn, inspector, existing: set[str]) -> list[s
         dropped.append(f'~{name} (rebuilt)')
     _pending_rebuilds.update(rebuild)
     return dropped
+
+
+def _relax_not_null(inspector, existing: set[str]) -> list[str]:
+    """A column the model now allows to be empty but the file still holds NOT
+    NULL (a ready piece bought in has no job - 2 Oct T-07): SQLite cannot
+    ALTER that, so the table is rebuilt to the model's shape."""
+    out = []
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing:
+            continue
+        db_cols = {c["name"]: c for c in inspector.get_columns(table.name)}
+        for col in table.columns:
+            have = db_cols.get(col.name)
+            if have is None or col.primary_key:
+                continue
+            if col.nullable and not have.get("nullable", True):
+                _pending_rebuilds.add(table.name)
+                out.append(f"~{table.name}.{col.name} (now nullable)")
+                break
+    return out
 
 
 def _create_unique_indexes(conn, inspector, existing: set[str]) -> None:
