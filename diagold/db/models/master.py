@@ -6,9 +6,10 @@ stone / SKU / manufacturing attribute masters.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (Boolean, Date, DateTime, ForeignKey, Numeric, String, Text,
+                        UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from diagold.db.models.base import Base, PKMixin, TimestampMixin
@@ -431,6 +432,9 @@ class DailyMetalRate(Base, PKMixin, TimestampMixin):
     # Optional override for the pure-metal rate this head is priced from.
     pure_rate_per_gram: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
     remark: Mapped[str] = mapped_column(String(160), default="")
+    # Who typed the rate and when (2 Oct T-13).
+    entered_by: Mapped[str] = mapped_column(String(64), default="")
+    entered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     metal: Mapped[Metal] = relationship()
 

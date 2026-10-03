@@ -529,7 +529,68 @@ _register(CrudSpec(
     ],
 ))
 
-# --- Daily Metal Rate (T-09) --------------------------------------------
+# --- Daily Metal Rate (T-09; 2 Oct T-13: who / when, rate as on a date) ---
+def _stamp_rate(values: dict, _children, _session) -> None:
+    from datetime import datetime
+
+    from diagold.services.auth import session_user
+    u = session_user()
+    values["entered_by"] = (u.full_name or u.username) if u else ""
+    values["entered_at"] = datetime.now().replace(microsecond=0)
+
+
+def _rate_as_on(widget) -> None:
+    """Every metal's rate in force on a chosen date, and the day it was set -
+    what a voucher dated that day copies and keeps."""
+    from datetime import date
+
+    from PySide6.QtCore import QDate
+    from PySide6.QtWidgets import (QDateEdit, QDialog, QHBoxLayout, QLabel, QTableWidget,
+                                   QTableWidgetItem, QVBoxLayout)
+
+    from diagold.db.session import SessionLocal
+    from diagold.services import costing, rates
+    from diagold.ui.crud import auto_fit
+    dlg = QDialog(widget)
+    dlg.setWindowTitle("Rate As On Date")
+    dlg.setMinimumSize(620, 460)
+    lay = QVBoxLayout(dlg)
+    row = QHBoxLayout()
+    row.addWidget(QLabel("As on"))
+    when = QDateEdit(QDate.currentDate())
+    when.setCalendarPopup(True)
+    when.setDisplayFormat("dd-MM-yyyy")
+    row.addWidget(when)
+    row.addStretch(1)
+    lay.addLayout(row)
+    grid = auto_fit(QTableWidget(0, 4))
+    grid.setHorizontalHeaderLabels(["Metal", "Rate / gram", "Rate for its purity", "Set on"])
+    grid.verticalHeader().setVisible(False)
+    lay.addWidget(grid, 1)
+
+    def load() -> None:
+        q = when.date()
+        on = date(q.year(), q.month(), q.day())
+        grid.setRowCount(0)
+        with SessionLocal() as s:
+            for m in s.scalars(select(Metal).order_by(Metal.name)):
+                info = rates.rate_for(s, m.id, on)
+                if not info.found:
+                    continue
+                r = grid.rowCount()
+                grid.insertRow(r)
+                purity = costing.purity_fraction(m)
+                for c, v in enumerate([m.name, f"{info.rate:,.2f}",
+                                       f"{(info.rate * purity):,.2f}",
+                                       f"{info.effective_date:%d-%m-%Y}"]):
+                    grid.setItem(r, c, QTableWidgetItem(v))
+
+    when.dateChanged.connect(lambda _d: load())
+    load()
+    dlg.exec()
+
+
+
 _register(CrudSpec(
     key="master.daily_metal_rate",
     title="Daily Metal Rates",
@@ -546,7 +607,12 @@ _register(CrudSpec(
               help_text="Optional. Rate for 100% pure metal; valuation scales "
                         "it by each head's purity."),
         Field("remark", "Remark", in_list=False),
+        Field("entered_by", "Entered By", readonly=True,
+              help_text="Filled in on save with the logged-in user."),
+        Field("entered_at", "Entered At", readonly=True),
     ],
+    before_save=_stamp_rate,
+    extra_buttons=[("Rate As On Date", lambda w, _sel: _rate_as_on(w))],
 ))
 
 # --- Daily Labour Rates (T-09, shape pending Q9) ------------------------

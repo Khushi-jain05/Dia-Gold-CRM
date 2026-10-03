@@ -54,6 +54,8 @@ class MainWindow(QMainWindow):
         self.resize(1240, 800)
         self.setStyleSheet(APP_QSS)
 
+        from diagold.services.auth import set_session_user
+        set_session_user(user)
         self._build_menubar()
         self.setCentralWidget(self._build_content())
         self._build_statusbar()

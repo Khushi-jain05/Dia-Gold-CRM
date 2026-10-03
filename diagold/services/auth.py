@@ -81,3 +81,17 @@ def change_password(session: Session, user_id: int, old_pw: str, new_pw: str) ->
         raise AuthError("New password must be at least 4 characters.")
     user.set_password(new_pw)
     session.commit()
+
+
+# The user logged in to this running app - for "entered by" on records that
+# keep it (Daily Metal Rate, 2 Oct T-13). Set once by the main window.
+_SESSION_USER: CurrentUser | None = None
+
+
+def set_session_user(user: CurrentUser | None) -> None:
+    global _SESSION_USER
+    _SESSION_USER = user
+
+
+def session_user() -> CurrentUser | None:
+    return _SESSION_USER

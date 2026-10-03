@@ -88,6 +88,12 @@ def set_rate(session: Session, metal_id: int, on_date: date,
     row.rate_per_gram = Decimal(str(rate_per_gram))
     row.pure_rate_per_gram = Decimal(str(pure_rate_per_gram or 0))
     row.remark = remark
+    from datetime import datetime
+
+    from diagold.services.auth import session_user
+    u = session_user()
+    row.entered_by = (u.full_name or u.username) if u else "system"
+    row.entered_at = datetime.now().replace(microsecond=0)
     session.flush()
     return row
 
