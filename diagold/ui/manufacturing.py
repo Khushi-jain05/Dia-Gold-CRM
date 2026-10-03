@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy import func, select
 
 from diagold.db.models import (Account, Job, JobStep, JobVoucher, ManufacturingProcess, Metal,
-                               Location, MfgTransfer, StockItem)
+                               Location, MfgTransfer, ProductSku, StockItem)
 from diagold.db.session import SessionLocal
 from diagold.services import manufacturing as mfg
 from diagold.services import mfg_pricing, production
@@ -219,13 +219,14 @@ class TagListDialog(QDialog):
         for it in stock_items:
             if it.id in have:
                 continue
-            job = s.get(Job, it.job_id)
+            job = s.get(Job, it.job_id) if it.job_id else None
             groups = mfg.item_detail(s, it)["stone_groups"]
             detail = " · ".join(f"{g} {w:.2f}ct" for g, (w, _a) in groups.items() if w)
+            sku = s.get(ProductSku, it.product_sku_id) if it.product_sku_id else None
             self.items.append({
                 "id": it.id, "stock_no": it.stock_no,
-                "sku": job.product_sku.sku_code if job and job.product_sku else "",
-                "c_ref": job.c_ref if job else "", "pcs": it.pcs,
+                "sku": sku.sku_code if sku else "",
+                "c_ref": it.c_ref or (job.c_ref if job else ""), "pcs": it.pcs,
                 "gross": it.gross_wt, "net": it.net_wt,
                 "price": f"{Decimal(str(it.price)):,.2f}", "tag": it.tag_text,
                 "detail": detail,

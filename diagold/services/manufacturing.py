@@ -321,7 +321,7 @@ def stock_for_transfer(session: Session, transfer: MfgTransfer) -> list[StockIte
 def find_items(session: Session, text: str) -> list[StockItem]:
     """By Stock No, Job No, SKU or Cert No (28 Sept TR8)."""
     text = (text or "").strip()
-    q = select(StockItem).join(Job, Job.id == StockItem.job_id).outerjoin(
+    q = select(StockItem).outerjoin(Job, Job.id == StockItem.job_id).outerjoin(
         ProductSku, ProductSku.id == StockItem.product_sku_id)
     if text:
         conds = [ProductSku.sku_code.ilike(f"%{text}%"), StockItem.cert_no.ilike(f"%{text}%")]
@@ -365,6 +365,15 @@ def delete_stock_item(session: Session, item: StockItem, *, user_id: int | None 
     if item.status != "in_stock":
         raise ProductionError(f"Stock No {item.stock_no} is {item.status}; only a piece "
                               "still in stock can be deleted.")
+    if item.source != "mfg" or item.line_id is None:
+        raise ProductionError(f"Stock No {item.stock_no} was not made here (it came in on a "
+                              "Ready Items purchase or as opening stock) - delete that voucher "
+                              "instead.")
+    from diagold.db.models import ReadyVoucherLine
+    if session.scalar(select(ReadyVoucherLine.id).where(
+            ReadyVoucherLine.stock_item_id == item.id)):
+        raise ProductionError(f"Stock No {item.stock_no} has been on a sale / approval / "
+                              "repair voucher - it cannot be deleted; undo those vouchers first.")
     job = session.get(Job, item.job_id)
     line = session.get(MfgTransferLine, item.line_id) if item.line_id else None
     transfer = session.get(MfgTransfer, line.transfer_id) if line else None
