@@ -1,4 +1,12 @@
-# Recording the next call (11 Sept T-11 · 18 Sept T-13)
+# Recording the next call (11 Sept T-11 · 18 Sept T-13 · 2 Oct T-17)
+
+**2 Oct (T-17):** our voices were clear, but Rohit ji presented from a second
+device and his audio transcribed as noise. For the next call:
+
+- **Turn on Meet's Transcript** at the start (Activities ▸ Transcripts) - Meet
+  transcribes each speaker from the source, not from our speakers. Keep the
+  screen recording for the visuals.
+- **Ask the presenter to join from one device only**, with a headset mic.
 
 11½ minutes of the 11 September call have no audio (Meet on Bluetooth
 earbuds); the 18 September recording is at −45 dB and two windows with our

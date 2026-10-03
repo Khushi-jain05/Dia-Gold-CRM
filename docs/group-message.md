@@ -6,7 +6,7 @@ with the reason behind each item is the Open Points page.
 
 ---
 
-**Dia Gold CRM — open items (as of 29 Sept)**
+**Dia Gold CRM — open items (as of 3 Oct)**
 
 Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping and Job History`).
 
@@ -20,7 +20,26 @@ Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping
 - **S-1** Stone cost and sale prices are typed in per stone and size by the office — there is no list to hand over. Nothing to import; the Stone SKU screen is the entry point.
 - **M-5 (margin)** Tag price is just cost + 50%. The "20% less" is not part of the tag price — recorded that way; the discount field stays optional and off.
 
-**Next sitting** — Rohit ji, you asked "when do we sit again?" and mentioned Monday. We propose **Monday 21 Sept, the usual slot**. Agenda: (1) live demo of the new app — v0.5.0, the whole Production-Planning part built "up to here" as you said, for your check; (2) the five points below; (3) the Word job-sheet format.
+**Change file** — Rohit ji, as promised on 2 Oct, the file of everything changed since the meeting is attached (*DiaGold-Change-File-2Oct.pdf*). Please reply with the item number and what to change; the **B** items in it are yes / no.
+
+**Answered 2 Oct — thank you, recorded**
+- **Job Costing** is required — built (Manufacturing ▸ Job Costing); your BANG-52 sheet comes out the same, 2,51,239.91 / tag 251.
+- **Waxing** is not used — removed from the menu.
+- **Approval** is on the sale side only — Purchase keeps Opening Stock, Ready Items, Metal, Stones.
+- The **Excel invoice / breakup** is the format you want — built for Ready Stock Sale.
+
+**Manufacturing, Purchase, Sale, Repair (2 Oct) — needed next**
+- **2 Oct C-01** Reply to the change file.
+- **2 Oct C-02 / Q1** Which of the 13 sale print formats you use, and the Excel invoice file of Vr 1225 (plus any Breakup / Costing sheet templates). The Word job-sheet format from 11 Sept is still awaited too.
+- **2 Oct C-03 / Q5** Purchase: are Debit Note (metal / stone), Parts / Moulds purchase, Stone Approval and Stone App Return used?
+- **2 Oct C-04 / Q2, Q3, Q8** Margin % — fixed (50%) or per customer ("Prices From Client Chart")? Tag price = grand total ÷ 1,000 — is that the rule? Labour always per gram of net weight, or ever per piece?
+- **2 Oct Q4** The invoice says metal is charged at the payment-date rate — how is the bill settled? (We put the day's rate on the invoice.)
+- **2 Oct C-05 / Q6, Q7** Ten minutes on: Stock Transfer / Stock Melting (how losses are booked), Stone Issue ("Worker Adjustment", "Create Outstanding Issue For Cert"), Ready Item Receipt, Physical Stock.
+- **2 Oct Q9** Repair: the old piece's stone detail is not carried forward — right? Is there a charge, and does a repair go through a route like a job?
+- **2 Oct Q10** What is the **Virtual** location?
+- **2 Oct Q11** DIGICAT quote and RFID reading on the sale screen — needed?
+- **2 Oct** One line each on: F10 "SKU Curr", "As MRP", Sale ▸ Ready Stock ▸ Settings, Purchase ▸ Settings, "Show Ords" and "From Ft.Tr" on the purchase screen.
+- **2 Oct C-06** Exports for testing: costing BANG-52, sale Vr 1225, purchase Vr 56, stock transfer Vr 557, repair Vr 245, job 46973 history, the Approval Analysis and WIP Register for 01-04 to 02-10-2026.
 
 **Production → Manufacturing → Inventory (28 Sept) — needed next**
 - **28 Sep C-01** The **Inventory session**: go through Inventory ▸ Metal and Inventory ▸ Stone voucher by voucher, and tell us which ones (and which columns) you need first. You said "job will be based on inventory" — this is what we build next.
