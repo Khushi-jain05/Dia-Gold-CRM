@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy import func, select
 
 from diagold.db.models import (Account, Job, JobStep, JobVoucher, ManufacturingProcess, Metal,
-                               MfgTransfer, StockItem)
+                               Location, MfgTransfer, StockItem)
 from diagold.db.session import SessionLocal
 from diagold.services import manufacturing as mfg
 from diagold.services import mfg_pricing, production
@@ -383,7 +383,21 @@ class MfgTransferWidget(_Screen):
         self.ref = QLineEdit()
         self.ref.setPlaceholderText("Ref no")
         self.ref.setMaximumWidth(160)
-        for w in (QLabel("Vr No"), self.vr, QLabel("Date"), self.date, self.ref):
+        # Where the finished pieces go into stock (2 Oct §4.4) - Primary unless
+        # chosen otherwise.
+        self.location = QComboBox()
+        with SessionLocal() as s:
+            for loc in s.scalars(select(Location).order_by(Location.name)):
+                self.location.addItem(loc.name, loc.id)
+        i = self.location.findText(mfg.READY_LOCATION)
+        if i >= 0:
+            self.location.setCurrentIndex(i)
+        self.location.currentIndexChanged.connect(lambda _i: self.fill_prices())
+        self.split = QCheckBox("Split Jobs")
+        self.split.setToolTip("A job of several pieces gets one Stock No per piece, its "
+                              "weights, cost and price shared equally.")
+        for w in (QLabel("Vr No"), self.vr, QLabel("Date"), self.date, self.ref,
+                  QLabel("Location"), self.location, self.split):
             self.toolbar.addWidget(w)
         self.toolbar.addStretch(1)
         self.button("Show Pending", self.show_pending, primary=True)
@@ -395,9 +409,10 @@ class MfgTransferWidget(_Screen):
         self.button("Remove Line", self.remove_line, secondary=True)
         self.button("Cost Break-up", self.show_breakup, secondary=True)
         self.button("Tag List", self.tag_list, secondary=True)
+        self.button("Tag Print", self.tag_print, secondary=True)
         self.button("Print", self.print_transfer, secondary=True)
         self.button("Format-2", self.print_format2, secondary=True)
-        self.button("Excel", self.export_excel, secondary=True)
+        self.button("Excel Format", self.export_excel, secondary=True)
         self.button("Item Search",
                     lambda: self.open_requested.emit("manufacturing.item_search"),
                     secondary=True)
@@ -444,6 +459,8 @@ class MfgTransferWidget(_Screen):
         return True
 
     def new_transfer(self) -> None:
+        self.location.setEnabled(True)
+        self.split.setEnabled(True)
         self._edit_tid, self._seed = None, {}
         self._job_ids, self._results = [], {}
         self.grid.setRowCount(0)
@@ -497,7 +514,18 @@ class MfgTransferWidget(_Screen):
             self._seed = mfg.transfer_overrides(t)
             self._job_ids = [l.job_id for l in t.lines]
             vr_date, ref = t.vr_date, t.ref_no
+            loc_id = t.lines[0].location_id if t.lines else None
+            split = bool(t.split_jobs)
+        i = self.location.findData(loc_id)
+        if i >= 0:
+            self.location.blockSignals(True)
+            self.location.setCurrentIndex(i)
+            self.location.blockSignals(False)
+        self.split.setChecked(split)
         self._edit_tid = self._last_transfer = tid
+        # Where the pieces went and how they were split stay as saved.
+        self.location.setEnabled(False)
+        self.split.setEnabled(False)
         self.date.blockSignals(True)
         self.date.setDate(_qdate(vr_date))
         self.date.blockSignals(False)
@@ -586,7 +614,7 @@ class MfgTransferWidget(_Screen):
                     "metal": metal.name if metal else "", "loss_pct": pct,
                     "gross_wt": mfg.last_gross(s, job), "c_ref": job.c_ref,
                     "colour": job.colour, "size": production._order_line_size(s, job),
-                    "location": mfg.READY_LOCATION, "rej_pcs": rej_pcs or "",
+                    "location": self.location.currentText(), "rej_pcs": rej_pcs or "",
                     "rej_wt": rej_wt or "",
                 }
         self._render(meta, overrides)
@@ -688,7 +716,9 @@ class MfgTransferWidget(_Screen):
             try:
                 t = mfg.post_transfer(s, lines, vr_date=_pydate(self.date),
                                       ref_no=self.ref.text().strip(),
-                                      user_id=getattr(self.user, "id", None))
+                                      user_id=getattr(self.user, "id", None),
+                                      location_id=self.location.currentData(),
+                                      split_jobs=self.split.isChecked())
                 s.commit()
                 tid, vr = t.id, t.vr_no
                 nos = [i.stock_no for i in mfg.stock_for_transfer(s, t)]
@@ -796,22 +826,54 @@ class MfgTransferWidget(_Screen):
         return heads, rows
 
     def export_excel(self) -> None:
-        """Excel: the grid as it stands, as a CSV Excel opens."""
+        """Excel Format: the grid as it stands, as an .xlsx with figures as
+        numbers and a totals row."""
         if not self.grid.rowCount():
-            _info(self, "Excel", "Nothing on the grid to export - Show Pending first.")
+            _info(self, "Excel Format", "Nothing on the grid to export - Show Pending first.")
             return
-        import csv
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+        from openpyxl.utils import get_column_letter
         from PySide6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getSaveFileName(self, "Excel", f"mfg_transfer_{self.vr.text()}.csv",
-                                              "CSV (*.csv)")
+        vr = self.vr.text().split(" ")[0]
+        path, _ = QFileDialog.getSaveFileName(self, "Excel Format", f"mfg_transfer_{vr}.xlsx",
+                                              "Excel (*.xlsx)")
         if not path:
             return
         heads, rows = self._grid_rows()
-        with open(path, "w", newline="", encoding="utf-8") as fh:
-            w = csv.writer(fh)
-            w.writerow(heads)
-            w.writerows(rows)
-        _info(self, "Excel", f"Saved {path}")
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "MFG Transfer"
+        ws.append([f"MFG Ready Stock Transfer — Vr {self.vr.text()} dt "
+                   f"{_pydate(self.date):%d-%m-%Y}"])
+        ws["A1"].font = Font(bold=True, size=13)
+        ws.append(heads)
+        for c in ws[2]:
+            c.font = Font(bold=True)
+
+        def num(v: str):
+            t = v.replace(",", "").strip()
+            try:
+                return float(t) if t and t not in ("Y",) else v
+            except ValueError:
+                return v
+        text_cols = {i for i, (k, _h, _e) in enumerate(COLS)
+                     if k in ("sku", "metal", "location", "c_ref", "colour", "size", "stamp",
+                              "tag_text", "job_no", "is_repair")}
+        for row in rows:
+            ws.append([v if i in text_cols else num(v) for i, v in enumerate(row)])
+        first, last = 3, ws.max_row
+        ws.append(["TOTAL"])
+        for i, (k, _h, _e) in enumerate(COLS, start=1):
+            if k in ("pcs", "gross_wt", "net_wt", "fine_wt", "metal_amount", "stone_amount",
+                     "labour", "total", "margin_amount", "total_value"):
+                L = get_column_letter(i)
+                ws[f"{L}{last + 1}"] = f"=SUM({L}{first}:{L}{last})"
+        for c in ws[last + 1]:
+            c.font = Font(bold=True)
+        ws.freeze_panes = "A3"
+        wb.save(path)
+        _info(self, "Excel Format", f"Saved {path}")
 
     def print_transfer(self) -> None:
         """Print the grid (before saving) or, when it is empty, the last
@@ -851,6 +913,17 @@ class MfgTransferWidget(_Screen):
         path = documents.PRINT_DIR / f"mfg_transfer_{datetime.now():%Y%m%d-%H%M%S}.pdf"
         documents.to_pdf(html, path)
         _info(self, "Print", f"Saved {path}")
+
+    def tag_print(self) -> None:
+        """Tag Print: every barcode tag of the last (or open) transfer, at once."""
+        tid = self._edit_tid or self._last_transfer
+        if tid is None:
+            with SessionLocal() as s:
+                tid = s.scalar(select(func.max(MfgTransfer.id)))
+        if tid is None:
+            _info(self, "Tag Print", "No MFG transfer has been saved yet.")
+            return
+        TagListDialog(tid, self)._print(False)
 
     def tag_list(self) -> None:
         tid = self._last_transfer

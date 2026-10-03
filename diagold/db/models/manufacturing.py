@@ -31,6 +31,9 @@ class MfgTransfer(Base, PKMixin, TimestampMixin):
     ref_no: Mapped[str] = mapped_column(String(64), default="")
     remark: Mapped[str] = mapped_column(String(200), default="")
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # "Split Jobs" (2 Oct §4.4): a job of several pieces becomes one stock
+    # piece (Stock No) per piece instead of one for the lot.
+    split_jobs: Mapped[bool] = mapped_column(Boolean, default=False)
 
     lines: Mapped[list["MfgTransferLine"]] = relationship(
         back_populates="transfer", cascade="all, delete-orphan",

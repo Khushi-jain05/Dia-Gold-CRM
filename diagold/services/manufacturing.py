@@ -112,9 +112,37 @@ def price_job(session: Session, job: Job, on_date: date, *, labour_weight: Any =
                                    zero_tag=is_repair)
 
 
+D3 = Decimal("0.001")
+PAISA = Decimal("0.01")
+
+
+def _split(total: Decimal, n: int, q: Decimal) -> list[Decimal]:
+    """``total`` in ``n`` equal parts at precision ``q``; the last part takes
+    the rounding, so the parts add back to the total exactly."""
+    total = _dec(total)
+    part = (total / n).quantize(q)
+    return [part] * (n - 1) + [total - part * (n - 1)]
+
+
+def _pieces(line: MfgTransferLine, p_cost: Decimal, p_price: Decimal,
+            split: bool) -> list[dict[str, Any]]:
+    """What each stock piece of a transfer line carries. Split Jobs: one per
+    piece, weights / cost / price shared equally (2 Oct T-05); else one for
+    the lot."""
+    n = int(line.pcs or 1) if split else 1
+    if n <= 1:
+        return [{"pcs": line.pcs, "gross_wt": _dec(line.gross_wt), "net_wt": _dec(line.net_wt),
+                 "cost": _dec(p_cost), "price": _dec(p_price)}]
+    g, nw = _split(line.gross_wt, n, D3), _split(line.net_wt, n, D3)
+    c, pr = _split(p_cost, n, PAISA), _split(p_price, n, PAISA)
+    return [{"pcs": 1, "gross_wt": g[i], "net_wt": nw[i], "cost": c[i], "price": pr[i]}
+            for i in range(n)]
+
+
 def post_transfer(session: Session, lines: list[dict[str, Any]], *,
                   vr_date: date | None = None, ref_no: str = "", remark: str = "",
-                  user_id: int | None = None) -> MfgTransfer:
+                  user_id: int | None = None, location_id: int | None = None,
+                  split_jobs: bool = False) -> MfgTransfer:
     """Save an MFG Ready Stock Transfer.
 
     ``lines``: one dict per job - ``job_id`` and optionally ``labour_weight``,
@@ -125,9 +153,11 @@ def post_transfer(session: Session, lines: list[dict[str, Any]], *,
     if not lines:
         raise ProductionError("Show Pending and pick at least one job to transfer.")
     seen: set[int] = set()
-    location = session.scalar(select(Location).where(Location.name == READY_LOCATION))
+    location = (session.get(Location, location_id) if location_id else
+                session.scalar(select(Location).where(Location.name == READY_LOCATION)))
     transfer = MfgTransfer(vr_no=next_number(session, MfgTransfer.vr_no), vr_date=vr_date,
-                           ref_no=ref_no, remark=remark, user_id=user_id)
+                           ref_no=ref_no, remark=remark, user_id=user_id,
+                           split_jobs=bool(split_jobs))
     session.add(transfer)
     session.flush()
     for sno, spec in enumerate(lines, start=1):
@@ -152,13 +182,17 @@ def post_transfer(session: Session, lines: list[dict[str, Any]], *,
         _store_price(session, line, job, p, spec)
         session.add(line)
         session.flush()
-        session.add(StockItem(
-            stock_no=next_number(session, StockItem.stock_no), job_id=job.id,
-            line_id=line.id, product_sku_id=job.product_sku_id,
-            location_id=location.id if location else None, pcs=p.pcs,
-            gross_wt=line.gross_wt, net_wt=p.net_wt, cost=p.total, price=p.price_per_pcs,
-            tag_price=p.tag_price, tag_text=p.tag_text,
-        ))
+        for piece in _pieces(line, p.total, p.price_per_pcs, split_jobs):
+            session.add(StockItem(
+                stock_no=next_number(session, StockItem.stock_no), job_id=job.id,
+                line_id=line.id, product_sku_id=job.product_sku_id,
+                location_id=location.id if location else None, pcs=piece["pcs"],
+                gross_wt=piece["gross_wt"], net_wt=piece["net_wt"], cost=piece["cost"],
+                price=piece["price"], tag_price=p.tag_price if p.tag_price else 0,
+                tag_text=p.tag_text if piece["pcs"] == line.pcs else mfg_pricing.tag_display(
+                    piece["price"], _tag_rule(session)),
+            ))
+            session.flush()
         job.status = "transferred"
         session.flush()
     session.refresh(transfer)
@@ -186,6 +220,11 @@ def _store_price(session: Session, line: MfgTransferLine, job: Job,
             stones_json=json.dumps([{**asdict(s), "amount": str(s.amount)} for s in p.stones],
                                    default=str)).items():
         setattr(line, key, val)
+
+
+def _tag_rule(session: Session) -> str:
+    from diagold.services import settings
+    return settings.get_setting(session, mfg_pricing.TAG_DISPLAY_SETTING, "thousands")
 
 
 def _image(obj) -> dict[str, Any]:
@@ -218,7 +257,9 @@ def update_transfer(session: Session, transfer: MfgTransfer, lines: list[dict[st
     manual amount, repair, stamp - at the voucher date. The pieces keep
     their Stock Nos; their cost, price and tag follow the new figures. The
     transfer as it was is kept in the deletion log."""
-    items = {it.line_id: it for it in _items_of(session, transfer)}
+    items: dict[int, list[StockItem]] = {}
+    for it in _items_of(session, transfer):
+        items.setdefault(it.line_id, []).append(it)
     by_job = {spec["job_id"]: spec for spec in lines}
     before = {"transfer": _image(transfer), "lines": [_image(l) for l in transfer.lines]}
     if vr_date is not None:
@@ -233,11 +274,14 @@ def update_transfer(session: Session, transfer: MfgTransfer, lines: list[dict[st
                       manual_amount=spec.get("manual_amount") or 0,
                       is_repair=bool(spec.get("is_repair")))
         _store_price(session, line, job, p, spec)
-        it = items.get(line.id)
-        if it is not None:
-            it.pcs, it.gross_wt, it.net_wt = line.pcs, line.gross_wt, line.net_wt
-            it.cost, it.price = p.total, p.price_per_pcs
-            it.tag_price, it.tag_text = p.tag_price, p.tag_text
+        pieces = sorted(items.get(line.id, []), key=lambda i: i.stock_no)
+        values = _pieces(line, p.total, p.price_per_pcs, len(pieces) > 1)
+        for it, v in zip(pieces, values):
+            it.pcs, it.gross_wt, it.net_wt = v["pcs"], v["gross_wt"], v["net_wt"]
+            it.cost, it.price = v["cost"], v["price"]
+            it.tag_price = p.tag_price
+            it.tag_text = p.tag_text if len(pieces) == 1 else mfg_pricing.tag_display(
+                v["price"], _tag_rule(session)) if p.tag_price else "0"
     session.add(DeletionLog(user_id=user_id, kind="mfg_transfer_edit",
                             ref=f"MFG Transfer Vr {transfer.vr_no}", reason="edited",
                             before_json=json.dumps(before, default=str)))
@@ -252,7 +296,10 @@ def delete_transfer(session: Session, transfer: MfgTransfer, *,
     piece in Item Search. Returns the job numbers."""
     vr = transfer.vr_no
     jobs = []
+    first_of_line: dict[int, StockItem] = {}
     for it in _items_of(session, transfer):
+        first_of_line.setdefault(it.line_id, it)       # its split siblings go with it
+    for it in first_of_line.values():
         job = delete_stock_item(session, it, user_id=user_id,
                                 reason=reason or f"MFG Transfer Vr {vr} deleted")
         jobs.append(job.job_no if job else None)
@@ -321,17 +368,31 @@ def delete_stock_item(session: Session, item: StockItem, *, user_id: int | None 
     job = session.get(Job, item.job_id)
     line = session.get(MfgTransferLine, item.line_id) if item.line_id else None
     transfer = session.get(MfgTransfer, line.transfer_id) if line else None
+    # A job split into pieces (Split Jobs) comes back whole: every piece of
+    # its line goes together, so the job can be corrected and re-transferred.
+    pieces = [item]
+    if line is not None:
+        pieces = list(session.scalars(select(StockItem).where(StockItem.line_id == line.id)
+                                      .order_by(StockItem.stock_no)))
+        for other in pieces:
+            if other.status != "in_stock":
+                raise ProductionError(
+                    f"Stock No {other.stock_no}, split from the same job, is {other.status} - "
+                    "the job cannot come back while one of its pieces is out.")
 
     def image(obj) -> dict[str, Any]:
         return {c.name: getattr(obj, c.name) for c in obj.__table__.columns} if obj else {}
 
     session.add(DeletionLog(
-        user_id=user_id, kind="stock_item", ref=f"Stock No {item.stock_no}", reason=reason,
-        before_json=json.dumps({"stock_item": image(item), "transfer_line": image(line),
+        user_id=user_id, kind="stock_item",
+        ref=f"Stock No {', '.join(str(i.stock_no) for i in pieces)}"[:64], reason=reason,
+        before_json=json.dumps({"stock_items": [image(i) for i in pieces],
+                                "transfer_line": image(line),
                                 "transfer_vr_no": transfer.vr_no if transfer else None,
                                 "job_no": job.job_no if job else None}, default=str),
     ))
-    session.delete(item)
+    for other in pieces:
+        session.delete(other)
     if line is not None:
         session.delete(line)
     session.flush()
