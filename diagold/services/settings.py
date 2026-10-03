@@ -48,6 +48,13 @@ MENU_DEFAULT_HIDDEN: dict[str, str] = {
     "purchase.stone_debit_note": "Purchase ▸ Debit Note (Stone) - until confirmed (2 Oct C-03)",
     "purchase.parts_moulds": "Purchase ▸ Parts / Moulds - until confirmed (2 Oct C-03)",
     "purchase.settings": "Purchase ▸ Settings - not discussed (2 Oct)",
+    # Manufacturing items the PDF keeps (2 Oct §4.2) but nobody has explained
+    # yet (Extra Issue: 28 Sept Q8; Stamping / Engraving and Repair Issue:
+    # 28 Sept C-04) - off until they are, so the menu shows only what works.
+    "manufacturing.repair_issue": "Manufacturing ▸ Repair Issue - to be explained (28 Sept C-04)",
+    "manufacturing.extra_issue": "Manufacturing ▸ Extra Issue - to be explained (28 Sept Q8)",
+    "manufacturing.stamping_engraving": "Manufacturing ▸ Stamping / Engraving List - to be "
+                                        "explained (28 Sept C-04)",
     # Inventory items the 2 Oct recording lost - to be re-explained (C-05).
     "inventory.parts_mould": "Inventory ▸ Parts / Mould - not discussed (2 Oct)",
     "inventory.physical_stock": "Inventory ▸ Physical Stock - to be re-explained (2 Oct C-05)",
