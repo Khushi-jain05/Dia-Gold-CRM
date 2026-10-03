@@ -42,6 +42,16 @@ MENU_DEFAULT_HIDDEN: dict[str, str] = {
     "purchase.approval_return": "Purchase ▸ Approval Return - sale side only (2 Oct D3)",
     "purchase.stone_approval": "Purchase ▸ Stone Approval - until confirmed (2 Oct C-03)",
     "purchase.stone_app_return": "Purchase ▸ Stone App Return - until confirmed (2 Oct C-03)",
+    # 2 Oct D3: Purchase holds Opening Stock, Ready Items (+ Return), Metal and
+    # Stones; the rest is pending the client's word (C-03 / Q5).
+    "purchase.metal_debit_note": "Purchase ▸ Debit Note (Metal) - until confirmed (2 Oct C-03)",
+    "purchase.stone_debit_note": "Purchase ▸ Debit Note (Stone) - until confirmed (2 Oct C-03)",
+    "purchase.parts_moulds": "Purchase ▸ Parts / Moulds - until confirmed (2 Oct C-03)",
+    "purchase.settings": "Purchase ▸ Settings - not discussed (2 Oct)",
+    # Inventory items the 2 Oct recording lost - to be re-explained (C-05).
+    "inventory.parts_mould": "Inventory ▸ Parts / Mould - not discussed (2 Oct)",
+    "inventory.physical_stock": "Inventory ▸ Physical Stock - to be re-explained (2 Oct C-05)",
+    "inventory.ready_item_receipt": "Inventory ▸ Ready Item Receipt - to be re-explained (2 Oct C-05)",
     # Screens open as tabs here, so the legacy window arrangement has nothing to do.
     "window.cascade": "Window ▸ Cascade - screens open as tabs, nothing to arrange",
     "window.tile": "Window ▸ Tile - screens open as tabs, nothing to arrange",
