@@ -148,6 +148,10 @@ def stone_loss_register(session: Session, date_from: date, date_to: date) -> lis
             "amount": production.stone_amount(price, unit, int(m.pcs or 0), _dec(m.weight)),
             "s_type": line.s_type,
         })
+    # Stone lost on Stock Transfers (the legacy "TR" rows).
+    from diagold.services import stock_transfer
+    rows += stock_transfer.stone_losses(session, date_from, date_to)
+    rows.sort(key=lambda r: (r["date"], str(r["vrno"])))
     return rows
 
 

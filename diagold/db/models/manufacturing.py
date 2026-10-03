@@ -123,8 +123,9 @@ class StockItem(Base, PKMixin, TimestampMixin):
                                                           nullable=True)
 
     # in_stock · sold · on_approval (with a party) · in_repair (issued to
-    # repair for a party) · returned (sent back to the supplier).
-    STATUSES = ("in_stock", "sold", "on_approval", "in_repair", "returned")
+    # repair for a party) · returned (sent back to the supplier) · melted
+    # (broken back into metal and stones on a Stock Transfer).
+    STATUSES = ("in_stock", "sold", "on_approval", "in_repair", "returned", "melted")
 
 
 class DeletionLog(Base, PKMixin):

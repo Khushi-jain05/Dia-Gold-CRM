@@ -1255,6 +1255,20 @@ def _register_specs(money, wt, pcs) -> dict[str, ReportSpec]:
     }
 
 
+def _ST():
+    from diagold.services import stock_transfer
+    return stock_transfer
+
+
+def _transfer_cols(money, wt, pcs) -> list[Col]:
+    return [Col("date", "DATE"), Col("vrno", "VRNO"), Col("pane", "PANE"),
+            Col("location", "LOCATION"), Col("to_location", "TO"), Col("item", "ITEM"),
+            Col("size", "SIZE"), pcs("in_pcs", "IN PCS"), wt("in_wt", "IN WT"),
+            wt("in_loss_wt", "IN LOSS"), pcs("out_pcs", "OUT PCS"), wt("out_wt", "OUT WT"),
+            wt("out_loss_wt", "OUT LOSS"), Col("price", "PRICE", "measure", 2),
+            money("amount", "AMOUNT"), Col("contact", "CONTACT"), Col("ref_no", "REFNO")]
+
+
 def _sale_specs(money, wt, pcs) -> dict[str, ReportSpec]:
     """Sale registers (2 Oct T-09 / T-10) - legacy Sale ▸ Reports."""
     from diagold.services import inventory as INV
@@ -1335,6 +1349,19 @@ def _sale_specs(money, wt, pcs) -> dict[str, ReportSpec]:
             query=lambda s, a, b, **_k: INV.stone_approval_analysis(s, a, b), date_mode="to",
             group_by="particulars", filter_column="particulars",
             note="Per party and stone: sent on approval, returned, and still out."),
+        "transfer_register": ReportSpec(
+            key="transfer_register", title="Stock Transfer Register",
+            columns=static(_transfer_cols(money, wt, pcs)),
+            query=lambda s, a, b, **_k: _ST().register(s, a, b),
+            group_by="pane", filter_column="pane",
+            note="Every Stock Transfer line - pieces out of ready stock, metal and stone in "
+                 "and out by location with losses, pieces moved between locations."),
+        "melting_list": ReportSpec(
+            key="melting_list", title="Melting List",
+            columns=static(_transfer_cols(money, wt, pcs)),
+            query=lambda s, a, b, **_k: _ST().register(s, a, b, ("ready_out",)),
+            group_by="location", filter_column="location",
+            note="Ready pieces broken back into metal and stones (Stock Melting)."),
         "rp_register": ReportSpec(
             key="rp_register", title="Ready Items Purchase Register",
             columns=static([*piece[:2], Col("vrtype", "TYPE"), *piece[2:],
@@ -1696,7 +1723,8 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Analysis", ("job_analysis", "process_analysis", "job_card_analysis_stone",
                   "job_stock_analysis")),
     ("Inventory", ("metal_analysis", "worker_metal_balance", "inv_metal_day_book",
-                   "inv_stone_day_book", "account_ledger")),
+                   "inv_stone_day_book", "transfer_register", "melting_list",
+                   "account_ledger")),
     ("Manufacturing", ("job_costing", "pending_mfg_transfer", "mfg_transfer_day_book",
                        "ready_stock")),
     ("Sale", ("rs_sale_register", "rs_approval_register", "rs_approval_balance",

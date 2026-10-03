@@ -52,6 +52,8 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "manufacturing.mfg_transfer_day_book":
         lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
     "sale.metal": lambda user: sales_ui._inv("metal_sale", user),
+    "inventory.stock_transfer": lambda user: __import__(
+        "diagold.ui.stock_transfer", fromlist=["StockTransferWidget"]).StockTransferWidget(user),
     # Purchase (2 Oct §4.5, T-07): Metal / Stones are the Inventory purchase
     # vouchers; Ready Items and Ready Item Return bring barcoded pieces in / out.
     "purchase.metal": lambda user: sales_ui._inv("metal_purchase", user),

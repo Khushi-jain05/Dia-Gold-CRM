@@ -94,7 +94,8 @@ READY_TYPES: dict[str, ReadyType] = {t.key: t for t in (
 )}
 NEW_PIECES = ("rp_purchase", "rp_opening")
 STATE_LABEL = {"in_stock": "in stock", "sold": "sold", "on_approval": "out on approval",
-               "in_repair": "issued to repair", "returned": "returned to the supplier"}
+               "in_repair": "issued to repair", "returned": "returned to the supplier",
+               "melted": "melted (Stock Transfer)"}
 
 
 def next_vr_no(session: Session, vr_type: str) -> int:
