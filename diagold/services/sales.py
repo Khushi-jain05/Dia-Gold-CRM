@@ -867,3 +867,17 @@ def piece_history(session: Session, item: StockItem) -> list[dict[str, Any]]:
                      "amount": _dec(l.amount), "_order": (t.vr_date, 2, l.id)})
     rows.sort(key=lambda r: r["_order"])
     return rows
+
+
+def closing_balance(session: Session, account_id: int | None) -> tuple[Decimal, str]:
+    """Cl Bal on the sale header: the party's closing balance in the accounts
+    the vouchers post (Dr positive)."""
+    from diagold.db.models import AccountEntry
+    if not account_id:
+        return ZERO, ""
+    dr = session.scalar(select(func.sum(AccountEntry.debit)).where(
+        AccountEntry.account_id == account_id)) or 0
+    cr = session.scalar(select(func.sum(AccountEntry.credit)).where(
+        AccountEntry.account_id == account_id)) or 0
+    bal = _dec(dr) - _dec(cr)
+    return abs(bal), ("Dr" if bal >= 0 else "Cr")

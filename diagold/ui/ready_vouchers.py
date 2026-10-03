@@ -398,7 +398,13 @@ class NewPieceDialog(QDialog):
             "other_amount": other, "total": total, "stones": self.stones,
             "price": D(str(self.price.value())) or total, "cert_no": self.cert.text().strip(),
             "huid": self.huid.text().strip(), "stock_no": "new",
+            "photo": self._photo(),
         }
+
+    def _photo(self) -> str:
+        with SessionLocal() as s:
+            p = s.get(ProductSku, self.sku.currentData()) if self.sku.currentData() else None
+            return (p.image_finished or p.image_design) if p else ""
 
     def _recalc(self) -> None:
         v = self.values()
@@ -427,6 +433,7 @@ LINE_COLS: list[tuple[str, str, bool]] = [
     ("title", "Fine", False), ("loss_pct", "Loss", False), ("colour", "Color", False),
     ("size", "Size", False), ("pcs", "Pcs", False), ("old_wt", "Old Wt", True),
     ("gross_wt", "G-Wt", False), ("net_wt", "N-Wt", False), ("fine_wt", "FineWt", False),
+    ("fine_loss", "Fine With\nLoss", False),
     ("metal_rate", "Metal\nRate", True), ("metal_amount", "Metal\nAmount", False),
     ("st_wt", "St Wt", False), ("stone_amount", "Stone\nAmount", False),
     ("setting_amount", "Setting\nAmount", True), ("labour_rate", "Labour\nRate", True),
@@ -434,6 +441,7 @@ LINE_COLS: list[tuple[str, str, bool]] = [
     ("total", "Total", False),
 ]
 _DECIMALS = {"title": 0, "loss_pct": 2, "old_wt": 3, "gross_wt": 3, "net_wt": 3, "fine_wt": 3,
+             "fine_loss": 3,
              "st_wt": 3, "metal_rate": 2, "metal_amount": 2, "stone_amount": 2,
              "setting_amount": 2, "labour_rate": 2, "labour": 2, "other_amount": 2, "total": 2}
 
@@ -470,10 +478,16 @@ class ReadyVoucherWidget(_Screen):
         self.ref = QLineEdit()
         self.ref.setPlaceholderText("Ref")
         self.ref.setMaximumWidth(120)
+        # Cl Bal: the party's closing balance (legacy sale header).
+        self.cl_bal = QLabel("")
+        self.cl_bal.setObjectName("Muted")
+        self.account.currentIndexChanged.connect(lambda _i: self._show_balance())
+        self.account.editTextChanged.connect(lambda _t: self._show_balance())
+        self._docs: list[str] = []
         head = [QLabel("Vr No"), self.vr, QLabel("Date"), self.date, self.time]
         if self.t.party != "none":
             head += [QLabel("Supplier" if self.t.party == "supplier" else "Account"),
-                     self.account]
+                     self.account, self.cl_bal]
         head += [self.ref]
         for w in head:
             self.toolbar.addWidget(w)
@@ -561,6 +575,13 @@ class ReadyVoucherWidget(_Screen):
             self.button("Read Barcode From Approval",
                         lambda: self._pick("Read Barcode From Approval", status="on_approval"),
                         secondary=True)
+        self.button("Attach Doc", self.attach_doc, secondary=True)
+        if vr_type.startswith("rs_"):
+            # The legacy sale actions (2 Oct §4.9).
+            self.button("TXT Import", self.txt_import, secondary=True)
+            self.button("TXT Export", self.txt_export, secondary=True)
+            self.button("Tag Print", self.tag_print, secondary=True)
+            self.button("Catalog", self.picture_invoice, secondary=True)
         self.button("Stone Breakup", self.stone_breakup, secondary=True)
         self.button("Remove Line", self.remove_line, secondary=True)
         self.button("Print", self.print_voucher, secondary=True)
@@ -607,6 +628,7 @@ class ReadyVoucherWidget(_Screen):
                 self.vr.setText(str(S.next_vr_no(s, self.vr_type)))
         self._render()
         self._due()
+        self._show_balance()
 
     def _due(self) -> None:
         if self.credit.value():
@@ -614,6 +636,60 @@ class ReadyVoucherWidget(_Screen):
             self.due.setText(f"due {d:%d-%m-%Y}")
         else:
             self.due.setText("")
+
+    def _show_balance(self) -> None:
+        aid = self._account_id()
+        if not aid:
+            self.cl_bal.setText("")
+            return
+        with SessionLocal() as s:
+            bal, side = S.closing_balance(s, aid)
+        self.cl_bal.setText(f"Cl Bal {bal:,.2f} {side}")
+
+    def attach_doc(self) -> None:
+        from diagold.ui.attachments import AttachDocDialog
+        vid = self._edit_id
+        with SessionLocal() as s:
+            vr = s.get(ReadyVoucher, vid).vr_no if vid else None
+        AttachDocDialog(self.vr_type, vr, f"{self.t.title} Vr {vr}" if vr else "new voucher",
+                        user=self.user, pending=self._docs, parent=self).exec()
+
+    def txt_import(self) -> None:
+        """TXT Import (Barcode / SKU): a text file of Stock Nos (one or many per
+        line) - each piece that can go on this voucher is added."""
+        if self._editing_blocked():
+            return
+        import re
+        path, _ = QFileDialog.getOpenFileName(self, "TXT Import", "", "Text (*.txt *.csv);;All (*)")
+        if not path:
+            return
+        nos = re.findall(r"\d+", open(path, encoding="utf-8", errors="ignore").read())
+        added, bad = [], []
+        with SessionLocal() as s:
+            for n in nos:
+                try:
+                    item = S.find_item(s, n)
+                    S.check_piece(s, self.vr_type, item, self._account_id())
+                    added.append(S.describe(s, item))
+                except ProductionError as exc:
+                    bad.append(str(exc))
+        self._add_infos(added)
+        _info(self, "TXT Import", f"{len(added)} piece(s) added."
+              + (("\nSkipped:\n" + "\n".join(bad[:20])) if bad else ""))
+
+    def txt_export(self) -> None:
+        """TXT Export: the barcodes and SKUs on the voucher, one per line."""
+        if not self.lines:
+            _info(self, "TXT Export", "No pieces on the voucher.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "TXT Export", f"{self.vr_type}.txt",
+                                              "Text (*.txt)")
+        if not path:
+            return
+        with open(path, "w", encoding="utf-8") as fh:
+            for l in self.lines:
+                fh.write(f"{l.get('stock_no', '')}\t{l.get('sku', '')}\n")
+        _info(self, "TXT Export", f"Saved {path}")
 
     def _account_id(self) -> int | None:
         i = self.account.findText(self.account.currentText())
@@ -721,6 +797,10 @@ class ReadyVoucherWidget(_Screen):
         for ln in self.lines:
             r = self.grid.rowCount()
             self.grid.insertRow(r)
+            # Fine With Loss = FineWt grossed up by the Loss % (as on the MFG transfer).
+            fine, loss = ln.get("fine_wt"), ln.get("loss_pct")
+            ln["fine_loss"] = ((D(str(fine)) * (1 + D(str(loss or 0)) / 100)).quantize(D("0.001"))
+                               if fine not in (None, "") else None)
             for c, (k, _h, editable) in enumerate(LINE_COLS):
                 v = ln.get(k)
                 if k in _DECIMALS and v not in (None, ""):
@@ -847,6 +927,7 @@ class ReadyVoucherWidget(_Screen):
 
     def new_voucher(self) -> None:
         self._edit_id = None
+        self._docs = []
         self.lines = []
         self.narration.clear()
         self.ref.clear()
@@ -965,6 +1046,8 @@ class ReadyVoucherWidget(_Screen):
                 s.rollback()
                 _warn(self, "Cannot save", str(exc))
                 return
+        from diagold.ui.attachments import attach_pending
+        attach_pending(self.vr_type, vr, self._docs, self.user)
         self.new_voucher()
         self._last_id = vid
         extra = (f" New Stock No {', '.join(map(str, nos))}." if self.vr_type in S.NEW_PIECES
