@@ -38,7 +38,8 @@ Answer each with its code, one line is enough (e.g. `11 Sep C-01 — Job Mapping
 - **2 Oct Q9** Repair: the old piece's stone detail is not carried forward — right? Is there a charge, and does a repair go through a route like a job?
 - **2 Oct Q10** What is the **Virtual** location?
 - **2 Oct Q11** DIGICAT quote and RFID reading on the sale screen — needed?
-- **2 Oct** One line each on: F10 "SKU Curr", "As MRP", Sale ▸ Ready Stock ▸ Settings, Purchase ▸ Settings, "Show Ords" and "From Ft.Tr" on the purchase screen.
+- **2 Oct** One line each on: F10 "SKU Curr", "As MRP", Sale ▸ Ready Stock ▸ Settings, Purchase ▸ Settings, "Show Ords" and "From Ft.Tr" on the purchase screen, the "App" button and the "Oth FineWt" column on the sale screen, and the sale actions Export Docs, Catalog 4×8, Cert Stones, PIC Folder and Avg St Price.
+- **2 Oct** The second Excel layout you showed ("Ready Stock Sale" workbook with the per-piece Summary block) - is it used, and for what?
 - **2 Oct C-06** Exports for testing: costing BANG-52, sale Vr 1225, purchase Vr 56, stock transfer Vr 557, repair Vr 245, job 46973 history, the Approval Analysis and WIP Register for 01-04 to 02-10-2026.
 
 **Production → Manufacturing → Inventory (28 Sept) — needed next**

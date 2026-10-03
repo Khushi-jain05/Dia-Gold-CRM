@@ -28,6 +28,16 @@ waiting for the client.
 
 ## Also done
 
+- Sale header: Cl Bal and Attach Doc; TXT Import / Export, Tag Print, Catalog on the sale-side vouchers; Fine With Loss on every ready-stock line.
+- Item Search: the barcode's whole history (MF, RP / OPR, RA / RAR, RS / RSR, RRI, RPR, TR / MELT).
+- Stone lines Wt/Pcs; Stock Transfer metal pane Metal / Mould, Wt/Pcs, Item Size, St Size; Account Information on every inventory voucher (TR5); Excel invoice embeds the product photo (Pillow).
+- Menus: Purchase Debit Notes / Parts / Moulds / Settings, Inventory Parts / Mould / Physical Stock / Ready Item Receipt, Manufacturing Repair Issue / Extra Issue / Stamping off until confirmed (switchable).
+- `python tests/e2e_flow.py` - the whole flow with data on a throw-away database (58 checks, accounts Dr = Cr, stock = sum of movements).
+
+## Seen on the legacy screen, meaning not given - asked, not built
+
+F10 SKU Curr, As MRP, Prices From Client Chart, Get DIGICAT Quote, Read RFID (Q11), the "App" button and "Oth FineWt" on the sale; Export Docs, Catalog 4×8, Cert Stones, PIC Folder, Avg St Price; the second Excel layout; 11 of the 13 print formats incl. Format-2 / WhatsApp (C-02); Show Ords / From Ft.Tr on purchase; Old Wt / Tag% on the MFG transfer (28 Sept Q16); metal settlement rate at payment (Q4); Job History to be checked against job 46973 when C-06 arrives.
+
 - Window ▸ Cascade / Tile off (screens are tabs); Window ▸ Close All, Tools ▸ Change Password and Read Barcode work.
 - Pieces bought in or loaded as opening stock work everywhere (Item Search, tags); Delete History & Purchase refuses a piece not made here or already on a sale / approval.
 - Stock pieces carry their state: in stock · sold · on approval · in repair · returned · melted.

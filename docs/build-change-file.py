@@ -103,8 +103,14 @@ DONE = [
     ["16", "<b>Every report</b>", "Export to Excel (numbers, not text), F1 Show All, F12 More "
      "Reports. Every voucher: Save? Yes / No."],
     ["17", "<b>Also done</b>", "Issue / Received vouchers can be edited and deleted; Attach Doc on "
-     "receipts and inventory vouchers; Check Bal on metal issue; Show O/S on stone receipt; "
-     "purchases and sales post Dr / Cr (Account Ledger report)."],
+     "receipts, sales and inventory vouchers; Cl Bal on the sale; TXT Import / Export of barcodes; "
+     "Item Search shows a barcode's whole history (made, sold, approval, repair, transfer); Check "
+     "Bal on metal issue; Show O/S on stone receipt; purchases and sales post Dr / Cr (Account "
+     "Information on each voucher, Account Ledger report)."],
+    ["18", "<b>Menus trimmed</b>", "Items not used or not yet explained are off: Waxing, Purchase "
+     "Approval / Debit Notes / Parts / Moulds / Settings, Inventory Parts / Mould / Physical Stock / "
+     "Ready Item Receipt, Manufacturing Repair Issue / Extra Issue / Stamping, Window Cascade / "
+     "Tile. Any of them comes back from Tools ▸ Option."],
 ]
 
 CONFIRM = [
@@ -130,7 +136,11 @@ WAITING = [
     ["Purchase", "Debit Note (Metal / Stone), Parts / Moulds purchase, Stone Approval / Stone App "
      "Return - are they used? Purchase ▸ Settings, Show Ords and From Ft.Tr on the purchase screen."],
     ["Sale", "DIGICAT Quote, RFID reading, As MRP, Prices From Client Chart, F10 SKU Curr, Sale ▸ "
-     "Ready Stock ▸ Settings."],
+     "Ready Stock ▸ Settings, the \"App\" button, the \"Oth FineWt\" column, and the actions Export "
+     "Docs, Catalog 4×8, Cert Stones, PIC Folder, Avg St Price. The second Excel layout (the "
+     "\"Ready Stock Sale\" workbook with a per-piece Summary block) - is it used?"],
+    ["Manufacturing", "Repair Issue, Extra Issue, Stamping / Engraving List - one line each on what "
+     "they do (they are off in the menu until then)."],
     ["Inventory", "Physical Stock, Ready Item Receipt, Load Metal / Stone, Issue On Tree, Conversion, "
      "Adjustment, Worker Recovery, WIP Rtn, Bhav Cut - please explain each in one line."],
     ["Locations", "What is the \"Virtual\" location?"],
