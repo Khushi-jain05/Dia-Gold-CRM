@@ -972,9 +972,9 @@ class ItemSearchWidget(_Screen):
         bl = QVBoxLayout(box)
         bl.addWidget(self.card)
         rl.addWidget(box)
-        self.moves = _table(["Location", "Date", "Vr Type", "Vr No", "Loss %", "Pcs",
-                             "Price", "Cost Price", "HUID"])
-        self.moves.setMaximumHeight(90)
+        self.moves = _table(["Location", "Date", "Vr Type", "Vr No", "Particulars", "Loss %",
+                             "Pcs", "Price", "Amount", "HUID"])
+        self.moves.setMaximumHeight(170)
         rl.addWidget(self.moves)
         self.stones = _table(["Stone", "Pcs", "Weight", "Price Per", "Amount", "S Type"])
         rl.addWidget(self.stones, 1)
@@ -993,7 +993,8 @@ class ItemSearchWidget(_Screen):
         with SessionLocal() as s:
             for it in mfg.find_items(s, self.search.text()):
                 job = s.get(Job, it.job_id) if it.job_id else None
-                sku = job.product_sku.sku_code if job and job.product_sku else ""
+                psku = s.get(ProductSku, it.product_sku_id) if it.product_sku_id else None
+                sku = psku.sku_code if psku else ""
                 r = self.results.rowCount()
                 self.results.insertRow(r)
                 self._items.append(it.id)
@@ -1037,20 +1038,35 @@ class ItemSearchWidget(_Screen):
                 f"<br>G-Wt {it.gross_wt} g · N-Wt {it.net_wt} g · "
                 f"Cost {Decimal(str(it.cost)):,.2f} · Net <b>{Decimal(str(it.price)):,.2f}</b>"
                 f" · TAG <b style='color:#A9861B'>{it.tag_text}</b>")
+            from diagold.services import sales
             self.moves.setRowCount(0)
-            if t is not None:
-                self.moves.insertRow(0)
-                for c, v in enumerate([d["location"].name if d["location"] else "", t.vr_date,
-                                       "MF", t.vr_no, line.loss_pct, line.pcs,
-                                       f"{Decimal(str(line.price_per_pcs)):,.2f}",
-                                       f"{Decimal(str(line.total)):,.2f}", it.huid]):
-                    self.moves.setItem(0, c, _item(v))
+            # Every voucher the barcode has been on - made, bought, sold,
+            # approval, repair, transfer (2 Oct T-10).
+            for h in sales.piece_history(s, it):
+                r = self.moves.rowCount()
+                self.moves.insertRow(r)
+                for c, v in enumerate([h["location"], h["date"], h["vrtype"], h["vrno"],
+                                       h["party"], h["loss_pct"] if h["loss_pct"] else "",
+                                       h["pcs"], f"{h['price']:,.2f}", f"{h['amount']:,.2f}",
+                                       it.huid]):
+                    self.moves.setItem(r, c, _item(v, right=c in (3, 5, 6, 7, 8)))
+            self.moves.resizeColumnsToContents()
+            stones = d["stones"] or [
+                {**st, "amount": sales.stone_amount(st)}
+                for st in sales.describe(s, it)["stones"]]
+            if not d["stones"] and stones:
+                d["stone_groups"] = {}
+                for st in stones:
+                    g = sales.stone_block(st).title()
+                    w, a = d["stone_groups"].get(g, (Decimal(0), Decimal(0)))
+                    d["stone_groups"][g] = (w + Decimal(str(st.get("weight") or 0)),
+                                            a + st["amount"])
             self.stones.setRowCount(0)
-            for st in d["stones"]:
+            for st in stones:
                 r = self.stones.rowCount()
                 self.stones.insertRow(r)
-                for c, v in enumerate([st["label"], st["pcs"], st["weight"],
-                                       f"{st['price']} {st['unit']}", st["amount"],
+                for c, v in enumerate([st.get("label", ""), st.get("pcs"), st.get("weight"),
+                                       f"{st.get('price')} {st.get('unit', '')}", st["amount"],
                                        st.get("s_type", "")]):
                     self.stones.setItem(r, c, _item(v, right=c in (1, 2, 4)))
             self.stones.resizeColumnsToContents()
@@ -1075,6 +1091,13 @@ class ItemSearchWidget(_Screen):
             line_transfer = mfg.item_detail(s, it)["transfer"]
         if line_transfer is not None:
             TagListDialog(line_transfer.id, self).exec()
+            return
+        # A piece bought in or loaded as opening stock: its own tag.
+        with SessionLocal() as s:
+            dlg = TagListDialog(None, self)
+            dlg._add_items(s, [s.get(StockItem, iid)])
+        dlg._fill()
+        dlg.exec()
 
     def delete_item(self) -> None:
         iid = self._current()

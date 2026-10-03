@@ -826,3 +826,44 @@ def attach_repair_pieces(session: Session, order: Order, item_ids: list[int],
     session.refresh(order)
     production.sync_jobs_for_order(session, order)
     return n
+
+
+# --------------------------------------------------------------------------
+# A piece's barcode history - Item Search (2 Oct T-10: "a repaired piece
+# keeps its barcode history")
+# --------------------------------------------------------------------------
+def piece_history(session: Session, item: StockItem) -> list[dict[str, Any]]:
+    """Every voucher the piece has been on, oldest first: MF (made), RP / OPR
+    (bought / opening), RS / RSR (sold / back), RA / RAR (approval), RRI
+    (repair), RPR (back to supplier), TR (stock transfer / melting)."""
+    from diagold.db.models import MfgTransfer, StockTransfer, StockTransferLine
+    rows = []
+    if item.line_id:
+        line = session.get(MfgTransferLine, item.line_id)
+        t = session.get(MfgTransfer, line.transfer_id) if line else None
+        if t is not None:
+            loc = session.get(Location, line.location_id) if line.location_id else None
+            rows.append({"date": t.vr_date, "vrtype": "MF", "vrno": t.vr_no, "party": "",
+                         "location": loc.name if loc else "", "loss_pct": _dec(line.loss_pct),
+                         "pcs": item.pcs, "price": _dec(item.price), "amount": _dec(item.cost),
+                         "_order": (t.vr_date, 0, t.id)})
+    q = (select(ReadyVoucherLine, ReadyVoucher).join(ReadyVoucher)
+         .where(ReadyVoucherLine.stock_item_id == item.id))
+    for l, v in session.execute(q):
+        acct = session.get(Account, v.account_id) if v.account_id else None
+        loc = session.get(Location, l.location_id) if l.location_id else None
+        rows.append({"date": v.vr_date, "vrtype": READY_TYPES[v.vr_type].code, "vrno": v.vr_no,
+                     "party": acct.name if acct else "", "location": loc.name if loc else "",
+                     "loss_pct": _dec(l.loss_pct), "pcs": l.pcs, "price": _dec(l.total),
+                     "amount": _dec(l.total), "_order": (v.vr_date, 1, l.id)})
+    q = (select(StockTransferLine, StockTransfer).join(StockTransfer)
+         .where(StockTransferLine.stock_item_id == item.id))
+    for l, t in session.execute(q):
+        loc = session.get(Location, l.to_location_id or l.location_id or l.prev_location_id) \
+            if (l.to_location_id or l.location_id or l.prev_location_id) else None
+        rows.append({"date": t.vr_date, "vrtype": "TR" if l.pane == "ready_transfer" else "MELT",
+                     "vrno": t.vr_no, "party": t.contact_person, "location": loc.name if loc else "",
+                     "loss_pct": None, "pcs": item.pcs, "price": _dec(l.price),
+                     "amount": _dec(l.amount), "_order": (t.vr_date, 2, l.id)})
+    rows.sort(key=lambda r: r["_order"])
+    return rows
