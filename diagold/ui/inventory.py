@@ -119,6 +119,8 @@ def voucher_spec(vr_type: str) -> CrudSpec:
             Field("s_type", "S Type"),
             Field("lot_no", "Lot No"),
         ]
+        if vr_type == "stone_issue":
+            line_fields += [Field("job_no", "JobNo", type="int")]
     line_fields += [Field("remark", "Remark")]
 
     head = [
@@ -141,7 +143,14 @@ def voucher_spec(vr_type: str) -> CrudSpec:
                                  "no location is reduced (assumption, 28 Sept C-04)."),
                  Field("touch_xray", "Touch / X-Ray", type="bool", default=False,
                        in_list=False),
-                 Field("create_os", "Create O/S", type="bool", default=False, in_list=False)]
+                 Field("create_os", "Create Outstanding Issue For Cert"
+                       if vr_type == "stone_issue" else "Create O/S", type="bool",
+                       default=False, in_list=False,
+                       help_text="Recorded; what it does is to be explained (2 Oct Q7).")]
+        if vr_type == "stone_issue":
+            head += [Field("worker_adjustment", "Worker Adjustment", type="bool", default=False,
+                           in_list=False,
+                           help_text="Recorded; what it does is to be explained (2 Oct Q7).")]
     if vr_type in ("metal_receipt", "stone_receipt"):
         head += [Field("department", "Department", in_list=False),
                  Field("recovery", "Recovery Vr", type="bool", default=False, in_list=False),
@@ -217,6 +226,13 @@ def voucher_spec(vr_type: str) -> CrudSpec:
             sel.account_id if sel is not None else None, w).exec()))
     if vr_type == "stone_receipt":
         buttons.insert(0, ("Show O/S", _show_stone_os))
+    if vr_type == "stone_issue":
+        # The legacy Stone Issue actions (2 Oct §4.6).
+        buttons[0:0] = [("Read Cert/Lot", lambda w, _s: _read_lot(w)),
+                        ("Stone Import", lambda w, _s: _stone_import(w))]
+        buttons += [("DC Print", lambda w, sel: _dc_print(w, sel, vt.title)),
+                    ("Tag", lambda w, sel: _stone_tags(w, sel)),
+                    ("Register", lambda w, _s: _open_register(w))]
     return CrudSpec(
         key=f"inventory.{vr_type}", title=vt.title, model=InvVoucher, fields=head,
         extra_buttons=buttons,
@@ -225,6 +241,162 @@ def voucher_spec(vr_type: str) -> CrudSpec:
         warn=warn, before_delete=before_delete, fixed={"vr_type": vr_type},
         form_width=1180, singular_title=vt.title,
     )
+
+
+def _lot_line(session, lot: str) -> dict | None:
+    """The stone a lot / certificate number came in as - the latest purchase or
+    receipt line carrying it - as a line for an issue."""
+    from sqlalchemy import select
+    q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
+         .where(InvVoucherLine.lot_no == lot,
+                InvVoucher.vr_type.in_(("stone_purchase", "stone_receipt",
+                                        "stone_approval_return")))
+         .order_by(InvVoucher.vr_date.desc(), InvVoucher.id.desc()))
+    got = session.execute(q).first()
+    if got is None:
+        return None
+    line, _v = got
+    return {"location_id": line.location_id, "mt_type": "Actual",
+            "stone_sku_id": line.stone_sku_id, "particulars": line.particulars,
+            "size": line.size, "pcs": line.pcs, "weight": line.weight, "price": line.price,
+            "unit": line.unit, "s_type": line.s_type, "lot_no": lot,
+            "amount": INV.line_amount("stone", line.pcs, line.weight, line.price, line.unit)}
+
+
+def _read_lot(widget) -> None:
+    """Read Cert/Lot Here: scan one or more lot / certificate numbers; a new
+    Stone Issue opens with a line for each, as it came in."""
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+    from diagold.db.session import SessionLocal
+    text, ok = QInputDialog.getMultiLineText(
+        widget, "Read Cert/Lot", "Scan or type the cert / lot numbers, one per line:")
+    if not ok or not text.strip():
+        return
+    lines, missing = [], []
+    with SessionLocal() as s:
+        for n, lot in enumerate([t.strip() for t in text.splitlines() if t.strip()], start=1):
+            ln = _lot_line(s, lot)
+            if ln is None:
+                missing.append(lot)
+            else:
+                lines.append({**ln, "sno": n})
+    if missing:
+        QMessageBox.information(widget, "Read Cert/Lot",
+                                "Not found (no stone came in with it):\n" + "\n".join(missing))
+    if lines:
+        widget.new_with({"lines": lines})
+
+
+def _stone_import(widget) -> None:
+    """Stone Import: a CSV / Excel sheet of lines - SSKU, Size, Pcs, Weight,
+    Price, Lot No, Location, JobNo (header names as on the grid) - opens as a
+    new Stone Issue to check and save."""
+    import csv
+
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from sqlalchemy import select
+
+    from diagold.db.session import SessionLocal
+    path, _ = QFileDialog.getOpenFileName(widget, "Stone Import", "",
+                                          "Sheets (*.csv *.xlsx);;All files (*)")
+    if not path:
+        return
+    rows: list[dict] = []
+    if path.lower().endswith(".xlsx"):
+        from openpyxl import load_workbook
+        ws = load_workbook(path, read_only=True, data_only=True).active
+        it = ws.iter_rows(values_only=True)
+        heads = [str(h or "").strip().lower() for h in next(it, [])]
+        rows = [dict(zip(heads, r)) for r in it]
+    else:
+        with open(path, newline="", encoding="utf-8-sig") as fh:
+            rows = [{(k or "").strip().lower(): v for k, v in r.items()}
+                    for r in csv.DictReader(fh)]
+    lines, bad = [], []
+    with SessionLocal() as s:
+        skus = {k.sku_code.lower(): k for k in s.scalars(select(StoneSku))}
+        locs = {l.name.lower(): l.id for l in s.scalars(select(Location))}
+        for n, r in enumerate(rows, start=1):
+            code = str(r.get("ssku") or r.get("sku") or "").strip()
+            sku = skus.get(code.lower())
+            if not code:
+                continue
+            if sku is None:
+                bad.append(f"row {n}: SSKU {code} is not on the Stone SKU master")
+                continue
+            pcs = int(float(r.get("pcs") or 0))
+            wt = Decimal(str(r.get("weight") or r.get("wt") or 0))
+            price = Decimal(str(r.get("price") or sku.cost_price or 0))
+            loc = locs.get(str(r.get("location") or "Primary").strip().lower())
+            lines.append({"sno": len(lines) + 1, "location_id": loc, "mt_type": "Actual",
+                          "stone_sku_id": sku.id, "size": str(r.get("size") or sku.size or ""),
+                          "pcs": pcs, "weight": wt, "price": price, "unit": "Cts",
+                          "lot_no": str(r.get("lot no") or r.get("lotno") or r.get("lot") or ""),
+                          "job_no": int(float(r["jobno"])) if r.get("jobno") else None,
+                          "amount": INV.line_amount("stone", pcs, wt, price, "Cts")})
+    if bad:
+        QMessageBox.information(widget, "Stone Import", "Skipped:\n" + "\n".join(bad))
+    if lines:
+        widget.new_with({"lines": lines})
+
+
+def _dc_print(widget, selected, title: str) -> None:
+    """DC Print: the delivery challan - stones and weights, no prices."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from diagold.db.session import SessionLocal
+    from diagold.services import documents
+    if selected is None:
+        QMessageBox.information(widget, "DC Print", "Select a voucher first.")
+        return
+    with SessionLocal() as s:
+        v = s.get(InvVoucher, selected.id)
+        acct = s.get(Account, v.account_id) if v.account_id else None
+        rows = "".join(
+            f"<tr><td>{l.sno}</td><td>{(s.get(StoneSku, l.stone_sku_id).sku_code if l.stone_sku_id else l.particulars)}</td>"
+            f"<td>{l.size or ''}</td><td>{l.lot_no or ''}</td><td align=right>{l.pcs}</td>"
+            f"<td align=right>{_dec(l.weight):.3f}</td><td>{l.job_no or ''}</td></tr>"
+            for l in v.lines)
+        html = (f"<h2>Delivery Challan — {title} Vr {v.vr_no}</h2>"
+                f"<p>Date {v.vr_date:%d-%m-%Y} · To {acct.name if acct else ''}</p>"
+                "<table border=1 cellspacing=0 cellpadding=4 width=100%><tr><th>#</th>"
+                "<th>SSKU</th><th>Size</th><th>Lot</th><th>Pcs</th><th>Weight (ct)</th>"
+                "<th>JobNo</th></tr>" + rows + "</table><br><br><p>Received by: ____________</p>")
+        path = documents.PRINT_DIR / f"dc_{v.vr_type}_{v.vr_no}.pdf"
+    documents.to_pdf(html, path)
+    QMessageBox.information(widget, "DC Print", f"Saved {path}")
+
+
+def _stone_tags(widget, selected) -> None:
+    """Tag: a packet tag per line - SSKU, size, lot, pcs, weight, the party."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from diagold.db.session import SessionLocal
+    from diagold.services import documents
+    if selected is None:
+        QMessageBox.information(widget, "Tag", "Select a voucher first.")
+        return
+    with SessionLocal() as s:
+        v = s.get(InvVoucher, selected.id)
+        acct = s.get(Account, v.account_id) if v.account_id else None
+        cells = "".join(
+            "<td style='border:1px dashed #888;padding:6px' width=33%>"
+            f"<b>{(s.get(StoneSku, l.stone_sku_id).sku_code if l.stone_sku_id else l.particulars)}"
+            f"</b> {l.size or ''}<br>Lot {l.lot_no or '-'}<br>{l.pcs} pcs · "
+            f"{_dec(l.weight):.3f} ct<br>{acct.name if acct else ''} · Vr {v.vr_no}</td>"
+            + ("</tr><tr>" if i % 3 == 2 else "") for i, l in enumerate(v.lines))
+        path = documents.PRINT_DIR / f"stone_tags_{v.vr_no}.pdf"
+    documents.to_pdf(f"<table width=100% cellspacing=6><tr>{cells}</tr></table>", path)
+    QMessageBox.information(widget, "Tag", f"Saved {path}")
+
+
+def _open_register(widget) -> None:
+    """Register: the Stone Day Book, where every stone voucher line is listed."""
+    from diagold.ui.reports import ReportWidget, build_specs
+    from diagold.ui.production import show_in_dialog
+    show_in_dialog(widget, ReportWidget(build_specs()["inv_stone_day_book"]), "Stone Register",
+                   (1200, 700))
 
 
 def _show_stone_os(widget, _selected) -> None:

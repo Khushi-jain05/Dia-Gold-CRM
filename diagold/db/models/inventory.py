@@ -39,6 +39,8 @@ class InvVoucher(Base, PKMixin, TimestampMixin):
     is_opening: Mapped[bool] = mapped_column(Boolean, default=False)
     touch_xray: Mapped[bool] = mapped_column(Boolean, default=False)
     create_os: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Stone Issue (2 Oct §4.6): recorded, meaning UNCONFIRMED (Q7).
+    worker_adjustment: Mapped[bool] = mapped_column(Boolean, default=False)
     recovery: Mapped[bool] = mapped_column(Boolean, default=False)
     recovery_adj: Mapped[bool] = mapped_column(Boolean, default=False)
     remark: Mapped[str] = mapped_column(String(200), default="")
