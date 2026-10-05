@@ -10,6 +10,8 @@ PROJECT_ROOT = Path(SPECPATH).parent
 hiddenimports = (
     collect_submodules("diagold")
     + collect_submodules("sqlalchemy")
+    + collect_submodules("openpyxl")      # Excel exports / invoice
+    + ["PIL.Image", "PIL.PngImagePlugin", "PIL.JpegImagePlugin"]   # photos in Excel
 )
 
 a = Analysis(
@@ -51,8 +53,8 @@ if sys.platform == "darwin":
         icon=None,
         bundle_identifier="works.iterativetech.diagoldcrm",
         info_plist={
-            "CFBundleShortVersionString": "0.5.6",
-            "CFBundleVersion": "0.5.6",
+            "CFBundleShortVersionString": "0.6.0",
+            "CFBundleVersion": "0.6.0",
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
         },

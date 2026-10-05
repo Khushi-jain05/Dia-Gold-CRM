@@ -4,7 +4,22 @@ Run:  python main.py
 """
 from __future__ import annotations
 
+import os
+import shutil
 import sys
+from pathlib import Path
+
+# Testing on the demo database (Windows: "Open DEMO (testing).bat"):
+#   DiaGoldCRM --demo            the demo data in ~/DiaGoldDemo, loaded on first run
+#   DiaGoldCRM --demo --reset    throw the demo away and start it again
+# Set before anything reads diagold.config, which fixes the data folder. The
+# working database is never touched in demo mode.
+DEMO = "--demo" in sys.argv
+if DEMO:
+    _demo_dir = Path.home() / "DiaGoldDemo"
+    if "--reset" in sys.argv and _demo_dir.exists():
+        shutil.rmtree(_demo_dir)
+    os.environ["DIAGOLD_DATA_DIR"] = str(_demo_dir)
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -25,6 +40,12 @@ def main() -> int:
 
     try:
         init_db()
+        if DEMO:
+            from diagold.db.session import SessionLocal
+            from diagold.services.demo_data import load_demo
+            with SessionLocal() as session:
+                load_demo(session)      # idempotent: only the first run adds it
+                session.commit()
     except Exception as exc:  # noqa: BLE001 - the user sees this, not a traceback
         from diagold.config import DB_PATH
         QMessageBox.critical(
@@ -39,6 +60,8 @@ def main() -> int:
             return 0
 
         window = MainWindow(login.current_user)
+        if DEMO:
+            window.setWindowTitle(window.windowTitle() + "  —  DEMO DATA (testing)")
         window.show()
         app.exec()
 

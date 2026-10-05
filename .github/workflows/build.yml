@@ -37,7 +37,10 @@ jobs:
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
-        run: Compress-Archive -Path dist/DiaGoldCRM/* -DestinationPath dist/${{ matrix.artifact }}.zip
+        run: |
+          # Double-click launchers for testing on the demo database.
+          Copy-Item packaging/windows/*.bat dist/DiaGoldCRM/
+          Compress-Archive -Path dist/DiaGoldCRM/* -DestinationPath dist/${{ matrix.artifact }}.zip
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
