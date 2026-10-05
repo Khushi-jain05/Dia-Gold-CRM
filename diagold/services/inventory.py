@@ -230,55 +230,52 @@ PURCHASE_LEDGER = "Purchase A/c"
 def post_accounts(session: Session, v: InvVoucher) -> None:
     """The accounting a voucher posts, for its total: a purchase is Dr
     Purchase A/c, Cr the supplier (28 Sept §4.12); a metal / stone sale is Dr
-    the customer, Cr Sales A/c (2 Oct TR5). Issues, receipts and approvals
-    move stock only and post nothing here."""
+    the customer, Cr Sales A/c (2 Oct TR5) - and, in Cash mode, settled at
+    once (5 Oct T-04). Issues, receipts and approvals move stock only."""
+    from diagold.services import accounts
     sale = v.vr_type in SALE_TYPES
     if not (v.vr_type.endswith("_purchase") or sale):
         return
     total = sum((_dec(l.amount) for l in v.lines), ZERO).quantize(Decimal("0.01"))
-    if not total:
+    if not total or not v.account_id:
         return
     vt = VOUCHER_TYPES[v.vr_type]
-    party = session.get(Account, v.account_id) if v.account_id else None
     text = f"{vt.title} Vr {v.vr_no}" + (f" · Ref {v.ref_no}" if v.ref_no else "")
-    nominal = SALES_LEDGER if sale else PURCHASE_LEDGER
-    session.add(AccountEntry(entry_date=v.vr_date, ledger=nominal,
-                             **({"credit": total} if sale else {"debit": total}),
-                             ref_kind=v.vr_type, ref_no=v.vr_no, narration=text))
-    session.add(AccountEntry(entry_date=v.vr_date, account_id=v.account_id,
-                             ledger=party.name if party else "?",
-                             **({"debit": total} if sale else {"credit": total}),
-                             ref_kind=v.vr_type, ref_no=v.vr_no, narration=text))
-    session.flush()
+    mode = v.mode or "Bill"
+    if sale:
+        accounts.post(session, on=v.vr_date, ref_kind=v.vr_type, ref_no=v.vr_no, narration=text,
+                      dr=v.account_id, cr=accounts.nominal(session, SALES_LEDGER).id,
+                      amount=total, mode=mode)
+        if mode == "Cash":
+            accounts.settle_cash(session, on=v.vr_date, party_id=v.account_id, amount=total,
+                                 ref_kind=v.vr_type, ref_no=v.vr_no, narration=text,
+                                 incoming=True)
+    else:
+        accounts.post(session, on=v.vr_date, ref_kind=v.vr_type, ref_no=v.vr_no, narration=text,
+                      dr=accounts.nominal(session, PURCHASE_LEDGER).id, cr=v.account_id,
+                      amount=total, mode=mode)
 
 
 def post_entry(session: Session, *, on: date, amount: Decimal, ref_kind: str, ref_no: int,
                narration: str, debit_ledger: str = "", debit_account_id: int | None = None,
-               credit_ledger: str = "", credit_account_id: int | None = None) -> None:
-    """One double entry: Dr one side, Cr the other, for ``amount``. A party
-    side names its Account; a nominal side (Sales A/c) only its ledger name."""
-    amount = _dec(amount).quantize(Decimal("0.01"))
-    if not amount:
-        return
-
-    def name(ledger: str, acct_id: int | None) -> str:
-        if acct_id:
-            a = session.get(Account, acct_id)
-            return a.name if a else "?"
-        return ledger
-    session.add(AccountEntry(entry_date=on, account_id=debit_account_id,
-                             ledger=name(debit_ledger, debit_account_id), debit=amount,
-                             ref_kind=ref_kind, ref_no=ref_no, narration=narration))
-    session.add(AccountEntry(entry_date=on, account_id=credit_account_id,
-                             ledger=name(credit_ledger, credit_account_id), credit=amount,
-                             ref_kind=ref_kind, ref_no=ref_no, narration=narration))
-    session.flush()
+               credit_ledger: str = "", credit_account_id: int | None = None,
+               mode: str = "") -> None:
+    """One double entry: Dr one side, Cr the other, for ``amount``. A side is
+    a party Account or a nominal ledger by name (Sales A/c, Cash …), which is
+    an Account too (5 Oct T-01)."""
+    from diagold.services import accounts
+    dr = debit_account_id or accounts.nominal(session, debit_ledger).id
+    cr = credit_account_id or accounts.nominal(session, credit_ledger).id
+    accounts.post(session, on=on, ref_kind=ref_kind, ref_no=ref_no, narration=narration,
+                  dr=dr, cr=cr, amount=amount, mode=mode)
 
 
 def remove_entries(session: Session, ref_kind: str, ref_no: int) -> None:
+    from diagold.services import accounts
     for e in session.scalars(select(AccountEntry).where(
             AccountEntry.ref_kind == ref_kind, AccountEntry.ref_no == ref_no)).all():
         session.delete(e)
+    accounts.remove_allocations(session, ref_kind, ref_no)
     session.flush()
 
 
@@ -364,7 +361,12 @@ def metal_to_job_step(session: Session, voucher: Any, location_id: int, metal_id
 
 def delete_voucher(session: Session, v: InvVoucher, *, user_id: int | None = None) -> None:
     """Reverse a voucher's postings and keep the whole voucher in the log."""
+    from diagold.services import accounts
     vt = VOUCHER_TYPES[v.vr_type]
+    if accounts.bill_has_allocations(session, v.vr_type, v.vr_no):
+        raise ProductionError(f"{vt.title} {v.vr_no} has receipts / payments knocked off "
+                              "against it - delete those first.")
+    remove_entries(session, v.vr_type, v.vr_no)
     moves = session.scalars(select(StockMovement).where(
         StockMovement.ref_kind == v.vr_type, StockMovement.ref_no == v.vr_no)).all()
     for m in moves:

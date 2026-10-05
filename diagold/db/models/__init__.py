@@ -47,6 +47,8 @@ from diagold.db.models.master import (
 from diagold.db.models.inventory import AccountEntry, InvVoucher, InvVoucherLine
 from diagold.db.models.sales import ReadyVoucher, ReadyVoucherLine
 from diagold.db.models.transfer import StockTransfer, StockTransferLine
+from diagold.db.models.accounts import (AccountGroup, AccountVoucher, AccountVoucherLine,
+                                         BillAllocation)
 from diagold.db.models.manufacturing import (
     DeletionLog,
     MfgTransfer,
@@ -156,6 +158,10 @@ __all__ = [
     "ReadyVoucherLine",
     "StockTransfer",
     "StockTransferLine",
+    "AccountGroup",
+    "AccountVoucher",
+    "AccountVoucherLine",
+    "BillAllocation",
     "MfgTransfer",
     "MfgTransferLine",
     "StockItem",

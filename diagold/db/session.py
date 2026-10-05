@@ -40,7 +40,10 @@ def init_db() -> None:
     repair_dangling_references(engine)  # a rebuild runs with foreign keys off
     with SessionLocal() as session:
         seed_initial_data(session)
+        from diagold.services.accounts import backfill_nominals, seed_groups
+        seed_groups(session)          # the account-group tree (5 Oct T-01)
         from diagold.services.inventory import backfill_accounts, backfill_wt_per_pcs
         backfill_accounts(session)  # purchases saved before they posted accounts
         backfill_wt_per_pcs(session)  # stone lines saved before Wt/Pcs existed
+        backfill_nominals(session)    # Sales / Purchase A/c entries get their account
         session.commit()

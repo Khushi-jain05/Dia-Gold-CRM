@@ -45,6 +45,8 @@ class InvVoucher(Base, PKMixin, TimestampMixin):
     recovery_adj: Mapped[bool] = mapped_column(Boolean, default=False)
     remark: Mapped[str] = mapped_column(String(200), default="")
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # Cash or Bill (credit) - on metal / stone sales (5 Oct T-04).
+    mode: Mapped[str] = mapped_column(String(8), default="Bill")
 
     lines: Mapped[list["InvVoucherLine"]] = relationship(
         back_populates="voucher", cascade="all, delete-orphan",
@@ -98,3 +100,6 @@ class AccountEntry(Base, PKMixin):
     ref_kind: Mapped[str] = mapped_column(String(24), default="", index=True)
     ref_no: Mapped[int | None] = mapped_column(nullable=True, index=True)
     narration: Mapped[str] = mapped_column(String(200), default="")
+    # Cash / Bill / Bank / Metal (5 Oct T-04) and, on a metal settlement, the fine.
+    mode: Mapped[str] = mapped_column(String(8), default="")
+    fine_wt: Mapped[float] = mapped_column(Numeric(14, 3), default=0)

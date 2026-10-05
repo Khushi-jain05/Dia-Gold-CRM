@@ -133,6 +133,10 @@ def voucher_spec(vr_type: str) -> CrudSpec:
                           "Account (customer)" if vt.party == "customer" else "Account (worker)",
                           type="fk", fk_model=Account, fk_label=_account_label, required=True))
     head.append(Field("ref_no", "Ref No"))
+    if vr_type in ("metal_sale", "stone_sale"):
+        head += [Field("mode", "Mode", type="choice", choices=["Bill", "Cash"], default="Bill",
+                       help_text="Cash settles at once (never a bill outstanding); Bill is "
+                                 "on credit (5 Oct T-04).")]
     if vt.party in ("supplier", "customer"):
         head += [Field("currency_code", "Currency", type="choice",
                        choices=["INR", "USD", "AED", "EUR"], default="INR", in_list=False),

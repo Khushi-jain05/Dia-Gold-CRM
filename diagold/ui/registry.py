@@ -10,6 +10,7 @@ from diagold.services.auth import CurrentUser
 from diagold.ui.crud import CrudWidget
 from diagold.ui import inventory as inventory_ui
 from diagold.ui import sales as sales_ui
+from diagold.ui import accounts as accounts_ui
 from diagold.ui.manufacturing import ItemSearchWidget, MfgTransferWidget, ProcessVoucherWidget
 from diagold.ui.permissions import PermissionMatrixWidget
 from diagold.ui.placeholder import PlaceholderWidget
@@ -52,6 +53,13 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "manufacturing.mfg_transfer_day_book":
         lambda user: ReportWidget(build_specs()["mfg_transfer_day_book"], user),
     "sale.metal": lambda user: sales_ui._inv("metal_sale", user),
+    # Accounts (5 Oct T-01 / T-02 / T-04)
+    "account.groups": lambda user: CrudWidget(accounts_ui.group_spec(),
+                                              rights=getattr(user, "rights", None)),
+    "account.day_book": lambda user: ReportWidget(accounts_ui.specs()["acc_day_book"], user),
+    "account.ledger": lambda user: ReportWidget(accounts_ui.specs()["party_ledger"], user),
+    "account.trial_balance": lambda user: ReportWidget(accounts_ui.specs()["trial_balance"],
+                                                       user),
     "inventory.stock_transfer": lambda user: __import__(
         "diagold.ui.stock_transfer", fromlist=["StockTransferWidget"]).StockTransferWidget(user),
     # Purchase (2 Oct §4.5, T-07): Metal / Stones are the Inventory purchase
@@ -102,13 +110,16 @@ EXTRA_SCREENS: dict[str, str] = {**{report_key(k): report_title(k)
                                      for _t, keys in SECTIONS for k in keys},
                                   "manufacturing.item_search": "Item Search",
                                   "manufacturing.worker_statement": "Worker Metal Ledger",
-                                  **inventory_ui.sub_labels(), **sales_ui.sub_labels()}
+                                  **inventory_ui.sub_labels(), **sales_ui.sub_labels(),
+                                  **accounts_ui.sub_labels()}
 # Menu items that open a submenu rather than a screen (Inventory ▸ Metal ▸ …,
 # Sale ▸ Ready Stock ▸ …).
 SUBMENUS = {parent: [(inventory_ui.sub_key(parent, k), label) for k, label in items]
             for parent, items in inventory_ui.SUBMENUS.items()}
 SUBMENUS.update({parent: [(sales_ui.sub_key(parent, k), label) for k, label in items]
                  for parent, items in sales_ui.SUBMENUS.items()})
+SUBMENUS.update({parent: [(accounts_ui.sub_key(parent, k), label) for k, label in items]
+                 for parent, items in accounts_ui.SUBMENUS.items()})
 
 
 def _group_label(menu_key: str) -> str:
@@ -136,6 +147,8 @@ def build_widget(menu_key: str, user: CurrentUser) -> QWidget:
         return _CUSTOM[menu_key](user)
     if menu_key.rsplit(".", 1)[0] in sales_ui.SUBMENUS:
         return sales_ui.build_screen(menu_key, user)
+    if menu_key.rsplit(".", 1)[0] in accounts_ui.SUBMENUS:
+        return accounts_ui.build_screen(menu_key, user)
     if menu_key.rsplit(".", 1)[0] in SUBMENUS:
         return inventory_ui.build_screen(menu_key, user)
 
@@ -155,6 +168,8 @@ def has_real_screen(menu_key: str) -> bool:
         return True
     if menu_key.rsplit(".", 1)[0] in sales_ui.SUBMENUS:
         return sales_ui.has_screen(menu_key)
+    if menu_key.rsplit(".", 1)[0] in accounts_ui.SUBMENUS:
+        return accounts_ui.has_screen(menu_key)
     if menu_key.rsplit(".", 1)[0] in SUBMENUS:
         return menu_key.rsplit(".", 1)[1] not in inventory_ui.PENDING_EXPLANATION
     return menu_key in _CUSTOM or menu_key in SPECS or menu_key in SUBMENUS

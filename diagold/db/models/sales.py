@@ -49,6 +49,11 @@ class ReadyVoucher(Base, PKMixin, TimestampMixin):
     total: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     remark: Mapped[str] = mapped_column(String(200), default="")
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # Cash or Bill on a sale and its return (5 Oct D2: "sale me aur return me
+    # dono me chahiye - cash aur bill").
+    mode: Mapped[str] = mapped_column(String(8), default="Bill")
+    # Prices From Client Chart was applied (5 Oct T-05).
+    client_chart: Mapped[bool] = mapped_column(Boolean, default=False)
 
     lines: Mapped[list["ReadyVoucherLine"]] = relationship(
         back_populates="voucher", cascade="all, delete-orphan",

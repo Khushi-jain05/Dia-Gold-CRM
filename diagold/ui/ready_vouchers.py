@@ -529,9 +529,14 @@ class ReadyVoucherWidget(_Screen):
         self.bill_amt = QLineEdit()
         self.bill_amt.setPlaceholderText("Bill Amt")
         self.bill_amt.setMaximumWidth(110)
+        # Cash or Bill on a sale and on its return (5 Oct D2 / T-04): a cash
+        # voucher settles at once and never shows as a bill outstanding.
+        self.mode = QComboBox()
+        self.mode.addItems(["Bill", "Cash"])
+        self.mode.currentIndexChanged.connect(lambda _i: self._render())
         if vr_type in ("rs_sale", "rs_sale_return"):
-            for w in (QLabel("Currency"), self.currency, QLabel("Credit Days"), self.credit,
-                      self.due, self.salesperson, self.bank):
+            for w in (QLabel("Mode"), self.mode, QLabel("Currency"), self.currency,
+                      QLabel("Credit Days"), self.credit, self.due, self.salesperson, self.bank):
                 row2.addWidget(w)
         elif vr_type == "rs_approval":
             row2.addWidget(self.margin_type)
@@ -825,9 +830,14 @@ class ReadyVoucherWidget(_Screen):
     def _account_info(self, total: Decimal) -> None:
         """Account Information block (TR5): what the voucher will post."""
         who = self.account.currentText() or "the account"
+        cash = self.mode.currentText() == "Cash"
         lines = {
-            "rs_sale": f"Dr {who} {total:,.2f}   ·   Cr {S.SALES_LEDGER} {total:,.2f}",
-            "rs_sale_return": f"Dr {S.SALES_RETURN_LEDGER} {total:,.2f}   ·   Cr {who} {total:,.2f}",
+            "rs_sale": f"Dr {who} {total:,.2f}   ·   Cr {S.SALES_LEDGER} {total:,.2f}"
+                       + (f"   ·   Dr Cash {total:,.2f}   ·   Cr {who} {total:,.2f} (cash, settled)"
+                          if cash else ""),
+            "rs_sale_return": f"Dr {S.SALES_RETURN_LEDGER} {total:,.2f}   ·   Cr {who} {total:,.2f}"
+                              + (f"   ·   Dr {who} {total:,.2f}   ·   Cr Cash {total:,.2f} "
+                                 "(cash, settled)" if cash else ""),
             "rp_purchase": f"Dr {S.PURCHASE_LEDGER} {total:,.2f}   ·   Cr {who} {total:,.2f}",
             "rp_return": f"Dr {who} {total:,.2f}   ·   Cr {S.PURCHASE_RETURN_LEDGER} {total:,.2f}",
         }
@@ -984,6 +994,7 @@ class ReadyVoucherWidget(_Screen):
             self.salesperson.setText(v.salesperson or "")
             self.bank.setText(v.bank_name or "")
             self.margin_type.setText(v.margin_type or "")
+            self.mode.setCurrentText(v.mode or "Bill")
             self.bill_no.setText(v.bill_no or "")
             self.bill_amt.setText(f"{v.bill_amount or ''}")
             if v.bill_date:
@@ -1015,7 +1026,8 @@ class ReadyVoucherWidget(_Screen):
                 "bill_no": self.bill_no.text().strip(),
                 "bill_account_id": self.bill_acct.currentData(),
                 "bill_amount": _num(self.bill_amt.text()) or 0,
-                "remark": self.narration.text().strip()}
+                "remark": self.narration.text().strip(),
+                "mode": self.mode.currentText()}
 
     def save(self) -> None:
         if not self.lines:

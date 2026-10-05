@@ -333,6 +333,7 @@ def pieces_for_orders(session: Session, takes: dict[int, int],
 # Posting
 # --------------------------------------------------------------------------
 _HEAD_FIELDS = ("vr_date", "vr_time", "account_id", "ref_no", "currency_code", "credit_days",
+                "mode", "client_chart",
                 "salesperson", "bank_name", "margin_type", "bill_date", "bill_no",
                 "bill_account_id", "bill_amount", "remark")
 _LINE_FIELDS = ("location_id", "job_id", "product_sku_id", "c_ref", "metal_id", "title",
@@ -343,24 +344,41 @@ _LINE_FIELDS = ("location_id", "job_id", "product_sku_id", "c_ref", "metal_id", 
 
 
 def _accounts(session: Session, v: ReadyVoucher) -> None:
-    from diagold.services import inventory as INV
+    """Post the voucher's accounting. A Cash-mode sale / return is settled on
+    the spot; a Bill-mode return knocks off the party's bills, oldest first
+    (5 Oct T-02 / T-04)."""
+    from diagold.services import accounts, inventory as INV
     t = READY_TYPES[v.vr_type]
     text = f"{t.title} Vr {v.vr_no}" + (f" · Ref {v.ref_no}" if v.ref_no else "")
     total = _dec(v.total)
+    mode = v.mode or "Bill"
     common = dict(on=v.vr_date, amount=total, ref_kind=v.vr_type, ref_no=v.vr_no,
-                  narration=text)
+                  narration=text, mode=mode)
     if v.vr_type == "rs_sale":
         INV.post_entry(session, debit_account_id=v.account_id, credit_ledger=SALES_LEDGER,
                        **common)
+        if mode == "Cash":
+            accounts.settle_cash(session, on=v.vr_date, party_id=v.account_id, amount=total,
+                                 ref_kind=v.vr_type, ref_no=v.vr_no, narration=text, incoming=True)
     elif v.vr_type == "rs_sale_return":
         INV.post_entry(session, debit_ledger=SALES_RETURN_LEDGER, credit_account_id=v.account_id,
                        **common)
+        if mode == "Cash":
+            accounts.settle_cash(session, on=v.vr_date, party_id=v.account_id, amount=total,
+                                 ref_kind=v.vr_type, ref_no=v.vr_no, narration=text, incoming=False)
+        else:
+            accounts.allocate(session, party_id=v.account_id, side="receivable",
+                              source_kind=v.vr_type, source_no=v.vr_no, amount=total,
+                              on=v.vr_date)
     elif v.vr_type == "rp_purchase":
         INV.post_entry(session, debit_ledger=PURCHASE_LEDGER, credit_account_id=v.account_id,
                        **common)
     elif v.vr_type == "rp_return":
         INV.post_entry(session, debit_account_id=v.account_id,
                        credit_ledger=PURCHASE_RETURN_LEDGER, **common)
+        accounts.allocate(session, party_id=v.account_id, side="payable",
+                          source_kind=v.vr_type, source_no=v.vr_no, amount=total,
+                          on=v.vr_date)
 
 
 def post_ready(session: Session, vr_type: str, head: dict[str, Any],
@@ -471,8 +489,11 @@ def delete_ready(session: Session, v: ReadyVoucher, *, user_id: int | None = Non
     """Undo a voucher: every piece goes back to the state it was in (a new
     piece from a purchase / opening is removed), and its accounting goes.
     Refused if a piece has moved on since."""
-    from diagold.services import inventory as INV
+    from diagold.services import accounts, inventory as INV
     t = READY_TYPES[v.vr_type]
+    if accounts.bill_has_allocations(session, v.vr_type, v.vr_no):
+        raise ProductionError(f"{t.title} Vr {v.vr_no} has receipts / payments / returns "
+                              "knocked off against it - delete those first.")
     for line in v.lines:
         item = session.get(StockItem, line.stock_item_id) if line.stock_item_id else None
         if item is None:
@@ -870,14 +891,7 @@ def piece_history(session: Session, item: StockItem) -> list[dict[str, Any]]:
 
 
 def closing_balance(session: Session, account_id: int | None) -> tuple[Decimal, str]:
-    """Cl Bal on the sale header: the party's closing balance in the accounts
-    the vouchers post (Dr positive)."""
-    from diagold.db.models import AccountEntry
-    if not account_id:
-        return ZERO, ""
-    dr = session.scalar(select(func.sum(AccountEntry.debit)).where(
-        AccountEntry.account_id == account_id)) or 0
-    cr = session.scalar(select(func.sum(AccountEntry.credit)).where(
-        AccountEntry.account_id == account_id)) or 0
-    bal = _dec(dr) - _dec(cr)
-    return abs(bal), ("Dr" if bal >= 0 else "Cr")
+    """Cl Bal on the sale header: the party's closing balance - master opening
+    plus everything posted (Dr positive)."""
+    from diagold.services import accounts
+    return accounts.party_closing(session, account_id)

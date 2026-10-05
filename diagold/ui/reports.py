@@ -108,6 +108,13 @@ class ReportSpec:
     # Ctrl+F1 Show Stone Group: these columns (the DIA / POLKI / CS split)
     # start hidden and the shortcut shows / hides them (5 Oct UX5).
     stone_group_cols: tuple[str, ...] = ()
+    # Header pickers passed to the query as keywords: (key, label, loader) where
+    # loader(session) -> [(value, text)] - e.g. the account of a ledger.
+    pickers: list[tuple[str, str, Callable[[Any], list[tuple[Any, str]]]]] = field(
+        default_factory=list)
+    # Ctrl+G draws this chart instead of opening Group (the legacy ledger graph):
+    # graph(widget) -> None.
+    graph: Callable[["ReportWidget"], None] | None = None
 
 
 def static(cols: list[Col]) -> Callable[[date, date], list[Col]]:
@@ -544,6 +551,22 @@ class ReportWidget(QWidget):
             self.d_to.setDate(QDate(today.year, today.month, today.day))
             head.addWidget(QLabel("As on"))
             head.addWidget(self.d_to)
+        self.picker_boxes: dict[str, QComboBox] = {}
+        if spec.pickers:
+            from diagold.db.session import SessionLocal as _SL
+            with _SL() as _s:
+                for key, label, loader in spec.pickers:
+                    head.addWidget(QLabel(label))
+                    cb = QComboBox()
+                    cb.setEditable(True)
+                    cb.setMinimumWidth(200)
+                    cb.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+                    for value, text in loader(_s):
+                        cb.addItem(text, value)
+                    cb.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+                    cb.currentIndexChanged.connect(lambda _i: self.run())
+                    self.picker_boxes[key] = cb
+                    head.addWidget(cb)
         self.btn_run = QPushButton("Run")
         self.btn_run.setObjectName("Primary")
         self.btn_run.clicked.connect(self.run)
@@ -582,9 +605,16 @@ class ReportWidget(QWidget):
         # F1 Show All, as on every legacy register (2 Oct UX6): every filter
         # off and the whole history in range.
         QShortcut(QKeySequence("F1"), self, activated=self.show_all)
-        # Ctrl+G Group (5 Oct UX2): open the group-by list.
-        QShortcut(QKeySequence("Ctrl+G"), self,
-                  activated=lambda: (self.group.setFocus(), self.group.showPopup()))
+        # Ctrl+G Group (5 Oct UX2): open the group-by list - or, on a ledger,
+        # the month-wise graph, as the legacy ledger's Ctrl+G does.
+        if spec.graph is not None:
+            QShortcut(QKeySequence("Ctrl+G"), self, activated=lambda: spec.graph(self))
+            b = QPushButton("Graph  (Ctrl+G)")
+            b.clicked.connect(lambda: spec.graph(self))
+            bar.addWidget(b)
+        else:
+            QShortcut(QKeySequence("Ctrl+G"), self,
+                      activated=lambda: (self.group.setFocus(), self.group.showPopup()))
         self.show_images = False
         self.show_stone_groups = False
         if spec.images:
@@ -683,8 +713,18 @@ class ReportWidget(QWidget):
         self.d_from.setDate(QDate(d_from.year, d_from.month, d_from.day))
         self.d_to.setDate(QDate(d_to.year, d_to.month, d_to.day))
 
-    def _opts(self) -> dict[str, bool]:
-        return {k: cb.isChecked() for k, cb in self.option_boxes.items()}
+    def _opts(self) -> dict[str, Any]:
+        out: dict[str, Any] = {k: cb.isChecked() for k, cb in self.option_boxes.items()}
+        for k, cb in self.picker_boxes.items():
+            out[k] = cb.currentData()
+        return out
+
+    def set_picker(self, key: str, value: Any) -> None:
+        cb = self.picker_boxes.get(key)
+        if cb is not None:
+            i = cb.findData(value)
+            if i >= 0:
+                cb.setCurrentIndex(i)
 
     # -- running ----------------------------------------------------------
     def run(self) -> None:
