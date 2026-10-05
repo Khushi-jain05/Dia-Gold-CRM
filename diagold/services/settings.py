@@ -73,6 +73,9 @@ FLAGS: dict[str, tuple[str, bool]] = {
     # Negative stock (28 Sept Q6) is a three-way choice, kept as the setting
     # "inventory.negative_stock" = block / warn / allow (default warn).
     # Legacy asks "Save? Yes / No" before every save; staff expect it.
+    # 5 Oct T-05 - legacy Option "Client wise price chart applicable" (False).
+    "sale.client_chart": ("Client wise price chart applicable - a sale ticks \"Prices From "
+                          "Client Chart\" when the client is on a chart", False),
     "ui.confirm_save": ("Ask \"Save? Yes / No\" before every save", True),
     "loss.charge_all": ("Worker ledger: karigar is charged for ALL loss, not only the excess "
                         "over the allowed % (to confirm - 28 Sept Q3)", False),

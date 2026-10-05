@@ -89,6 +89,9 @@ class ReadyVoucherLine(Base, PKMixin):
     setting_amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     labour_rate: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     labour: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    # Labour rate per gram (default) or per piece - a client price chart can
+    # price labour per piece (5 Oct T-05).
+    labour_per: Mapped[str] = mapped_column(String(4), default="gm")
     other_amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     total: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     # Stone breakup as valued: [{label, s_type, size, pcs, weight, unit, price}].

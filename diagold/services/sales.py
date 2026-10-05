@@ -166,6 +166,16 @@ def describe(session: Session, item: StockItem) -> dict[str, Any]:
     }
 
 
+def labour_amount(rate: Any, per: str, net: Any, pcs: Any) -> Decimal:
+    """Labour = rate x N-Wt, or rate x pcs when the rate is per piece."""
+    rate = _dec(rate)
+    if not rate:
+        return ZERO
+    if (per or "").lower().startswith("p"):
+        return _money(rate * Decimal(int(pcs or 1)))
+    return costing.labour_amount(rate, net_weight=_dec(net))
+
+
 def value(info: dict[str, Any], on_date: date, session: Session, *,
           metal_rate: Any = None, labour_rate: Any = None) -> dict[str, Any]:
     """The line's amounts: metal at the day's rate (or the one typed), stones,
@@ -179,13 +189,14 @@ def value(info: dict[str, Any], on_date: date, session: Session, *,
     st_amt = sum((stone_amount(s) for s in stones), ZERO)
     st_wt = sum((_dec(s.get("weight")) for s in stones), ZERO)
     lab_rate = _dec(labour_rate) if labour_rate not in (None, "") else _dec(info["labour_rate"])
-    labour = costing.labour_amount(lab_rate, net_weight=net) if lab_rate else ZERO
+    per = info.get("labour_per") or "gm"
+    labour = labour_amount(lab_rate, per, net, info.get("pcs"))
     metal_amount = _money(net * rate)
     setting = _dec(info.get("setting"))
     other = _dec(info.get("other_amount"))
     return {"metal_rate": _dec(rate), "metal_amount": metal_amount, "fine_wt": fine,
             "st_wt": st_wt, "stone_amount": st_amt, "setting_amount": setting,
-            "labour_rate": lab_rate, "labour": labour, "other_amount": other,
+            "labour_rate": lab_rate, "labour_per": per, "labour": labour, "other_amount": other,
             "total": _money(metal_amount + st_amt + setting + labour + other)}
 
 
@@ -339,8 +350,8 @@ _HEAD_FIELDS = ("vr_date", "vr_time", "account_id", "ref_no", "currency_code", "
 _LINE_FIELDS = ("location_id", "job_id", "product_sku_id", "c_ref", "metal_id", "title",
                 "loss_pct", "colour", "size", "pcs", "old_wt", "gross_wt", "net_wt", "fine_wt",
                 "metal_rate", "metal_amount", "st_wt", "stone_amount", "setting_amount",
-                "labour_rate", "labour", "other_amount", "total", "order_line_id",
-                "source_line_id", "remark")
+                "labour_rate", "labour_per", "labour", "other_amount", "total",
+                "order_line_id", "source_line_id", "remark")
 
 
 def _accounts(session: Session, v: ReadyVoucher) -> None:
@@ -546,7 +557,7 @@ def update_ready(session: Session, v: ReadyVoucher, head: dict[str, Any],
     for line in v.lines:
         ch = lines.get(line.id) or {}
         for k in ("metal_rate", "metal_amount", "stone_amount", "setting_amount", "labour_rate",
-                  "labour", "other_amount", "total", "old_wt", "remark"):
+                  "labour_per", "labour", "other_amount", "total", "old_wt", "remark"):
             if k in ch:
                 setattr(line, k, ch[k])
         if "stones" in ch:

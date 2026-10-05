@@ -306,6 +306,19 @@ with SessionLocal() as s:
           (cm[kk.name]["fine_os"], cm[kk.name]["amt_os"] > 0, cm["TEST SUPPLIER"]["amt_os"],
            "Sales A/c" in cm or "Cash in Hand" in cm),
           (D("10.000"), True, D("-448993.50"), False))
+    from diagold.services import price_charts as PC
+    from diagold.db.models import PriceChart
+    mannu = s.scalar(select(PriceChart).where(PriceChart.name == "MANNU BHAI"))
+    pc_item = s.scalars(select(StockItem).where(StockItem.status == "in_stock")).first()
+    pc_info = S.describe(s, pc_item)
+    check("price chart: no rule -> MANNU BHAI 1,175 / gm",
+          S.value(PC.apply(s, mannu, pc_info), T, s)["labour_rate"], D("1175"))
+    PC.save_rules(s, mannu, "labour", [{"family": PC.piece_keys(s, pc_info)["family"],
+                                        "from_gwt": D(10), "to_gwt": D(20), "sale_price": D(900)}])
+    v = S.value(PC.apply(s, mannu, pc_info), T, s)
+    check("price chart: family rule in the 10-20 g slab wins", (v["labour_rate"], v["labour"]),
+          (D("900"), (D("900") * D(str(pc_info["net_wt"]))).quantize(D("0.01"))))
+    s.rollback()
     led = INV.account_ledger(s, *FY)
     test_sup = [r for r in led if r["ledger"] == "TEST SUPPLIER"]
     check("TEST SUPPLIER closing (stone 14,960 + metal 4,34,033.50 + ready 79,045.36 - return)",

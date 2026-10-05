@@ -38,6 +38,13 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "production_planning.day_book":
         lambda user: ReportWidget(build_specs()["order_day_book"], user),
     "tools.option": lambda user: OptionsWidget(user),
+    # Client price charts (5 Oct T-05)
+    "tools.client_labour_price": lambda user: __import__(
+        "diagold.ui.price_charts", fromlist=["PriceChartWidget"]).PriceChartWidget("labour", user),
+    "tools.client_stone_price": lambda user: __import__(
+        "diagold.ui.price_charts", fromlist=["PriceChartWidget"]).PriceChartWidget("stone", user),
+    "tools.client_setting_price": lambda user: __import__(
+        "diagold.ui.price_charts", fromlist=["PriceChartWidget"]).PriceChartWidget("setting", user),
     "manufacturing.mfg_transfer": lambda user: MfgTransferWidget(user),
     "manufacturing.job_costing": lambda user: __import__(
         "diagold.ui.job_costing", fromlist=["job_costing_screen"]).job_costing_screen(user),

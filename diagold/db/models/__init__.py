@@ -49,6 +49,8 @@ from diagold.db.models.sales import ReadyVoucher, ReadyVoucherLine
 from diagold.db.models.transfer import StockTransfer, StockTransferLine
 from diagold.db.models.accounts import (AccountGroup, AccountVoucher, AccountVoucherLine,
                                          BillAllocation)
+from diagold.db.models.pricing import (PriceChart, PriceChartLabour, PriceChartSetting,
+                                        PriceChartStone)
 from diagold.db.models.manufacturing import (
     DeletionLog,
     MfgTransfer,
@@ -86,6 +88,7 @@ from diagold.db.models.sku import (
 )
 
 __all__ = [
+    "PriceChart", "PriceChartLabour", "PriceChartSetting", "PriceChartStone",
     "Base",
     "Role",
     "RolePermission",

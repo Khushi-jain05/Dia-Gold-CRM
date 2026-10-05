@@ -24,6 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDateEdit,
     QDialog,
@@ -48,6 +49,7 @@ from sqlalchemy import select
 from diagold.db.models import (Account, Location, Metal, ProductSku, ReadyVoucher,
                                ReadyVoucherLine, StockItem)
 from diagold.db.session import SessionLocal
+from diagold.services import price_charts as PC
 from diagold.services import sales as S
 from diagold.services.production import ProductionError
 from diagold.ui.confirm import confirm_save
@@ -201,6 +203,9 @@ class PendingOrdersDialog(QDialog):
                 out[row["order_line_id"]] = int(t)
         return out
 
+
+# Sale-side vouchers that can price from the client's chart (5 Oct T-05).
+CHART_TYPES = ("rs_sale", "rs_approval")
 
 STONE_COLS = [("label", "Stone"), ("s_type", "S Type"), ("size", "Size"), ("pcs", "Pcs"),
               ("weight", "Cts"), ("unit", "Per"), ("price", "Price")]
@@ -483,6 +488,15 @@ class ReadyVoucherWidget(_Screen):
         self.cl_bal.setObjectName("Muted")
         self.account.currentIndexChanged.connect(lambda _i: self._show_balance())
         self.account.editTextChanged.connect(lambda _t: self._show_balance())
+        # Prices From Client Chart (5 Oct T-05): the client's price chart
+        # prices labour, stones and setting; off = the standard price.
+        self.chart_cb = QCheckBox("Prices From Client Chart")
+        self.chart_cb.setToolTip("Labour, stone and setting prices from the client's price "
+                                 "chart (Tools ▸ Client Wise … Price). Off: standard prices.")
+        self.chart_cb.toggled.connect(lambda _on: self._reprice_chart())
+        self._chart_for: int | None = None
+        self.account.currentIndexChanged.connect(lambda _i: self._client_changed())
+        self.account.editTextChanged.connect(lambda _t: self._client_changed())
         self._docs: list[str] = []
         head = [QLabel("Vr No"), self.vr, QLabel("Date"), self.date, self.time]
         if self.t.party != "none":
@@ -544,6 +558,10 @@ class ReadyVoucherWidget(_Screen):
             for w in (QLabel("Currency"), self.currency, QLabel("Bill Date"), self.bill_date,
                       self.bill_no, QLabel("Bill Account"), self.bill_acct, self.bill_amt):
                 row2.addWidget(w)
+        if vr_type in CHART_TYPES:
+            row2.addWidget(self.chart_cb)
+        else:
+            self.chart_cb.setVisible(False)
         row2.addStretch(1)
         self.outer.insertLayout(2, row2)
 
@@ -704,13 +722,63 @@ class ReadyVoucherWidget(_Screen):
     def _have(self) -> set[int]:
         return {l["stock_item_id"] for l in self.lines if l.get("stock_item_id")}
 
+    def _chart(self, s) -> Any:
+        if self.vr_type not in CHART_TYPES or not self.chart_cb.isChecked():
+            return None
+        return PC.chart_for(s, self._account_id())
+
+    def _client_changed(self) -> None:
+        """A new client: tick Prices From Client Chart when they are on a
+        chart and the option "Client wise price chart applicable" is on."""
+        if self.vr_type not in CHART_TYPES or self._edit_id is not None:
+            return
+        aid = self._account_id()
+        if aid == self._chart_for:
+            return
+        self._chart_for = aid
+        with SessionLocal() as s:
+            chart = PC.chart_for(s, aid)
+            on = chart is not None and PC.applicable(s)
+            self.chart_cb.setText(f"Prices From Client Chart ({chart.name})" if chart
+                                  else "Prices From Client Chart")
+        self.chart_cb.blockSignals(True)
+        self.chart_cb.setChecked(on)
+        self.chart_cb.blockSignals(False)
+        self._reprice_chart()
+
+    def _reprice_chart(self) -> None:
+        """Re-price the pieces on the voucher: chart prices when ticked, the
+        standard prices when not. The metal rate typed stays."""
+        if self._edit_id is not None or not self.lines:
+            return
+        with SessionLocal() as s:
+            chart = self._chart(s)
+            if chart is None and self.chart_cb.isChecked():
+                _info(self, "Prices From Client Chart",
+                      "This client is not on a price chart (Account master ▸ Price Chart) - "
+                      "standard prices stay.")
+            for i, ln in enumerate(self.lines):
+                item = s.get(StockItem, ln.get("stock_item_id")) if ln.get("stock_item_id") \
+                    else None
+                if item is None:
+                    continue
+                info = S.describe(s, item)
+                if chart is not None:
+                    info = PC.apply(s, chart, info)
+                v = S.value(info, _pydate(self.date), s, metal_rate=ln.get("metal_rate"))
+                self.lines[i] = {**ln, **info, **v}
+        self._render()
+
     def _add_infos(self, infos: list[dict], order_line_id: int | None = None) -> None:
         if self._editing_blocked():
             return
         with SessionLocal() as s:
+            chart = self._chart(s)
             for info in infos:
                 if info["stock_item_id"] in self._have():
                     continue
+                if chart is not None:
+                    info = PC.apply(s, chart, info)
                 v = S.value(info, _pydate(self.date), s)
                 self.lines.append({**info, **v, "old_wt": D(0),
                                    "order_line_id": order_line_id or info.get("order_line_id")})
@@ -859,7 +927,8 @@ class ReadyVoucherWidget(_Screen):
         net = D(str(ln.get("net_wt") or 0))
         ln["metal_amount"] = (net * D(str(ln.get("metal_rate") or 0))).quantize(D("0.01"))
         ln["stone_amount"] = sum((S.stone_amount(s) for s in ln.get("stones") or []), D(0))
-        ln["labour"] = costing.labour_amount(D(str(ln.get("labour_rate") or 0)), net_weight=net)
+        ln["labour"] = S.labour_amount(ln.get("labour_rate"), ln.get("labour_per") or "gm",
+                                       net, ln.get("pcs"))
         ln["total"] = (ln["metal_amount"] + ln["stone_amount"]
                        + D(str(ln.get("setting_amount") or 0)) + ln["labour"]
                        + D(str(ln.get("other_amount") or 0))).quantize(D("0.01"))
@@ -995,6 +1064,9 @@ class ReadyVoucherWidget(_Screen):
             self.bank.setText(v.bank_name or "")
             self.margin_type.setText(v.margin_type or "")
             self.mode.setCurrentText(v.mode or "Bill")
+            self.chart_cb.blockSignals(True)
+            self.chart_cb.setChecked(bool(v.client_chart))
+            self.chart_cb.blockSignals(False)
             self.bill_no.setText(v.bill_no or "")
             self.bill_amt.setText(f"{v.bill_amount or ''}")
             if v.bill_date:
@@ -1027,7 +1099,8 @@ class ReadyVoucherWidget(_Screen):
                 "bill_account_id": self.bill_acct.currentData(),
                 "bill_amount": _num(self.bill_amt.text()) or 0,
                 "remark": self.narration.text().strip(),
-                "mode": self.mode.currentText()}
+                "mode": self.mode.currentText(),
+                "client_chart": self.vr_type in CHART_TYPES and self.chart_cb.isChecked()}
 
     def save(self) -> None:
         if not self.lines:

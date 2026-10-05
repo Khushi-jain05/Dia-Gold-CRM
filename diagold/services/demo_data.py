@@ -136,6 +136,18 @@ def load_demo(s: Session) -> str:
     polki = _one(s, StoneSku, sku_code="POLKI 12-14")
     emerald = _one(s, StoneSku, sku_code="EMERALD PEAR 3*4")
     polki_type = _one(s, SettingType, name="Polki")
+    # Client price charts as on the 5 Oct call: "A" and MANNU BHAI 1,175 / gm
+    # (T-05) - RUBY SINGH is on MANNU BHAI to try "Prices From Client Chart".
+    from diagold.db.models import PriceChart
+    if not s.scalar(select(PriceChart).where(PriceChart.name == "MANNU BHAI")):
+        mannu = PriceChart(name="MANNU BHAI", labour_per_gm=Decimal("1175"))
+        s.add_all([PriceChart(name="A"), mannu])
+        s.flush()
+        ruby = s.scalar(select(Account).where(Account.code == "RUBY"))
+        if ruby is None:
+            ruby = s.scalar(select(Account).where(Account.name == "RUBY SINGH"))
+        if ruby is not None:
+            ruby.price_chart_id = mannu.id
     s.flush()
 
     # -- Inventory (28 Sept §4.12) ----------------------------------------

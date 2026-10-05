@@ -68,6 +68,9 @@ class Account(Base, PKMixin, TimestampMixin):
     opening_balance_type: Mapped[str] = mapped_column(String(4), default="Dr")
     credit_days: Mapped[int] = mapped_column(default=0)
     credit_limit: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    # Client-wise price chart (5 Oct T-05) - "Prices From Client Chart".
+    price_chart_id: Mapped[int | None] = mapped_column(ForeignKey("price_charts.id"),
+                                                       nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # One master creates every party. Type is mainly a filter.

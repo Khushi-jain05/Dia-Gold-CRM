@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from diagold.db.models import (
+    PriceChart,
     Account,
     InventoryReturn,
     InventoryReturnLine,
@@ -154,6 +155,10 @@ _register(CrudSpec(
               default="Dr", in_list=False),
         Field("credit_days", "Credit Days", type="int", in_list=False),
         Field("credit_limit", "Credit Limit", type="float", in_list=False),
+        Field("price_chart_id", "Price Chart", type="fk", fk_model=PriceChart,
+              fk_label=lambda c: c.name, in_list=False,
+              help_text="Client-wise price chart (Tools ▸ Client Wise … Price) - used on a "
+                        "sale when Prices From Client Chart is ticked."),
         Field("is_active", "Active", type="bool", default=True),
     ],
 ))

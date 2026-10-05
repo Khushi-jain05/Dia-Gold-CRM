@@ -1,0 +1,215 @@
+"""Client-wise price charts - "Prices From Client Chart" (5 Oct §4.7, T-05).
+
+A chart is a price type ("A", "MANNU BHAI") with a default labour per gram
+and three rule tables. A rule's match fields are text; a blank field matches
+anything. Rules are tried in priority order (1 first) and the first that
+matches wins:
+
+* labour  - family, style, SKU, item, metal, colour and a gross-weight slab
+            (From G-Wt .. To G-Wt, To 0 = no upper limit) -> sale price per
+            gram or per piece. No rule -> the chart's Per Grm Price.
+* stone   - family, metal, style, SKU, stone group, SSKU, stone, shape, type,
+            quality, size -> price per ct or per piece. No rule -> the
+            stone's own (standard) price stays.
+* setting - setting type, stone group, size -> price per piece; the piece's
+            setting amount = sum of pcs x price over its stones. No rule for
+            any stone -> the standard setting amount stays.
+
+Applied on a sale when the client is on a chart and "Prices From Client
+Chart" is ticked (default from the setting "Client wise price chart
+applicable"). With no chart the standard master price applies.
+"""
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from diagold.db.models import (Account, FamilyCategory, PriceChart, PriceChartLabour,
+                               PriceChartSetting, PriceChartStone, ProductSku, StoneSku)
+from diagold.db.models.sku import Item
+
+ZERO = Decimal("0")
+APPLICABLE_FLAG = "sale.client_chart"     # "Client wise price chart applicable"
+RULE_MODELS = {"labour": PriceChartLabour, "stone": PriceChartStone,
+               "setting": PriceChartSetting}
+RULE_ATTR = {"labour": "labour_rules", "stone": "stone_rules", "setting": "setting_rules"}
+
+
+class PriceChartError(ValueError):
+    pass
+
+
+def _dec(v: Any) -> Decimal:
+    if v in (None, ""):
+        return ZERO
+    return v if isinstance(v, Decimal) else Decimal(str(v))
+
+
+def _norm(v: Any) -> str:
+    return " ".join(str(v or "").split()).casefold()
+
+
+def _match(rule_value: str, actual: Any) -> bool:
+    """A blank rule field matches anything; otherwise equal, ignoring case."""
+    return not (rule_value or "").strip() or _norm(rule_value) == _norm(actual)
+
+
+def applicable(session: Session) -> bool:
+    from diagold.services import settings
+    return settings.flag(APPLICABLE_FLAG, False, session=session)
+
+
+def chart_for(session: Session, account_id: int | None) -> PriceChart | None:
+    a = session.get(Account, account_id) if account_id else None
+    return session.get(PriceChart, a.price_chart_id) if a and a.price_chart_id else None
+
+
+# --------------------------------------------------------------------------
+# What a piece / a stone is, in the words the rules use
+# --------------------------------------------------------------------------
+def piece_keys(session: Session, info: dict[str, Any]) -> dict[str, Any]:
+    sku = session.get(ProductSku, info.get("product_sku_id")) \
+        if info.get("product_sku_id") else None
+    fam = session.get(FamilyCategory, sku.family_id) if sku and sku.family_id else None
+    item = session.get(Item, sku.item_id) if sku and sku.item_id else None
+    return {"family": fam.name if fam else "", "style": sku.style if sku else "",
+            "sku": sku.sku_code if sku else (info.get("sku") or ""),
+            "item": item.name if item else "", "metal": info.get("metal") or "",
+            "colour": info.get("colour") or "", "gross": _dec(info.get("gross_wt"))}
+
+
+def stone_keys(session: Session, st: dict[str, Any]) -> dict[str, Any]:
+    """A stone line of the piece ("POLKI 12-14", S Type Polki, size 12-14)
+    with its Stone master fields when the label names a stone SKU."""
+    label = (st.get("label") or "").strip()
+    size = (st.get("size") or "").strip()
+    sku = None
+    for code in dict.fromkeys((label, label[: -len(size)].strip() if size and
+                               label.endswith(size) else label, label.split(" ")[0])):
+        if code:
+            sku = session.scalar(select(StoneSku).where(StoneSku.sku_code == code))
+            if sku is not None:
+                break
+    if not size and sku is not None:
+        size = sku.size or ""
+    if not size and label and " " in label:
+        size = label.rsplit(" ", 1)[1]
+    return {"group": st.get("s_type") or "", "ssku": sku.sku_code if sku else label,
+            "stone": sku.stone if sku else "", "shape": sku.shape if sku else "",
+            "stone_type": sku.stone_type if sku else "",
+            "quality": sku.quality if sku else "", "size": size}
+
+
+# --------------------------------------------------------------------------
+# Resolution
+# --------------------------------------------------------------------------
+def labour_for(chart: PriceChart, keys: dict[str, Any]) -> tuple[Decimal, str, str]:
+    """(rate, "gm" / "pc", what it came from)."""
+    g = keys["gross"]
+    for r in chart.labour_rules:
+        if not all(_match(getattr(r, f), keys[f]) for f in
+                   ("family", "style", "sku", "item", "metal", "colour")):
+            continue
+        lo, hi = _dec(r.from_gwt), _dec(r.to_gwt)
+        if (lo and g < lo) or (hi and g > hi):
+            continue
+        unit = "pc" if (r.per_unit or "").lower().startswith("p") else "gm"
+        return _dec(r.sale_price), unit, f"{chart.name} rule {r.priority}"
+    return _dec(chart.labour_per_gm), "gm", f"{chart.name} per gram"
+
+
+def stone_price_for(chart: PriceChart, pkeys: dict[str, Any],
+                    skeys: dict[str, Any]) -> tuple[Decimal, str] | None:
+    for r in chart.stone_rules:
+        if all(_match(getattr(r, f), pkeys[f]) for f in ("family", "metal", "style", "sku")) \
+                and _match(r.stone_group, skeys["group"]) \
+                and all(_match(getattr(r, f), skeys[f]) for f in
+                        ("ssku", "stone", "shape", "stone_type", "quality", "size")):
+            return _dec(r.price), ("pcs" if (r.unit or "").lower().startswith("p") else "ct")
+    return None
+
+
+def setting_price_for(chart: PriceChart, skeys: dict[str, Any]) -> Decimal | None:
+    for r in chart.setting_rules:
+        if _match(r.setting_type, skeys["group"]) and _match(r.stone_group, skeys["group"]) \
+                and _match(r.size, skeys["size"]):
+            return _dec(r.price)
+    return None
+
+
+def apply(session: Session, chart: PriceChart, info: dict[str, Any]) -> dict[str, Any]:
+    """The piece re-priced from the chart: labour rate (and unit), each
+    stone's price, the setting amount. ``_chart_notes`` says what applied."""
+    pkeys = piece_keys(session, info)
+    rate, unit, src = labour_for(chart, pkeys)
+    notes = [f"Labour {rate} per {unit} ({src})"]
+    stones, setting, set_hit = [], ZERO, False
+    for st in info.get("stones") or []:
+        st = dict(st)
+        skeys = stone_keys(session, st)
+        hit = stone_price_for(chart, pkeys, skeys)
+        if hit is not None:
+            st["price"], st["unit"] = str(hit[0]), hit[1]
+            notes.append(f"{st.get('label', '')}: {hit[0]} per {hit[1]}")
+        sp = setting_price_for(chart, skeys)
+        if sp is not None:
+            set_hit = True
+            setting += sp * int(st.get("pcs") or 0)
+        stones.append(st)
+    out = {**info, "labour_rate": rate, "labour_per": unit, "stones": stones,
+           "_chart_notes": notes}
+    if set_hit:
+        out["setting"] = setting
+        notes.append(f"Setting {setting}")
+    return out
+
+
+# --------------------------------------------------------------------------
+# Editing
+# --------------------------------------------------------------------------
+def copy_chart(session: Session, chart: PriceChart, name: str) -> PriceChart:
+    """Make A Copy: the whole chart, every rule, under a new name."""
+    name = (name or "").strip()
+    if not name:
+        raise PriceChartError("Give the copy a name.")
+    if session.scalar(select(PriceChart).where(PriceChart.name == name)):
+        raise PriceChartError(f"A chart named {name} already exists.")
+    new = PriceChart(name=name, labour_per_gm=chart.labour_per_gm,
+                     price_type=chart.price_type, stone_quality=chart.stone_quality,
+                     remark=chart.remark)
+    for kind, model in RULE_MODELS.items():
+        cols = [c.key for c in model.__table__.columns if c.key not in ("id", "chart_id")]
+        getattr(new, RULE_ATTR[kind]).extend(
+            model(**{c: getattr(r, c) for c in cols}) for r in getattr(chart, RULE_ATTR[kind]))
+    session.add(new)
+    session.flush()
+    return new
+
+
+def save_rules(session: Session, chart: PriceChart, kind: str,
+               rows: list[dict[str, Any]]) -> None:
+    """Replace one rule table; the row order is the priority (1 first)."""
+    model = RULE_MODELS[kind]
+    cols = {c.key for c in model.__table__.columns} - {"id", "chart_id", "priority"}
+    rules = getattr(chart, RULE_ATTR[kind])
+    rules.clear()
+    session.flush()
+    for i, row in enumerate(rows, 1):
+        rules.append(model(priority=i, **{k: v for k, v in row.items() if k in cols}))
+    session.flush()
+
+
+def clients_on(session: Session, chart: PriceChart) -> list[str]:
+    return list(session.scalars(select(Account.name).where(
+        Account.price_chart_id == chart.id).order_by(Account.name)))
+
+
+def delete_chart(session: Session, chart: PriceChart) -> None:
+    if clients_on(session, chart):
+        raise PriceChartError(
+            f"{chart.name} is used by {', '.join(clients_on(session, chart))} - "
+            "take them off it in the Account master first.")
+    session.delete(chart)
