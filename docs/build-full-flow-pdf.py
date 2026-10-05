@@ -1,4 +1,4 @@
-"""Render the full-flow test script to a PDF.
+"""Render the full-flow test guide (the whole CRM, step by step) to a PDF.
 
     python docs/build-full-flow-pdf.py [out.pdf]
 
@@ -75,16 +75,44 @@ def mfg(process: str, karigar: str, iss: str, rcv: str, allow: str, expect: str,
 
 
 HTML = CSS + """
-""" + H1.format("Dia Gold CRM — Full Flow Test Script") + """
-<p class='muted'>Order se Ready Stock tak ek naya job — har screen jo ab tak bani hai (Master, Inventory,
-Production Planning, Manufacturing, Reports), aur har step pe kya type karna hai aur screen pe kya aana chahiye.
-Login <b>admin</b> / <b>admin</b>.</p>
-""" + BOX.format("""<b>Shuru kaise karein:</b> Terminal me project folder se <b>python -m diagold.demo --reset</b>.
-Ye ek alag demo database kholta hai (~/DiaGoldDemo) — asli data ko kuch nahi hota. Isme aaj ke rates
-(24K fine 14,713/g → 14KT 590 = 8,680.67/g), labour 1,200/g, margin 50%, karigar CHAND KUMAR HAZRA, aur
-demo jobs 28854–28856 pehle se hain. Neeche window ke status bar me <b>DiaGoldDemo</b> dikhna chahiye.""") + """
-""" + BOX.format("""<b>Aapka job:</b> step 11 me order save hote hi ek naya Job No milega (fresh demo me
-<b>28857</b>). Wahi number likh lein — step 12 se aakhir tak har jagah wahi job chunna hai. Demo jobs
+""" + H1.format("Dia Gold CRM — Full Test Guide") + """
+<p class='muted'>Poore CRM ka testing guide — Order se Ready Stock, phir Sale, Approval, Repair, Purchase,
+Stock Transfer aur saare Reports tak. Har step pe: kahan jaana hai, kya type karna hai, aur screen pe kya aana
+chahiye. Jisne app pehle kabhi nahi chalaya, wo bhi shuru se aakhir tak kar sake — bas step order me chalein.</p>
+""" + BOX.format("""<b>Kya chahiye:</b> Windows PC, aur <b>DiaGoldCRM-Windows-x64.zip</b> (jo file bheji hai).
+Testing ek <b>alag DEMO database</b> pe hoti hai — asli data ko kuch nahi hota. Demo me pehle se: rates
+(24K fine 14,713/g → 14KT 590 = 8,680.67/g), labour 1,200/g, margin 50%, karigar CHAND KUMAR HAZRA,
+supplier SHRIKANT, customer KK JEWELS, demo jobs 28854–28856.""") + part("0. Install aur app kholna") + step(
+    "Zip kholna (sirf pehli baar)", [
+        ("Zip file", "<b>DiaGoldCRM-Windows-x64.zip</b> pe right-click → <b>Extract All…</b> → Extract"),
+        ("Folder", "Naye folder me <b>DiaGoldCRM.exe</b> aur do files dikhengi: "
+                   "<b>Open DEMO (testing).bat</b> aur <b>Reset DEMO and open.bat</b>")],
+    ["Folder Desktop pe rakh lo — har baar wahin se kholna hai."],
+) + step(
+    "Demo kholna", [
+        ("Double-click", "<b>Open DEMO (testing).bat</b>"),
+        ("Windows ka blue warning aaye", "<b>More info</b> → <b>Run anyway</b> (pehli baar hi aata hai)"),
+        ("Login", "User <b>admin</b> · Password <b>admin</b> → Enter")],
+    ["Window ke title me <b>DEMO DATA (testing)</b> likha ho. Neeche status bar me <b>DiaGoldDemo</b> folder ka "
+     "path. Ye na dikhe to band karo — asli data khul gaya hai.",
+     "Testing dobara shuru se karni ho: <b>Reset DEMO and open.bat</b> → demo saaf ho kar naye sire se ban jaata hai.",
+     "(Mac pe: project folder me <b>python -m diagold.demo --reset</b>.)"],
+) + step(
+    "App kaise chalta hai — 2 minute", [],
+    ["Upar <b>menu bar</b>: Master, Production Planning, Manufacturing, Purchase, Inventory, Sale, Reports … "
+     "Kisi pe click → list; ▸ wale pe mouse le jao → andar ka submenu.",
+     "Har screen ek <b>tab</b> me khulti hai. Tab ka × → band. Window ▸ Close All → sab band (Dashboard chhod ke).",
+     "List wali screens (Order, Purchase …): <b>+ New</b> → form bharo → <b>Save</b>. Har save pe "
+     "<b>\"Save? Yes / No\"</b> aata hai — <b>Yes</b>.",
+     "Voucher grids me <b>green cells</b> me type kar sakte ho: cell pe double-click (ya type shuru karo) → value → Enter.",
+     "<b>Show Pending</b> = jo kaam baaki hai uski list → tick → OK. Dropdown me naam type karke bhi chun sakte ho.",
+     "Shortcuts: <b>Ctrl+F</b> = Go to screen (naam type karo) · <b>F11</b> = Job History · <b>F12</b> = saare reports "
+     "ki list · reports me <b>F1</b> = Show All.",
+     "Dashboard pe <b>BARCODE READ</b>: Stock No / SKU likh ke Enter → Item Search; Job No → Job History.",
+     "Koi print / Excel ka button file save karta hai — message me file ka path aata hai."],
+) + """
+""" + BOX.format("""<b>Aapka job:</b> step 14 me order save hote hi ek naya Job No milega (fresh demo me
+<b>28857</b>). Wahi number likh lein — step 15 se aakhir tak har jagah wahi job chunna hai. Demo jobs
 (28854–28856) aur BANG-577 (28853) pe apne steps mat karein.<br>
 <b>Har Save pe</b> "Save? Yes / No" popup aana chahiye — Yes dabayein. <b>Steps skip na karein</b> —
 har step agle step ko data deta hai. Koi cheez dropdown / Show Pending me na mile to pichhla step reh gaya.""") + """
@@ -105,7 +133,7 @@ har step agle step ko data deta hai. Koi cheez dropdown / Show Pending me na mil
 ) + step(
     "Master ▸ Account → + New (ek naya karigar)", [
         ("Code", "RAHUL"), ("Name", "RAHUL JI"), ("Type", "Worker")],
-    ["Save → Manufacturing ▸ Issue ke Account dropdown me RAHUL JI dikhega (step 18 — HandMade — me use hoga)."],
+    ["Save → Manufacturing ▸ Issue ke Account dropdown me RAHUL JI dikhega (step 21 — HandMade — me use hoga)."],
 ) + step(
     "Master ▸ Account → + New (ek naya supplier — jisse maal khareedenge)", [
         ("Code", "TESTSUP"), ("Name", "TEST SUPPLIER"),
@@ -115,12 +143,12 @@ har step agle step ko data deta hai. Koi cheez dropdown / Show Pending me na mil
         ("Opening Balance", "khaali chhodein")],
     ["Save → Accounts list me <b>TEST SUPPLIER</b>, Type Accounts.",
      "Inventory ▸ Stone / Metal ▸ Purchase ke <b>Supplier</b> dropdown me ab TEST SUPPLIER dikhega "
-     "(step 7 aur 8 me isi se purchase hogi).",
+     "(step 10 aur 11 me isi se purchase hogi).",
      "Code ya Name khaali karke Save → refuse."],
 ) + part("B. Inventory — supplier se stock andar lao, karigar ko do") + step(
     "Inventory ▸ Stone ▸ Purchase → + New", [
-        ("Supplier", "<b>TEST SUPPLIER</b> (step 6 wala)"), ("Ref No", "TEST-ST"),
-        ("Line 1", "Location <b>Primary</b> · SSKU <b>POLKI 12-14</b> · Pcs <b>20</b> · Weight <b>1.600</b> · Price <b>8100</b> · Per Cts"),
+        ("Supplier", "<b>TEST SUPPLIER</b> (step 9 wala)"), ("Ref No", "TEST-ST"),
+        ("Line 1", "Location <b>Primary</b> · SSKU <b>POLKI 12-14</b> · Pcs <b>20</b> · Weight <b>1.600</b> · Price <b>8100</b> · Per Cts · Lot No <b>LOT-7</b>"),
         ("Line 2", "Location <b>Primary</b> · SSKU <b>EMERALD PEAR 3*4</b> · Pcs <b>10</b> · Weight <b>1.000</b> · Price <b>2000</b> · Per Cts")],
     ["Amount khud: line 1 <b>12,960.00</b>, line 2 <b>2,000.00</b>; neeche summary 2 lines · 30 pcs · 2.600 ct · amount <b>14,960.00</b>.",
      "Save → Vr No khud. Row select → <b>Print</b> → PDF."],
@@ -147,7 +175,7 @@ har step agle step ko data deta hai. Koi cheez dropdown / Show Pending me na mil
         ("Account (worker)", "CHAND KUMAR HAZRA"),
         ("Line", "Location <b>RAJESH JI</b> · Metal <b>14KT 590</b> · Weight <b>1.800</b> · Wastage % <b>2.5</b>")],
     ["Save → Wastage Wt khud <b>0.045</b>.",
-     "CHAND ke paas ab is voucher se bacha: 2.000 − 1.800 − 0.045 = <b>0.155 g</b> (step 36 me check)."],
+     "CHAND ke paas ab is voucher se bacha: 2.000 − 1.800 − 0.045 = <b>0.155 g</b> (step 40 me check)."],
 ) + part("C. Order → Job → Route → Stones") + step(
     "Production Planning ▸ Order → + New", [
         ("Ord Type / Customer", "Customer / <b>KK JEWELS</b>"), ("Ref", "<b>TEST-1</b>"),
@@ -189,10 +217,16 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
     "Mt Amt = NetWt × 8,680.67 khud. Received pe Account CHAND chunte hi <b>Mt Bal</b> dikhta hai. "
     "Job History CASTING row: Loss <b>0.300</b> · <b>2.22%</b>.") + mfg(
     "HandMade", "RAHUL JI", "GrossWt <b>13.200</b> · NetWt <b>13.200</b>",
-    "GrossWt <b>13.000</b> · NetWt <b>13.000</b>", "3.5",
-    "Job History HandMade: Loss <b>0.200</b> · <b>1.52%</b>, allowed 3.5% of 13.000 = <b>0.455</b>. "
-    "Iss Finding <b>0.050</b>, Iss Mould <b>0.100</b>.",
-    extra_iss="line select → <b>F4</b> Finding <b>0.050</b> → Enter · <b>F7</b> Mould <b>0.100</b> → Enter") + mfg(
+    "GrossWt <b>13.100</b> · NetWt <b>13.100</b> (jaan-boojh ke galat — agla step ise Edit se theek karega)", "3.5",
+    "Save hota hai. Iss Finding <b>0.050</b>, Iss Mould <b>0.100</b>. Received pe <b>Attach Doc</b> → koi bhi "
+    "file add → Save ke baad voucher ke saath judi rehti hai.",
+    extra_iss="line select → <b>F4</b> Finding <b>0.050</b> → Enter · <b>F7</b> Mould <b>0.100</b> → Enter") + step(
+    "Galti sudharna — saved voucher Edit", [
+        ("Manufacturing ▸ Received", "Process <b>HandMade</b> → <b>Edit</b> → list me RAHUL JI wala voucher → OK"),
+        ("Line", "GrossWt <b>13.000</b> · NetWt <b>13.000</b> → <b>Save</b> → Yes")],
+    ["Job History HandMade: Loss <b>0.200</b> · <b>1.52%</b>, allowed 3.5% of 13.000 = <b>0.455</b>.",
+     "Edit me sirf weights / price / date / RefNo badalte hain; job ya stones badalne ho to <b>Delete</b> karke dobara banao."],
+) + mfg(
     "COLOUR", "FACTORY", "GrossWt <b>13.000</b> · NetWt <b>13.000</b>",
     "GrossWt <b>13.000</b> · NetWt <b>13.000</b>", "0",
     "Loss <b>0.000</b>.") + mfg(
@@ -222,7 +256,10 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
     ["<b>Day Book</b> → Issue Day Book / Received Day Book me aaj ke saare vouchers, process-wise group.",
      "<b>Statement</b> → Worker Metal Ledger khulta hai.",
      "<b>Remove Line</b> → selected job voucher se hat jata hai (save se pehle).",
-     "Received pe Account <b>(any karigar)</b> → Show Pending me sab karigaron ke jobs."],
+     "Received pe Account <b>(any karigar)</b> → Show Pending me sab karigaron ke jobs.",
+     "<b>Delete</b> → apne job ka <b>CASTING</b> wala Received voucher chuno → refuse: <i>\"delete the later voucher "
+     "first\"</i> (job aage badh chuka hai, isliye purana voucher nahi hatega). Kuch delete nahi hua.",
+     "<b>Add</b> → khaali naya voucher."],
 ) + part("E. Job History — ek job ki poori kahani") + step(
     "Production Planning ▸ Job History (F11)", [("Job No", "apna job")],
     ["Header: SKU NS-1430, C-Ref TEST-C, Client KK JEWELS, Ord No, Route CAD CAM CS HM COL PP ST FP fs Meena Puwai.",
@@ -231,7 +268,7 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
      "Setting row ka Labour <b>240.00</b>. <b>Setting Labour</b> button → yahi statement.",
      "Kisi pink cell pe double-click → us issue ka voucher; green cell → receipt voucher.",
      "Neeche stones grid me POLKI aur EMERALD lines — page scroll karke sab dikhna chahiye.",
-     "<b>MFG Price</b> button → step 29 wale hi figures.",
+     "<b>MFG Price</b> button → step 33 wale hi figures.",
      "<b>Show Pending</b> → abhi koi step pending nahi (job complete)."],
 ) + part("F. MFG Transfer → Stock → Tag → Item Search") + step(
     "Manufacturing ▸ Pending for MFG Transfer", [],
@@ -246,7 +283,9 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
      "Total <b>1,31,668.51</b> · Margin 50% = <b>65,834.26</b> · Price Per Pcs <b>1,97,502.77</b> · Tag <b>197</b>.",
      "Grey cell pe double-click → <b>Cost Break-up</b>: har component alag row me.",
      "<b>Repair (tag 0)</b> tick → Tag 0; untick → wapas 197. Margin % 40 type → Price badlega; wapas 50.",
-     "<b>Print</b> → PDF · <b>Excel</b> → CSV."],
+     "Upar <b>Location</b> = Primary (pieces kahan jayenge) · <b>Split Jobs</b> = kai pieces wale job ke har piece ka "
+     "alag Stock No (ye job 1 pc ka hai, isliye fark nahi).",
+     "<b>Print</b> → PDF · <b>Excel Format</b> → .xlsx file."],
 ) + step(
     "MFG Transfer → Save", [("Save", "Yes")],
     ["Stock No milta hai (Primary me) aur <b>Tag List</b> khulta hai.",
@@ -254,16 +293,18 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
      "Pcs Wise · Print Selected (pehle tick) · Print All · <b>Select Printer</b> · <b>Create Txt</b>.",
      "<b>TXT Import (Stock ID)</b>: ek .txt file me Stock No likho → import → list me aa jata hai."],
 ) + step(
-    "Sale ▸ Ready Stock", [],
+    "Sale ▸ Reports ▸ Ready Stock", [],
     ["Apna piece: Primary · cost <b>1,31,668.51</b> · price <b>1,97,502.77</b> · tag <b>197</b> · Tag Printed Y (agar print kiya)."],
 ) + step(
     "Item Search (top right)", [("Search", "apna Stock No, ya Job No, ya NS-1430 → Enter")],
     ["Piece card: client, order, G-Wt 12.930, N-Wt 12.700, cost / price / tag; stones grid; value summary by stone kind.",
+     "Upar wali grid = <b>barcode ki history</b>: abhi MF (bana). Sale / approval ke baad wo bhi yahan judenge.",
      "<b>Job History</b> button → wapas us job pe."],
 ) + step(
     "Item Search → Delete History &amp; Purchase (correction path)", [("Reason", "test correction")],
     ["Piece stock se hat jata hai; job wapas <b>Pending for MFG Transfer</b> me.",
-     "Ab MFG Transfer se dobara Show Pending → Save → naya Stock No. (Delete ka audit record banta hai.)"],
+     "Ab MFG Transfer se dobara Show Pending → Save → Stock No (fresh demo me phir se <b>1</b>). "
+     "Aage ke steps me isi ko <b>aapka piece</b> kahenge. (Delete ka audit record banta hai.)"],
 ) + part("G. Stones ka hisaab") + step(
     "Job Card Bag — bache hue 2 Polki wapas stock me", [
         ("Job No", "apna job"), ("POLKI 12-14 line", "select → <b>Return to Stock</b> → 2 pcs → Location Primary")],
@@ -298,10 +339,166 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
      "Metal / Stone Day Book · Job Analysis · Process Analysis · Job Card Analysis – Stone.",
      "Har report pe: Search · Group · Auto Filter · Adv. Filter · Set Column · <b>Export</b> · <b>Print</b>. "
      "Date default = financial year."],
-) + part("I. Settings aur UI") + step(
+) + part("I. Job Costing") + step(
+    "Manufacturing ▸ Job Costing", [("Run", "dates waise hi (financial year) → Run")],
+    ["Aapka job (28857) row: G-Wt <b>12.930</b> · N-Wt <b>12.700</b> · MT AMT <b>1,10,244.51</b> · ST AMT <b>6,184.00</b> · "
+     "LABOUR <b>15,480.00</b> (setting 240 + STD 15,240) · TOTAL <b>1,31,908.51</b> · MARGIN <b>65,954.26</b> · "
+     "PRICE UNIT <b>1,97,862.77</b> · TAG <b>197</b> · STOCK = aapka Stock No · RATES = frozen.",
+     "<b>Ctrl+F1</b> (Stone Group Wise) → Diamond / Polki / Colour Stone aur Setting / STD alag columns; dobara Ctrl+F1 → band.",
+     "<b>Ctrl+P</b> → Excel Job Costing (.xlsx) save. <b>WIP costing</b> tick → Run → demo job <b>28855</b>: N-Wt 14.800, "
+     "total <b>1,46,233.92</b>, price <b>2,19,350.88</b>. <b>Ctrl+W</b> → Excel WIP Costing. Tick hata do."],
+) + step(
+    "Job Costing Sheet", [("Row", "apne job pe double-click")],
+    ["Metal 12.700 × 8,680.67 = <b>1,10,244.51</b> · Stones POLKI 8 / 0.640 @ 8,100 = 5,184 · EMERALD 5 / 0.500 @ 2,000 = 1,000 · "
+     "Stone total <b>13 pcs / 1.140 ct · 6,184.00</b> · Setting + STD <b>240 + 15,240</b> · Total <b>1,31,908.51</b> · "
+     "Margin 50% <b>65,954.26</b> · Grand Total <b>1,97,862.77</b> · Tag / per gm <b>197 · 15.24</b>.",
+     "Upar likha: <i>Rates frozen on MFG Transfer Vr 1</i> — stock me gaye job ka rate baad me nahi badalta.",
+     "<b>Export To Excel</b> → file kholo: amounts formulas hain (cell pe click → formula). <b>Print</b> → PDF. "
+     "<b>WIP Costing</b> → aaj ke rate pe wahi sheet."],
+) + part("J. MFG Transfer — Edit, Format-2, Tag Print") + step(
+    "Manufacturing ▸ MFG Transfer → Edit", [
+        ("Edit", "Vr 1 (aapka job) → OK"), ("Margin % (green)", "<b>40</b> → Enter → <b>Save</b> → Yes")],
+    ["Item Search me aapka piece: price <b>1,84,335.91</b>, tag <b>184</b> — Stock No wahi.",
+     "Dobara <b>Edit</b> → Margin % <b>50</b> → Save → price wapas <b>1,97,502.77</b>, tag <b>197</b>."],
+) + step(
+    "MFG Transfer — prints", [],
+    ["<b>Format-2</b> → PDF: har piece ka cost break-up (metal, har stone, labour, margin, price).",
+     "<b>Tag Print</b> → transfer ke saare tags ka PDF. <b>Excel Format</b> → .xlsx."],
+) + part("K. Sale — Approval, Sale (From Order), Excel Invoice, Return") + step(
+    "Sale ▸ Ready Stock ▸ Approval", [
+        ("Account", "<b>KK JEWELS</b>"), ("Read Barcode / SKU here", "aapka Stock No (<b>1</b>) → Enter"),
+        ("Save", "Yes")],
+    ["Line: Metal Rate <b>8,680.67</b> · Metal Amount <b>1,10,244.51</b> · FineWt 7.493 · Fine With Loss <b>7.965</b> · "
+     "Stone Amount <b>6,184.00</b> · Labour Rate 1,200 · Labour <b>15,240.00</b> · Total <b>1,31,668.51</b>.",
+     "Line select → <b>Stone Breakup</b> → POLKI aur EMERALD, price ke saath. Barcode me <b>99999</b> → "
+     "<i>\"Item not found\"</i>.",
+     "Sale ▸ Reports ▸ <b>Ready Stock Approval Balance</b> → KK JEWELS · aapka piece · 1,31,668.51 · days 0."],
+) + step(
+    "Approval wala piece kisi aur ko bechna (galat kaam — refuse hona chahiye)", [
+        ("Sale ▸ Ready Stock ▸ Sale", "Account <b>FACTORY</b> · barcode <b>1</b> → Enter")],
+    ["Message: <i>\"Stock No 1 is out on approval with KK JEWELS - it can only be returned or sold to that party\"</i>. "
+     "<b>Add</b> dabao (khaali karo)."],
+) + step(
+    "Sale ▸ Ready Stock ▸ Approval Return", [
+        ("Account", "<b>KK JEWELS</b> → <b>Show App</b> → aapka piece tick → OK"), ("Save", "Yes")],
+    ["Piece wapas stock me. Approval Balance report ab khaali."],
+) + step(
+    "Sale ▸ Ready Stock ▸ Sale — From Order", [
+        ("Account", "<b>KK JEWELS</b> (Cl Bal dikhega)"), ("Credit Days", "<b>30</b> → due date khud (aaj + 30)"),
+        ("From Order", "Pending Orders me apne order ki row (RefNo <b>TEST-1</b> · C Ref <b>TEST-C</b> · Ord Pcs 1 · "
+                       "Bal Pcs 1 · Stock Pcs 1) → uske green <b>Take</b> cell me <b>1</b> → OK. "
+                       "(Fill Balance Pcs / Fill Stock Qty saari rows bhar dete hain — demo orders ki bhi; "
+                       "yahan sirf apni row.)"),
+        ("Save", "Yes")],
+    ["Line me aapka piece (apne job ka piece pehle chuna jata hai). Total <b>1,31,668.51</b>.",
+     "Neeche: <i>Account Information: Dr KK JEWELS 1,31,668.51 · Cr Sales A/c 1,31,668.51</i>. Save ke baad "
+     "<b>Cl Bal 1,31,668.51 Dr</b>.",
+     "Dobara From Order → aapka order list me nahi (ship ho gaya). Demo orders dikhte rahenge."],
+) + step(
+    "Excel Invoice aur Print", [("Excel Invoice", "save karo → Excel me kholo")],
+    ["Ek row aapke piece ki: GrossWt 12.930 · NetWt 12.700 · FineWt 7.493 · Mt Price 8,680.67 · Mt Amount "
+     "<b>1,10,244.51</b> · POLKI 12-14 8 / 0.64 @ 8,100 = <b>5,184</b> · Colour stone EMERALD 5 / 0.5 @ 2,000 = "
+     "<b>1,000</b> · Labour 1,200 → <b>15,240</b> · TOTAL <b>1,31,668.51</b>. Neeche note: <i>Metal Rate Will Be "
+     "Charged as on Date of Payment</i>.",
+     "Kisi amount cell pe click → formula (jaise =ROUND(F4*H4,2)). <b>Print</b> → invoice PDF. <b>Catalog</b> → photo wala PDF. "
+     "<b>TXT Export</b> → barcodes ki .txt."],
+) + step(
+    "Sale ▸ Ready Stock ▸ Sale Return", [
+        ("Account", "<b>KK JEWELS</b> → <b>Sold Pieces</b> → aapka piece → OK"), ("Save", "Yes")],
+    ["Piece wapas stock me. KK ka <b>Cl Bal 0.00</b>. Aapka order phir se From Order me Bal 1.",
+     "Item Search → aapka piece → history: <b>MF · RA · RAR · RS · RSR</b>, party KK JEWELS ke saath."],
+) + part("L. Repair") + step(
+    "Production Planning ▸ Order → + New (repair order)", [
+        ("Ord Type / Customer", "Customer / <b>KK JEWELS</b>"), ("Repair", "<b>tick</b>"),
+        ("SKU Lines", "khaali chhodo"), ("Save", "Yes")],
+    ["Repair tick ke saath bina line ke save hota hai (bina tick ke refuse hota hai)."],
+) + step(
+    "Order list → Repair List", [("Order", "naya repair order select → <b>Repair List</b> → aapka piece tick → OK")],
+    ["Order me line: NS-1430 · Tot GWt <b>12.930</b> · Mt Amt <b>1,10,244.51</b> · remark 'Repair of Stock No 1'. "
+     "Ek naya job bhi bana (fresh demo me <b>28858</b>) — uske Job Card Bag me stones <b>nahi</b> aate "
+     "(purane piece ki stone detail aage nahi jaati — client se confirm karna hai)."],
+) + step(
+    "Sale ▸ Ready Stock ▸ Ready Repair Issue", [
+        ("Account", "<b>KK JEWELS</b>"), ("Barcode", "<b>1</b> → Enter"), ("Save", "Yes")],
+    ["Sale ▸ Reports ▸ <b>Repair Register</b> → KK JEWELS · piece 1 · <b>Out for repair</b> · days 0.",
+     "Wapas Ready Repair Issue → <b>Delete</b> → wahi voucher → Yes → piece phir se stock me (aage ke steps ke liye)."],
+) + part("M. Purchase — Ready Items, Return, Opening Stock") + step(
+    "Purchase ▸ Ready Items", [
+        ("Supplier", "<b>TEST SUPPLIER</b>"), ("Bill Number", "<b>B-56</b> (Bill Date aaj)"),
+        ("SKU Search", "NS-1430 → OK → Add Piece form khulta hai"),
+        ("Add Piece", "Location Primary · Metal <b>14KT 590</b> (Metal Rate khud 8,680.67) · Gross <b>10.000</b> · "
+                      "Net <b>8.000</b> · Labour Rate <b>1200</b> · <b>Stones…</b> → POLKI 12-14 · POLKI · Pcs 2 · "
+                      "Cts 0.160 · ct · Price 8100 → OK → OK"),
+        ("Save", "Yes")],
+    ["Line: Metal <b>69,445.36</b> · Stones <b>1,296.00</b> · Labour <b>9,600.00</b> · Total <b>80,341.36</b>; "
+     "Account Information <b>Dr Purchase A/c / Cr TEST SUPPLIER 80,341.36</b>.",
+     "Save → <i>New Stock No 2</i> (naya barcode). <b>BreakUp Sheet · Packing List · Picture Invoice</b> → PDFs; "
+     "<b>St. Summ.</b> → POLKI 2 / 0.160 / 1,296; <b>Tag Print</b> → tag list.",
+     "Reports ▸ Inventory ▸ <b>Account Ledger</b> → TEST SUPPLIER balance <b>5,29,334.86 Cr</b>."],
+) + step(
+    "Purchase ▸ Ready Item Return", [
+        ("Supplier", "<b>TEST SUPPLIER</b> → <b>Show Stock</b> → Stock No <b>2</b> tick → OK"), ("Save", "Yes")],
+    ["Piece 2 supplier ko wapas. TEST SUPPLIER balance wapas <b>4,48,993.50 Cr</b>.",
+     "Item Search (top right) → <b>2</b> → Enter → status <i>returned</i>; history <b>RP · RPR</b>. "
+     "Bahar se aaye piece pe <b>Delete History &amp; Purchase</b> refuse hota hai."],
+) + step(
+    "Purchase ▸ Opening Stock", [
+        ("Ready Items", "Add Piece: NS-1430 · Primary · 14KT 590 · Gross <b>5</b> · Net <b>4</b> → Save"),
+        ("Metal", "+ New → Line: Primary · <b>24KT Gold</b> · Weight <b>5</b> → Save (Account nahi maangta)"),
+        ("Stone", "Opening Stone Balances screen khulti hai — dekh ke band")],
+    ["Opening piece ko Stock No <b>3</b>; koi accounting entry nahi."],
+) + part("N. Metal Sale, Stone Sale / Approval") + step(
+    "Sale ▸ Metal → + New", [
+        ("Account (customer)", "<b>KK JEWELS</b>"),
+        ("Line", "Location Primary · Metal <b>24KT Gold</b> · Colour Y · Weight <b>10</b> · Price <b>15050</b>"), ("Save", "Yes")],
+    ["Amount <b>1,50,500.00</b>. Row select → <b>Account Information</b> → Dr KK JEWELS / Cr Sales A/c 1,50,500.",
+     "Inventory ▸ Metal ▸ Reports ▸ Metal Analysis → Primary 24KT Gold closing <b>795.000</b> (800 + 5 opening − 10)."],
+) + step(
+    "Sale ▸ Stone ▸ Sale / Approval / Approval Return", [
+        ("Sale", "KK JEWELS · Primary · POLKI 12-14 · Pcs 2 · Weight 0.160 → Save (Price khud 8,100 → 1,296)"),
+        ("Approval", "KK JEWELS · Primary · EMERALD PEAR 3*4 · Pcs 4 · Weight 0.400 → Save"),
+        ("Approval Return", "KK JEWELS · Primary · EMERALD PEAR 3*4 · Pcs 1 · Weight 0.100 → Save")],
+    ["Sale ▸ Reports ▸ <b>Stone Approval Analysis</b> → EMERALD: out 4 · ret 1 · bal <b>3 / 0.300 · 600.00</b>.",
+     "<b>Stone Sale Register</b> aur <b>Metal Sale Register</b> me ye lines. Sale ▸ Ready Stock ▸ Sale → KK ka "
+     "Cl Bal <b>1,51,796.00 Dr</b>."],
+) + part("O. Inventory — Stock Transfer, Melting, Stone Issue by Lot") + step(
+    "Inventory ▸ Stock Transfer → Stock Location Transfer", [
+        ("Metal / Stone", "<b>Stone</b> · Item <b>POLKI 12-14</b>"), ("From → To", "<b>Primary</b> → <b>RAJESH JI</b>"),
+        ("Sent", "Pcs <b>5</b> · Weight <b>0.400</b>"), ("Loss", "Pcs <b>1</b> · Weight <b>0.080</b> · Price 8100"),
+        ("Save", "Yes")],
+    ["Stone tab me do lines: Primary se Out 5 / 0.400 (loss 1 / 0.080), RAJESH JI me In <b>4 / 0.320</b>.",
+     "Inventory ▸ Reports ▸ Registers ▸ <b>Stone Loss Register</b> → TR row: 1 pc · 0.080 · <b>648.00</b>."],
+) + step(
+    "Stock Transfer → Stock Melting", [
+        ("Add", "naya voucher"), ("Stock Melting", "Stock No <b>1</b> → OK"), ("Save", "Yes")],
+    ["Ready Stock Outward: aapka piece. Metal: 14KT 590 In <b>12.700</b> @ 8,680.67 = 1,10,244.51. Stone: POLKI 0.640 "
+     "(5,184) · EMERALD 0.500 (1,000).",
+     "Piece ab <b>melted</b>; Primary me POLKI 8 pcs wapas. <b>Melting List</b> → piece dikhta hai.",
+     "<b>Delete</b> → ye voucher → Yes → piece wapas stock me, metal / stones wapas (undo test)."],
+) + step(
+    "Inventory ▸ Stone ▸ Issue Outside / Worker → Read Cert/Lot", [
+        ("Read Cert/Lot", "<b>LOT-7</b> → OK (naya voucher khulta hai, line bhari hui: POLKI 12-14 · 20 · 1.600 · 8,100)"),
+        ("Form", "Account <b>CHAND KUMAR HAZRA</b> · line Pcs <b>2</b> · Weight <b>0.160</b> → Save")],
+    ["Row select → <b>DC Print</b> (challan, bina rate) · <b>Tag</b> (packet tag) · <b>Register</b> (Stone Day Book).",
+     "Inventory ▸ Stone ▸ Receipt → <b>Show O/S</b> → CHAND: POLKI 12-14 <b>2 / 0.160</b> baaki. "
+     "Inventory ▸ Metal ▸ Issue → <b>Check Bal</b> → CHAND ka Mt Bal aur location stock."],
+) + part("P. Registers aur baaki reports") + step(
+    "Inventory ▸ Reports ▸ Registers", [],
+    ["<b>Metal Loss Register</b>: aapke job ki 9 rows — CASTING 0.300 (allow 0 → excess <b>red</b>) · HandMade 0.200 "
+     "(allowed 0.455) · PrePolish 0.100 · Setting 0.050 · Final Polish 0.090 · final setting / Meena / Puwai 0.020.",
+     "<b>WIP Register</b> (As on aaj): demo jobs — 28855 <b>WIP</b> PRASENJIT HandMade, 28854 <b>PND</b> CAD. "
+     "<b>Process Summary</b>: har process ki row (RECTIFICATION, KHUDAI … bhi), CAD / HandMade / Setting me pcs.",
+     "<b>WIP Stone</b>, <b>Dust Register</b> — khul ke chalte hain. Har report: <b>Export</b> → Excel (.xlsx), <b>F1</b> → Show All."],
+) + step(
+    "Dashboard, F12, Daily Metal Rate", [],
+    ["Dashboard ▸ BARCODE READ: <b>1</b> → Item Search; <b>28857</b> (Job box) → Job History.",
+     "<b>F12</b> → More Reports → 'worker metal' type → Enter → Worker Metal Ledger.",
+     "Master ▸ Daily Metal Rate → <b>Rate As On Date</b> → har metal ka rate aur kis din set hua. Naya rate save karo → "
+     "Entered By / Entered At khud bharta hai."],
+) + part("Q. Settings aur menu") + step(
     "Tools ▸ Option", [],
     ["Behaviour: <b>Ask \"Save? Yes / No\" before every save</b> untick → Save → ab kisi save pe popup nahi; wapas tick.",
-     "<b>Inventory: when a location would go below zero</b> → <b>Block the save</b> → step 9 wala 500 g issue ab seedha refuse; "
+     "<b>Inventory: when a location would go below zero</b> → <b>Block the save</b> → step 12 wala 500 g issue ab seedha refuse; "
      "wapas <b>Warn, then allow (default)</b>.",
      "<b>Tag price on the tag</b> dropdown badlo → MFG Transfer ka Tag column naye format me.",
      "Production Planning ke items untick → Save → menu se gayab; wapas tick."],
@@ -313,10 +510,12 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
      "Inventory ▸ Reports bhi aise hi.",
      "Har tab ke × pe hover → dark background pe safed × (Close Tab).",
      "<b>Go to screen…</b> (Ctrl/Cmd+F) me 'job his' type → Job History khulta hai.",
-     "Manufacturing / Inventory ke 'to be explained' items (Waxing, Extra Issue, Bhav Cut …) ek note kholte hain — "
-     "ye client ke jawab ka wait kar rahe hain."],
-) + ("<p class='muted'>Jo bhi galat mile — step number aur screenshot ke saath bhej do. "
-     "Dobara shuru karna ho to: python -m diagold.demo --reset.</p>")
+     "Menu me <b>Waxing</b>, Purchase ke Approval / Debit Note / Parts / Settings, Inventory ke Parts / Physical Stock / "
+     "Ready Item Receipt, Manufacturing ke Repair Issue / Extra Issue / Stamping <b>nahi</b> dikhte — client ne "
+     "use nahi bataya / abhi samjhana baaki. Tools ▸ Option ke 'Other menu items' me tick → wapas aate hain.",
+     "Inventory ▸ Metal / Stone ke 'soon' items (Bhav Cut, Conversion …) ek note kholte hain — client ke jawab ka wait."],
+) + ("<p class='muted'>Jo bhi galat mile — step number, kya kiya, kya aana tha, kya aaya, aur screenshot bhejo. "
+     "Testing dobara shuru se: <b>Reset DEMO and open.bat</b>.</p>")
 
 def render(html: str, out: Path) -> Path:
     """A4 PDF with a fixed 9pt body font, whatever the platform default is."""
@@ -344,5 +543,5 @@ def render(html: str, out: Path) -> Path:
 if __name__ == "__main__":
     app = QApplication.instance() or QApplication(sys.argv)
     out = (Path(sys.argv[1]) if len(sys.argv) > 1
-           else Path.home() / "Downloads" / "DiaGold-Full-Flow-Test.pdf")
+           else Path.home() / "Downloads" / "DiaGold-Full-Test-Guide.pdf")
     print(render(HTML, out))
