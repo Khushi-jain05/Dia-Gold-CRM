@@ -62,8 +62,11 @@ python main.py
 
 To try the whole production flow on sample data without touching the working
 database, run `python -m diagold.demo` (a separate database in `~/DiaGoldDemo`;
-`--reset` starts it again). `docs/demo-walkthrough.md` gives each step and the
-figure it should show.
+`--reset` starts it again). The built app does the same with `DiaGoldCRM --demo`
+(`--demo --reset`); the Windows zip has **Open DEMO (testing).bat** and **Reset DEMO
+and open.bat** for that. The full test guide - every screen, what to type and the
+figure to expect - is built with `python docs/build-full-flow-pdf.py`; the whole
+flow is also checked automatically by `python tests/e2e_flow.py`.
 
 First launch creates the database and seeds:
 
