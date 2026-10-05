@@ -297,6 +297,10 @@ with SessionLocal() as s:
     check("metal analysis RAJESH 14KT 590 closing",
           {(r["location"], r["metal"]): r for r in INV.metal_analysis(s, *FY)}[("RAJESH JI", "14KT 590")]["closing"],
           D("249.175"))
+    mb = {(r["worker"], r["metal"]): r for r in P.party_metal_balance(s, *FY)}
+    kr = mb[(kk.name, g24.name)]
+    check("Worker Balance (Metal): client owes the 10 g metal sold",
+          (kr["group"], kr["in_wt"], kr["bal_wt"]), ("Client", D("10.000"), D("10.000")))
     led = INV.account_ledger(s, *FY)
     test_sup = [r for r in led if r["ledger"] == "TEST SUPPLIER"]
     check("TEST SUPPLIER closing (stone 14,960 + metal 4,34,033.50 + ready 79,045.36 - return)",

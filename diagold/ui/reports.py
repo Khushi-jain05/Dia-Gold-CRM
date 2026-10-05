@@ -1624,15 +1624,22 @@ def build_specs() -> dict[str, ReportSpec]:
                  "ledger."),
         "worker_metal_balance": ReportSpec(
             key="worker_metal_balance", title="Worker Balance (Metal)",
-            columns=static([Col("worker", "WORKER"), Col("metal", "METAL"),
-                            wt("issued", "ISSUED"), wt("received", "RECEIVED"),
-                            wt("wastage", "WASTAGE"), wt("balance", "BALANCE"),
-                            wt("fine", "FINE")]),
-            query=lambda s, a, b, **_k: INV.worker_balances(s, b),
-            negative_key="_negative", group_by="worker", filter_column="worker",
-            note="What each karigar holds from Inventory ▸ Metal: issued − received − "
-                 "wastage allowed, as of the To date. Metal that moves with a job step is in "
-                 "the Worker Metal Ledger."),
+            columns=static([Col("group", "GROUP"), Col("worker", "WORKER"), Col("metal", "METAL"),
+                            Col("in_wt", "WEIGHT", "measure", 3, "INWARD", True),
+                            Col("in_fine", "FINE", "measure", 3, "INWARD", True),
+                            Col("out_wt", "WEIGHT", "measure", 3, "OUTWARD", True),
+                            Col("out_fine", "FINE", "measure", 3, "OUTWARD", True),
+                            wt("loss_wt", "LOSSWT"), wt("loss_fine", "LOSSFINE"),
+                            Col("bal_wt", "WEIGHT", "measure", 3, "BALANCE", True),
+                            Col("bal_fine", "FINE", "measure", 3, "BALANCE", True),
+                            wt("wip_wt", "WIP WT"), wt("wip_fine", "WIP FINE"),
+                            Col("process", "PROCESS")]),
+            query=lambda s, a, b, **_k: P.party_metal_balance(s, a, b), date_mode="to",
+            negative_key="_negative", group_by="group", filter_column="group",
+            note="Legacy \"Worker Metal Outstanding\": every worker AND client, per metal - "
+                 "inward, outward, loss, the balance owed (after the allowance) and the metal "
+                 "still with them on job steps (WIP) with its process. Clients: metal sold, "
+                 "ready pieces sold (net weight), metal received. Group by WORKER for subtotals."),
         "account_ledger": ReportSpec(
             key="account_ledger", title="Account Ledger",
             columns=static([Col("ledger", "LEDGER"), Col("date", "DATE"),
@@ -1767,7 +1774,8 @@ def build_specs() -> dict[str, ReportSpec]:
                  "unpaid (to confirm, 28 Sept Q4)."),
         "worker_metal_ledger": ReportSpec(
             key="worker_metal_ledger", title="Worker Metal Ledger",
-            columns=static([Col("worker", "WORKER"), Col("date", "DATE"), Col("vrno", "VRNO"),
+            columns=static([Col("group", "GROUP"), Col("worker", "WORKER"), Col("date", "DATE"),
+                            Col("vrno", "VRNO"),
                             Col("vrtype", "VRTYPE"), Col("metal", "METAL"),
                             Col("job_no", "JOBNO"), Col("sku", "SKU"),
                             Col("process", "PROCESS"),
@@ -1779,10 +1787,11 @@ def build_specs() -> dict[str, ReportSpec]:
                             Col("loss_fine", "LOSSFINE", "measure", 3, "LOSS", True),
                             Col("alw_pct", "ALW L %", "measure", 3, "LOSS"),
                             Col("alw_wt", "ALW L WT", "measure", 3, "LOSS", True),
+                            Col("alw_fine", "ALW L FINE", "measure", 3, "LOSS", True),
                             Col("bal_wt", "WEIGHT", "measure", 3, "BALANCE"),
                             Col("bal_fine", "FINE", "measure", 3, "BALANCE")]),
             query=lambda s, a, b, **_k: P.worker_metal_ledger(s, a, b),
-            group_by="worker", filter_column="worker",
+            group_by="worker", filter_column="group",
             on_activate=lambda w, r: w.open_job(r),
             note="The karigar's metal account. Inward = net weight issued on a job step; "
                  "outward = net weight received back plus scrap and dust; LOSSWT = what "

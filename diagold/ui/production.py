@@ -2593,6 +2593,18 @@ class OptionsWidget(QWidget):
             row2.addWidget(self.tag_rule)
             row2.addStretch(1)
             fl.addLayout(row2)
+            # 5 Oct (verified, ABHIJEET DAS): the allowance is % x the weight
+            # ISSUED; a 28 Sept example matched the weight returned (Q).
+            row3 = QHBoxLayout()
+            row3.addWidget(QLabel("Loss allowance worked on"))
+            self.alw_basis = QComboBox()
+            self.alw_basis.addItem("Weight issued (default, 5 Oct)", "issued")
+            self.alw_basis.addItem("Weight received back", "received")
+            cur = settings.get_setting(s, production.ALLOWANCE_BASIS_SETTING, "issued")
+            self.alw_basis.setCurrentIndex(max(self.alw_basis.findData(cur), 0))
+            row3.addWidget(self.alw_basis)
+            row3.addStretch(1)
+            fl.addLayout(row3)
         outer.addWidget(fbox)
         bar = QHBoxLayout()
         b = QPushButton("Save")
@@ -2613,7 +2625,10 @@ class OptionsWidget(QWidget):
                 settings.set_flag(s, key, cb.isChecked())
             settings.set_setting(s, "inventory.negative_stock", self.negative.currentData())
             settings.set_setting(s, "pricing.tag_display", self.tag_rule.currentData())
+            settings.set_setting(s, production.ALLOWANCE_BASIS_SETTING,
+                                 self.alw_basis.currentData())
             s.commit()
+        production._basis_cache = (-1e9, "issued")   # read the new basis at once
         self.nav_changed.emit()
         _info(self, "Options", "Saved. The menu has been updated.")
 

@@ -605,17 +605,42 @@ class LossDetail:
     from_allowance: bool = False
 
 
-def allowed_loss(receive: JobVoucher, allow_pct: Decimal) -> Decimal:
-    """Grams allowed on a receive: allowed % of the net weight received back.
+ALLOWANCE_BASIS_SETTING = "loss.allowance_basis"     # "issued" (default) / "received"
+_basis_cache: tuple[float, str] = (-1e9, "issued")
 
-    Both live figures agree - HandMade 3.5% x 32.610 = 1.141 (job 28853) and
-    the worker ledger's 3.5% x 83.240 returned = 2.913 - and the voucher line
-    says "L Price On: NetWt". The process master's loss-type letter is not
-    used here: HandMade carries H (hourly) and Setting S (stone pcs), which
-    give no weight at all, so that letter looks like a labour basis rather
-    than the allowance basis (to confirm with C-03).
+
+def _allowance_basis() -> str:
+    """The setting, read at most every few seconds - a ledger asks per row."""
+    import time
+    global _basis_cache
+    if time.monotonic() - _basis_cache[0] > 5:
+        from diagold.db.session import SessionLocal
+        from diagold.services import settings
+        with SessionLocal() as s:
+            _basis_cache = (time.monotonic(),
+                            settings.get_setting(s, ALLOWANCE_BASIS_SETTING, "issued"))
+    return _basis_cache[1]
+
+
+def allowed_loss(receive: JobVoucher, allow_pct: Decimal,
+                 issue: JobVoucher | None = None, basis: str | None = None) -> Decimal:
+    """Grams allowed on a receive: allowed % of the net weight ISSUED.
+
+    Verified on the legacy Worker Ledger of 5 Oct (ABHIJEET DAS): 3% x 11.240
+    issued = 0.337 (returned 10.530), 3% x 25.380 = 0.761, 3% x 33.220 = 0.997.
+    When the step went out unweighed there is only the received weight to
+    work from - job 28853's HandMade: 3.5% x 32.610 received = 1.141. The 28
+    Sept ledger row "3.5% x 83.240 returned = 2.913" disagrees, so the basis
+    is a setting (Tools ▸ Option) until the client confirms (28 Sept Q3,
+    5 Oct Q3).
     """
-    return (_dec(receive.net_wt) * allow_pct / Decimal("100")).quantize(D3)
+    if basis is None:
+        basis = _allowance_basis()
+    base = receive.net_wt
+    if basis == "issued" and issue is not None and issue.net_wt is not None \
+            and _dec(issue.net_wt) > 0:
+        base = issue.net_wt
+    return (_dec(base) * allow_pct / Decimal("100")).quantize(D3)
 
 
 def loss_detail(process: ManufacturingProcess | None, issue: JobVoucher | None,
@@ -630,7 +655,7 @@ def loss_detail(process: ManufacturingProcess | None, issue: JobVoucher | None,
     allow_pct = _dec(receive.allow_loss_pct if receive.allow_loss_pct is not None
                      else issue.allow_loss_pct if issue.allow_loss_pct is not None
                      else (process.loss_percent if process else 0))
-    allowed = allowed_loss(receive, allow_pct)
+    allowed = allowed_loss(receive, allow_pct, issue)
     actual = step_loss(issue, receive)
     if actual is None:
         return LossDetail(loss=allowed, loss_pct=allow_pct.quantize(Decimal("0.01")),
@@ -1818,7 +1843,35 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
     if worker_id:
         xq = xq.where(StockMovement.account_id == worker_id)
     events += [(m.mv_date, "", 2, m.id, "extra", m) for m in session.scalars(xq)]
+    # Clients too (5 Oct R11 / D4): metal sold to them, fine of ready pieces
+    # sold (and back on a return), metal received from / paid to them.
+    from diagold.db.models import AccountVoucher, ReadyVoucher, ReadyVoucherLine
+    cq = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
+          .where(InvVoucher.vr_type == "metal_sale", InvVoucher.vr_date <= date_to,
+                 InvVoucher.account_id.is_not(None)))
+    if worker_id:
+        cq = cq.where(InvVoucher.account_id == worker_id)
+    events += [(v.vr_date, "", 3, line.id, "msale", (v, line)) for line, v in session.execute(cq)]
+    rq = (select(ReadyVoucherLine, ReadyVoucher).join(ReadyVoucher)
+          .where(ReadyVoucher.vr_type.in_(("rs_sale", "rs_sale_return")),
+                 ReadyVoucher.vr_date <= date_to, ReadyVoucher.account_id.is_not(None)))
+    if worker_id:
+        rq = rq.where(ReadyVoucher.account_id == worker_id)
+    events += [(v.vr_date, "", 4, line.id, "rsale", (v, line)) for line, v in session.execute(rq)]
+    aq = select(AccountVoucher).where(AccountVoucher.mode == "Metal",
+                                      AccountVoucher.vr_date <= date_to,
+                                      AccountVoucher.account_id.is_not(None))
+    if worker_id:
+        aq = aq.where(AccountVoucher.account_id == worker_id)
+    events += [(v.vr_date, "", 5, v.id, "mrcv", v) for v in session.scalars(aq)]
     events.sort(key=lambda e: e[:4])
+    groups: dict[int, str] = {}
+
+    def group(wid: int) -> str:
+        if wid not in groups:
+            a = session.get(Account, wid)
+            groups[wid] = "Worker" if a is not None and a.account_type == "Worker" else "Client"
+        return groups[wid]
 
     jobs: dict[int, Job] = {}
     steps: dict[int, JobStep | None] = {}
@@ -1846,6 +1899,7 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
         loss = allowed = inward = outward = ZERO
         alw_pct: Decimal | None = None
         is_return = False
+        fine_of: Decimal | None = None     # a ready piece: its own fine (tunch + loss)
         if source == "job":
             v = obj
             step = steps.setdefault(v.step_id, session.get(JobStep, v.step_id))
@@ -1876,6 +1930,35 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
             job_no, job_id = (job.job_no if job else ""), (job.id if job else None)
             sku = job.product_sku.sku_code if job and job.product_sku else ""
             process = "F5 metal"
+        elif source == "msale":
+            iv, line = obj
+            wid, metal_id, vr_no = iv.account_id, line.metal_id, iv.vr_no
+            inward, vrtype = _dec(line.weight), "MS"
+            job_no, job_id, sku, process = "", None, "", "metal sale"
+        elif source == "rsale":
+            rv, line = obj
+            wid, metal_id, vr_no = rv.account_id, line.metal_id, rv.vr_no
+            if rv.vr_type == "rs_sale":
+                inward, vrtype = _dec(line.net_wt), "RS"
+            else:
+                is_return, vrtype = True, "RSR"
+                outward = _dec(line.net_wt)
+            if line.fine_wt and line.net_wt:
+                fine_of = _dec(line.fine_wt) / _dec(line.net_wt)
+            job = jobs.setdefault(line.job_id, session.get(Job, line.job_id)) if line.job_id else None
+            job_no, job_id = (job.job_no if job else ""), (job.id if job else None)
+            sku = job.product_sku.sku_code if job and job.product_sku else ""
+            process = "ready stock"
+        elif source == "mrcv":
+            av = obj
+            wid, metal_id, vr_no = av.account_id, av.metal_id, av.vr_no
+            if av.vr_type == "receipt":
+                is_return, vrtype = True, "MRCV"
+                outward = _dec(av.weight)
+            else:
+                inward, vrtype = _dec(av.weight), "MPAY"
+            job_no, job_id, sku, process = "", None, "", "metal " + (
+                "receive" if av.vr_type == "receipt" else "pay")
         else:
             iv, line = obj
             wid, metal_id, vr_no = iv.account_id, line.metal_id, iv.vr_no
@@ -1887,18 +1970,18 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
                 allowed = _dec(line.wastage_wt)
                 alw_pct = _dec(line.wastage_pct) if line.wastage_pct else None
             job_no, job_id, sku, process = (line.job_no or ""), None, "", ""
-        pf = pf_of(metal_id)
+        pf = fine_of if fine_of is not None else pf_of(metal_id)
         bal = balance.setdefault(wid, [ZERO, ZERO])
         credited = ZERO if charge_all_loss else allowed
         in_range = when >= date_from
         if in_range and wid not in opening_done:
             opening_done.add(wid)
-            rows.append({"worker": name(wid), "worker_id": wid,
+            rows.append({"worker": name(wid), "worker_id": wid, "group": group(wid),
                          "date": None, "vrno": "", "vrtype": "OPENING", "metal": "",
                          "job_no": "", "_job_id": None, "sku": "", "process": "",
                          "in_wt": None, "in_fine": None, "out_wt": None, "out_fine": None,
                          "loss_wt": None, "loss_fine": None, "alw_pct": None,
-                         "alw_wt": None, "bal_wt": bal[0].quantize(D3),
+                         "alw_wt": None, "alw_fine": None, "bal_wt": bal[0].quantize(D3),
                          "bal_fine": bal[1].quantize(D3)})
         bal[0] += inward - outward - credited
         bal[1] += (inward - outward - credited) * pf
@@ -1906,7 +1989,8 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
             continue
         metal = session.get(Metal, metal_id) if metal_id else None
         rows.append({
-            "worker": name(wid), "worker_id": wid, "date": when, "vrno": vr_no,
+            "worker": name(wid), "worker_id": wid, "group": group(wid), "date": when,
+            "vrno": vr_no, "_metal_id": metal_id, "_pf": pf,
             "vrtype": vrtype, "metal": metal.name if metal else "", "job_no": job_no,
             "_job_id": job_id, "sku": sku, "process": process,
             "in_wt": inward.quantize(D3) if inward else None,
@@ -1916,8 +2000,55 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
             "loss_wt": loss if vrtype == "RTN" else None,
             "loss_fine": (loss * pf).quantize(D3) if vrtype == "RTN" else None,
             "alw_pct": alw_pct, "alw_wt": allowed if is_return else None,
+            "alw_fine": (allowed * pf).quantize(D3) if is_return and allowed else None,
+            "_credited": credited,
             "bal_wt": bal[0].quantize(D3), "bal_fine": bal[1].quantize(D3),
         })
+    return rows
+
+
+def party_metal_balance(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Worker Balance (Metal) - legacy "Worker Metal Outstanding" (5 Oct
+    §4.9): one row per worker AND client per metal - inward, outward and loss
+    in weight and fine, the balance owed, the metal they hold in work (WIP:
+    issued on a job step, not yet back) and the process it is at."""
+    acc: dict[tuple[int, str], dict[str, Any]] = {}
+    for r in worker_metal_ledger(session, date(2000, 1, 1), date_to):
+        if r["vrtype"] == "OPENING":
+            continue
+        a = acc.setdefault((r["worker_id"], r["metal"]), {
+            "group": r["group"], "worker": r["worker"], "metal": r["metal"], "_wid": r["worker_id"],
+            "in_wt": ZERO, "in_fine": ZERO, "out_wt": ZERO, "out_fine": ZERO, "loss_wt": ZERO,
+            "loss_fine": ZERO, "bal_wt": ZERO, "bal_fine": ZERO, "_metal_id": r["_metal_id"],
+            "_pf": r["_pf"]})
+        for k in ("in_wt", "in_fine", "out_wt", "out_fine", "loss_wt", "loss_fine"):
+            a[k] += _dec(r.get(k))
+        delta = _dec(r.get("in_wt")) - _dec(r.get("out_wt")) - _dec(r.get("_credited"))
+        a["bal_wt"] += delta
+        a["bal_fine"] += delta * r["_pf"]
+    # WIP: what each karigar holds on job steps not yet received back.
+    closed = select(JobVoucher.issue_id).where(JobVoucher.kind == "receive",
+                                               JobVoucher.issue_id.is_not(None))
+    wip: dict[tuple[int, int | None], list] = {}
+    for v in session.scalars(select(JobVoucher).where(
+            JobVoucher.kind == "issue", JobVoucher.id.not_in(closed),
+            JobVoucher.vr_date <= date_to, JobVoucher.net_wt.is_not(None))):
+        job = session.get(Job, v.job_id)
+        step = session.get(JobStep, v.step_id)
+        proc = session.get(ManufacturingProcess, step.process_id) if step else None
+        w = wip.setdefault((v.worker_id, job.metal_id), [ZERO, set()])
+        w[0] += _dec(v.net_wt)
+        if proc:
+            w[1].add(proc.name)
+    rows = []
+    for (wid, _m), a in acc.items():
+        w = wip.get((wid, a["_metal_id"]), [ZERO, set()])
+        rows.append({**{k: (v.quantize(D3) if isinstance(v, Decimal) else v)
+                        for k, v in a.items() if k != "_pf"},
+                     "wip_wt": w[0].quantize(D3) or None,
+                     "wip_fine": (w[0] * a["_pf"]).quantize(D3) or None,
+                     "process": ", ".join(sorted(w[1])), "_negative": a["bal_wt"] < 0})
+    rows.sort(key=lambda r: (r["group"] != "Worker", r["worker"].lower(), r["metal"]))
     return rows
 
 
