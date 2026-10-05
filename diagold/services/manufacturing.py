@@ -463,5 +463,6 @@ def ready_stock(session: Session, date_to: date) -> list[dict[str, Any]]:
             "g_wt": _dec(item.gross_wt), "n_wt": _dec(item.net_wt),
             "cost": _dec(item.cost), "price": _dec(item.price), "tag": item.tag_text,
             "printed": "Y" if item.tag_printed else "",
+            "_photo": (sku.image_finished or sku.image_design) if sku else "",
         })
     return rows

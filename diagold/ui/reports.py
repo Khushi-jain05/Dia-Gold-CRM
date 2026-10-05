@@ -102,6 +102,12 @@ class ReportSpec:
     # e.g. Job Costing's Ctrl+P "Excel Job Costing" (2 Oct T-02).
     actions: list[tuple[str, str, Callable[["ReportWidget"], None]]] = field(
         default_factory=list)
+    # Shift+F12 Show Image: rows carry "_photo" (a file path); a photo column
+    # is shown on request (5 Oct UX4).
+    images: bool = False
+    # Ctrl+F1 Show Stone Group: these columns (the DIA / POLKI / CS split)
+    # start hidden and the shortcut shows / hides them (5 Oct UX5).
+    stone_group_cols: tuple[str, ...] = ()
 
 
 def static(cols: list[Col]) -> Callable[[date, date], list[Col]]:
@@ -150,6 +156,7 @@ class ReportModel(QAbstractTableModel):
         self.rows: list[tuple[str, dict]] = []
         self.negative_key: str | None = None
         self.row_numbers = False
+        self._pix: dict[str, Any] = {}
 
     def load(self, cols: list[Col], rows: list[tuple[str, dict]]) -> None:
         self.beginResetModel()
@@ -181,6 +188,17 @@ class ReportModel(QAbstractTableModel):
         kind, row = self.rows[index.row()]
         col = self._col(index.column())
         first = 1 if self.row_numbers else 0
+        if col is not None and col.key == "_photo":
+            if role == Qt.ItemDataRole.DecorationRole and kind == "row":
+                path = row.get("_photo") or ""
+                if path not in self._pix:
+                    from PySide6.QtGui import QPixmap
+                    pm = QPixmap(path) if path else QPixmap()
+                    self._pix[path] = pm.scaled(56, 56, Qt.AspectRatioMode.KeepAspectRatio,
+                                                Qt.TransformationMode.SmoothTransformation) \
+                        if not pm.isNull() else None
+                return self._pix[path]
+            return "" if role == Qt.ItemDataRole.DisplayRole else None
         if role == Qt.ItemDataRole.DisplayRole:
             if self.row_numbers and index.column() == 0:
                 return str(row.get("_n", "")) if kind == "row" else ""
@@ -564,6 +582,21 @@ class ReportWidget(QWidget):
         # F1 Show All, as on every legacy register (2 Oct UX6): every filter
         # off and the whole history in range.
         QShortcut(QKeySequence("F1"), self, activated=self.show_all)
+        # Ctrl+G Group (5 Oct UX2): open the group-by list.
+        QShortcut(QKeySequence("Ctrl+G"), self,
+                  activated=lambda: (self.group.setFocus(), self.group.showPopup()))
+        self.show_images = False
+        self.show_stone_groups = False
+        if spec.images:
+            QShortcut(QKeySequence("Shift+F12"), self, activated=self.toggle_images)
+            b = QPushButton("Show Image  (Shift+F12)")
+            b.clicked.connect(self.toggle_images)
+            bar.addWidget(b)
+        if spec.stone_group_cols:
+            QShortcut(QKeySequence("Ctrl+F1"), self, activated=self.toggle_stone_groups)
+            b = QPushButton("Stone Group  (Ctrl+F1)")
+            b.clicked.connect(self.toggle_stone_groups)
+            bar.addWidget(b)
         bar.addStretch(1)
         self.option_boxes: dict[str, QCheckBox] = {}
         for key, (label, default) in spec.options.items():
@@ -855,11 +888,15 @@ class ReportWidget(QWidget):
 
     def _rebuild(self) -> None:
         cols = self.visible_cols()
+        if self.spec.stone_group_cols and not self.show_stone_groups:
+            cols = [c for c in cols if c.key not in self.spec.stone_group_cols]
+        if self.show_images:
+            cols = [Col("_photo", "IMAGE")] + cols
         self._filtered = [r for r in self._raw if self._passes(r)]
         gkey = self.group.currentData()
         display: list[tuple[str, dict]] = []
         rows = list(self._filtered)
-        first_key = cols[0].key if cols else None
+        first_key = next((c.key for c in cols if c.key != "_photo"), None)
         if gkey:
             rows.sort(key=lambda r: (fmt(r.get(gkey)).lower(), r.get("_n", 0)))
             glabel = next((c.label for c in self._cols if c.key == gkey), gkey)
@@ -964,6 +1001,15 @@ class ReportWidget(QWidget):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self.set_adv_filter(dlg.conditions())
+
+    def toggle_images(self) -> None:
+        self.show_images = not self.show_images
+        self.view.verticalHeader().setDefaultSectionSize(60 if self.show_images else 26)
+        self._rebuild()
+
+    def toggle_stone_groups(self) -> None:
+        self.show_stone_groups = not self.show_stone_groups
+        self._rebuild()
 
     def show_all(self) -> None:
         """F1 Show All: search, group, filters off; From the start of records."""
@@ -1615,7 +1661,7 @@ def build_specs() -> dict[str, ReportSpec]:
                             Col("tag", "TAG"), Col("printed", "TAG PRINTED")]),
             query=lambda s, a, b, **_k: MF.ready_stock(s, b),
             group_by="location", filter_column="location",
-            on_activate=lambda w, r: w.open_job(r),
+            on_activate=lambda w, r: w.open_job(r), images=True,
             note="Every finished piece in stock on the To date, with its cost, price and "
                  "tag. Double-click opens the job."),
         # -- karigar ledgers (28 Sept R13 / T-04) -----------------------
