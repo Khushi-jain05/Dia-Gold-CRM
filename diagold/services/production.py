@@ -2052,6 +2052,83 @@ def party_metal_balance(session: Session, date_from: date, date_to: date) -> lis
     return rows
 
 
+def client_metal_os(session: Session, date_to: date) -> list[dict[str, Any]]:
+    """Client Metal Outstanding (5 Oct §4.10, T-03): one row per client with
+    the balance in fine metal and in money side by side.
+
+    FINE O/S  = fine metal the client owes (+) / we owe (-): metal sold,
+                ready pieces sold at their fine, less returns and metal
+                received (Worker Balance (Metal), client rows).
+    AMT O/S   = the money balance of the ledger (Dr +).
+    WIP FINE  = fine of the client's jobs still in work (out or pending a step).
+    PND4STK   = fine of the client's jobs finished, waiting for MFG Transfer.
+    STK FINE  = fine of the client's pieces in ready stock (made on their orders).
+    RepairRtn = fine of pieces out on a Ready Repair Issue to the client.
+    Return    = fine of pieces the client has returned (Sale Return).
+    """
+    from diagold.db.models import ReadyVoucher, ReadyVoucherLine, StockItem
+    from diagold.services import accounts
+    nominal = accounts.nominal_ids(session)
+    acc: dict[int, dict[str, Decimal]] = {}
+
+    def add(pid: int | None, key: str, val: Decimal) -> None:
+        if pid and val:
+            acc.setdefault(pid, {}).setdefault(key, ZERO)
+            acc[pid][key] += val
+
+    for r in party_metal_balance(session, date(2000, 1, 1), date_to):
+        if r["group"] == "Client":
+            add(r["_wid"], "fine", _dec(r["bal_fine"]))
+    metals: dict[int | None, Metal | None] = {}
+
+    def fine(metal_id: int | None, wt: Any) -> Decimal:
+        if metal_id not in metals:
+            metals[metal_id] = session.get(Metal, metal_id) if metal_id else None
+        m = metals[metal_id]
+        return (_dec(wt) * costing.purity_fraction(m)) if m else ZERO
+
+    for job in session.scalars(select(Job).where(
+            Job.status.in_(("mapped", "in_progress", "complete")),
+            Job.account_id.is_not(None))):
+        net = last_weights(session, job)[1]
+        add(job.account_id, "pnd" if job.status == "complete" else "wip",
+            fine(job.metal_id, net))
+    for item, job in session.execute(select(StockItem, Job).join(Job, StockItem.job_id == Job.id)
+                                     .where(StockItem.status == "in_stock",
+                                            Job.account_id.is_not(None))):
+        add(job.account_id, "stk", fine(item.metal_id or job.metal_id, item.net_wt))
+    for line, v in session.execute(
+            select(ReadyVoucherLine, ReadyVoucher).join(ReadyVoucher)
+            .where(ReadyVoucher.vr_type.in_(("rs_repair_issue", "rs_sale_return")),
+                   ReadyVoucher.vr_date <= date_to)):
+        f = _dec(line.fine_wt) or fine(line.metal_id, line.net_wt)
+        if v.vr_type == "rs_sale_return":
+            add(v.account_id, "ret", f)
+        else:
+            item = session.get(StockItem, line.stock_item_id) if line.stock_item_id else None
+            if item is not None and item.status == "in_repair":
+                add(v.account_id, "rep", f)
+    for a in session.scalars(select(Account).where(
+            Account.account_type.not_in(("Worker", "Designer")))):
+        if a.id in nominal:
+            continue
+        amt = accounts.balance(session, a.id, upto=date_to)
+        v = acc.get(a.id, {})
+        if not amt and not any(v.values()):
+            continue
+        q = lambda k: (v.get(k) or ZERO).quantize(D3) or None
+        rows_fine = (v.get("fine") or ZERO).quantize(D3)
+        acc[a.id] = {**v, "_row": {
+            "_wid": a.id, "client": a.name, "fine_os": rows_fine,
+            "amt_os": amt.quantize(Decimal("0.01")), "wip_fine": q("wip"),
+            "pnd4stk": q("pnd"), "stk_fine": q("stk"), "repair_rtn": q("rep"),
+            "ret": q("ret"), "group": a.account_type, "accgroup": a.group_name or "",
+            "_negative": rows_fine < 0}}
+    rows = [v["_row"] for v in acc.values() if "_row" in v]
+    rows.sort(key=lambda r: r["client"].lower())
+    return rows
+
+
 def voucher_day_book(session: Session, kind: str, date_from: date,
                      date_to: date) -> list[dict[str, Any]]:
     """Issue Day Book / Received Day Book (28 Sept §4.8): every job-step issue

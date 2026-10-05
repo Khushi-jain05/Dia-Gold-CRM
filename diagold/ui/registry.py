@@ -85,7 +85,8 @@ REPORT_MENUS: dict[str, list[tuple[str | None, tuple[str, ...]]]] = {
     "manufacturing.reports": [(t, _SECTIONS[t]) for t in ("Manufacturing", "Registers",
                                                          "Karigar")],
     "inventory.reports": [(t, _SECTIONS[t]) for t in ("Inventory", "Registers", "Karigar")],
-    "sale.reports": [(None, _SECTIONS["Sale"] + ("ready_stock", "account_ledger"))],
+    "sale.reports": [(None, _SECTIONS["Sale"] + ("ready_stock", "client_metal_os",
+                                                 "account_ledger"))],
     "purchase.reports": [(None, ("rp_register", "inv_metal_day_book", "inv_stone_day_book",
                                  "account_ledger"))],
     "inventory.metal._reports": [(None, (

@@ -39,6 +39,7 @@ from diagold.ui.confirm import confirm_save
 from diagold.ui.crud import CrudSpec, CrudWidget, Field, auto_fit
 from diagold.ui.production import TINT_RECEIVE, _Screen, _item, _pydate, _qdate, show_in_dialog
 from diagold.ui.reports import Col, ReportSpec, ReportWidget, static
+from diagold.ui.reports import build_specs as _report_specs
 
 D = Decimal
 
@@ -51,7 +52,7 @@ SUBMENUS: dict[str, list[tuple[str, str]]] = {
                               ("journal", "Journal"), ("contra", "Contra")],
     "account.outstandings": [("receivables", "Receivables"), ("payables", "Payables"),
                              ("os_day_wise", "O/S Day Wise"), ("os_monthly", "O/S Monthly"),
-                             ("ledger", "Ledger")],
+                             ("ledger", "Ledger"), ("client_metal_os", "Client Metal O/S")],
     "account.more": [("cash_flow", "Cash Flow"), ("interest_receivable", "Interest Receivable"),
                      ("interest_payable", "Interest Payable")],
 }
@@ -82,6 +83,7 @@ def _builders() -> dict[str, Any]:
         "os_monthly": lambda u: ReportWidget(specs()["os_monthly"], u),
         "ledger": lambda u: ReportWidget(specs()["party_ledger"], u),
         "cash_flow": lambda u: ReportWidget(specs()["cash_flow"], u),
+        "client_metal_os": lambda u: ReportWidget(_report_specs()["client_metal_os"], u),
         "interest_receivable": lambda u: interest.InterestWidget("receivable", u),
         "interest_payable": lambda u: interest.InterestWidget("payable", u),
     }

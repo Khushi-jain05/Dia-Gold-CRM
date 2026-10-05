@@ -1244,6 +1244,19 @@ def _drill_metal(widget: ReportWidget, row: dict) -> None:
     show_in_dialog(widget, ReportWidget(spec, widget.user), spec.title, (980, 560))
 
 
+def _drill_client_metal(widget: ReportWidget, row: dict) -> None:
+    """Client Metal O/S drill: that client's metal ledger (5 Oct T-03)."""
+    _d0, d1 = widget.dates()
+    spec = build_specs()["worker_metal_ledger"]
+    with SessionLocal() as s:
+        rows = P.worker_metal_ledger(s, date(2000, 1, 1), d1, worker_id=row["_wid"])
+    spec = ReportSpec(key="client_metal_drill", title=f"{row['client']} — metal ledger",
+                      columns=spec.columns, query=lambda _s, _a, _b, **_k: rows,
+                      date_mode="none")
+    from diagold.ui.production import show_in_dialog
+    show_in_dialog(widget, ReportWidget(spec, widget.user), spec.title, (1200, 600))
+
+
 def _register_specs(money, wt, pcs) -> dict[str, ReportSpec]:
     """Loss, Dust and WIP registers (2 Oct T-08) - legacy Inventory ▸ Reports."""
     from diagold.services import registers as RG
@@ -1622,6 +1635,24 @@ def build_specs() -> dict[str, ReportSpec]:
                  "OPENING + INWARD − OUTWARD; FINE = weight × title, stored when posted. "
                  "Negative closings are red (28 Sept Q6). Double-click a line for its "
                  "ledger."),
+        "client_metal_os": ReportSpec(
+            key="client_metal_os", title="Client Metal O/S",
+            columns=static([Col("client", "CLIENT"),
+                            wt("fine_os", "FINE O/S"), money("amt_os", "AMT O/S"),
+                            wt("wip_fine", "WIP FINE"), wt("pnd4stk", "PND4STK"),
+                            wt("stk_fine", "STK FINE"), wt("repair_rtn", "RepairRtn"),
+                            wt("ret", "Return"), Col("group", "GROUP"),
+                            Col("accgroup", "ACCGROUP")]),
+            query=lambda s, a, b, **_k: P.client_metal_os(s, b), date_mode="to",
+            negative_key="_negative", filter_column="accgroup",
+            on_activate=_drill_client_metal,
+            note="Each client's balance in fine metal and in money side by side. FINE O/S: "
+                 "metal sold and ready pieces sold at their fine, less returns and metal "
+                 "received (+ the client owes fine, - we owe). AMT O/S: the ledger balance "
+                 "(Dr +). WIP FINE: their jobs in work; PND4STK: finished, waiting for MFG "
+                 "Transfer; STK FINE: their pieces in ready stock; RepairRtn: pieces out on a "
+                 "repair issue to them; Return: pieces they returned. Double-click a client "
+                 "for their metal ledger."),
         "worker_metal_balance": ReportSpec(
             key="worker_metal_balance", title="Worker Balance (Metal)",
             columns=static([Col("group", "GROUP"), Col("worker", "WORKER"), Col("metal", "METAL"),
@@ -1830,5 +1861,6 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
                    "wip_register", "wip_process_summary", "wip_stone")),
     ("Karigar", ("worker_metal_ledger", "worker_stone_ledger", "worker_stone_balance",
                  "setting_labour_statement", "issue_day_book", "received_day_book")),
+    ("Client", ("client_metal_os", "worker_metal_balance")),
     ("Other", ("job_os_pct", "data_quality")),
 )

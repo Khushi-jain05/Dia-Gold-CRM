@@ -301,6 +301,11 @@ with SessionLocal() as s:
     kr = mb[(kk.name, g24.name)]
     check("Worker Balance (Metal): client owes the 10 g metal sold",
           (kr["group"], kr["in_wt"], kr["bal_wt"]), ("Client", D("10.000"), D("10.000")))
+    cm = {r["client"]: r for r in P.client_metal_os(s, FY[1])}
+    check("Client Metal O/S: KK fine 10 + money, supplier owed, no nominal ledgers",
+          (cm[kk.name]["fine_os"], cm[kk.name]["amt_os"] > 0, cm["TEST SUPPLIER"]["amt_os"],
+           "Sales A/c" in cm or "Cash in Hand" in cm),
+          (D("10.000"), True, D("-448993.50"), False))
     led = INV.account_ledger(s, *FY)
     test_sup = [r for r in led if r["ledger"] == "TEST SUPPLIER"]
     check("TEST SUPPLIER closing (stone 14,960 + metal 4,34,033.50 + ready 79,045.36 - return)",
