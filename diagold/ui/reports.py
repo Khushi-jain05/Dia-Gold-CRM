@@ -253,6 +253,26 @@ class ReportModel(QAbstractTableModel):
 # --------------------------------------------------------------------------
 # worker
 # --------------------------------------------------------------------------
+# Every report thread lives here until it finishes, owned by no widget: a
+# report closed (tab, drill-down dialog) while still loading must never take
+# its running thread with it - Qt aborts the whole app on that ("QThread:
+# Destroyed while thread is still running"; 6 Oct: the app closed on a click).
+_LIVE_THREADS: set = set()
+
+
+def _forget_thread(thread: "QThread", worker: "QObject") -> None:
+    _LIVE_THREADS.discard((thread, worker))
+    thread.deleteLater()
+    worker.deleteLater()
+
+
+def wait_for_reports(timeout_ms: int = 5000) -> None:
+    """At exit: let running report threads end before Qt tears down."""
+    for thread, _w in list(_LIVE_THREADS):
+        thread.quit()
+        thread.wait(timeout_ms)
+
+
 class _Worker(QObject):
     done = Signal(object)
     failed = Signal(str)
@@ -602,8 +622,10 @@ class ReportWidget(QWidget):
         row2.addWidget(self.group2)
         outer.addLayout(row2)
 
-        bar = QHBoxLayout()
-        bar.setSpacing(6)
+        # The buttons wrap onto a second line on a narrow screen instead of
+        # pushing the window wider than the laptop (6 Oct: screens cut off).
+        from diagold.ui.flow import FlowLayout
+        bar = FlowLayout(spacing=6)
         for label, slot in (("Print", self._print), ("Set Column", self._set_columns),
                             ("Options", self._options), ("Adv. Filter", self._adv_filter),
                             ("Export", self._export), ("Auto Filter", self._auto_filter)):
@@ -763,15 +785,16 @@ class ReportWidget(QWidget):
         self.btn_run.setEnabled(False)
         self.status.setText("Running…")
         worker = _Worker(self.spec.query, (d0, d1), self._opts())
-        thread = QThread(self)
+        thread = QThread()                       # no parent: see _LIVE_THREADS
         worker.moveToThread(thread)
+        _LIVE_THREADS.add((thread, worker))
         thread.started.connect(worker.run)
+        # Bound methods: Qt drops these connections if the widget is gone.
         worker.done.connect(self._loaded)
         worker.failed.connect(self._failed)
         worker.ended.connect(thread.quit)
-        # Only the run that is still current resets the screen; a superseded
-        # thread just tidies itself away when it finishes.
-        thread.finished.connect(lambda t=thread: self._cleanup(t))
+        thread.finished.connect(self._on_thread_finished)
+        thread.finished.connect(lambda t=thread, w=worker: _forget_thread(t, w))
         self._worker, self._thread = worker, thread
         self._started = datetime.now()
         thread.start()
@@ -791,16 +814,18 @@ class ReportWidget(QWidget):
         self._thread = None
         self._worker = None
 
+    def _on_thread_finished(self) -> None:
+        thread = self.sender()
+        self._cleanup(thread)
+
     def _cleanup(self, thread: QThread | None = None) -> None:
+        # The thread itself is deleted by _forget_thread, never here.
         if thread is not None and thread is not self._thread:
-            thread.deleteLater()
             self._orphans = [(t, w) for t, w in self._orphans if t is not thread]
             return
         self.progress.setVisible(False)
         self.btn_cancel.setVisible(False)
         self.btn_run.setEnabled(True)
-        if self._thread is not None:
-            self._thread.deleteLater()
         self._thread = None
         self._worker = None
 
@@ -835,11 +860,7 @@ class ReportWidget(QWidget):
             QApplication.processEvents()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt name
-        # Never let a running thread be destroyed with the widget.
-        for t, _w in [(self._thread, self._worker)] + self._orphans:
-            if t is not None and t.isRunning():
-                t.quit()
-                t.wait(5000)
+        self._detach()          # its thread finishes on its own (_LIVE_THREADS)
         super().closeEvent(event)
 
     # -- columns / grouping ----------------------------------------------

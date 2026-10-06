@@ -143,8 +143,16 @@ class StockViewWidget(QWidget):
         self.user = user
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
+        # The filters scroll on their own, so a 768-px-high laptop screen
+        # shows all of them (6 Oct: the bottom was cut off).
+        from PySide6.QtWidgets import QFrame, QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFixedWidth(300)
         panel = QWidget()
-        panel.setMaximumWidth(330)
+        scroll.setWidget(panel)
         pl = QVBoxLayout(panel)
         pl.setContentsMargins(12, 12, 4, 12)
         sbox = QGroupBox("Show")
@@ -217,12 +225,18 @@ class StockViewWidget(QWidget):
         note.setWordWrap(True)
         pl.addWidget(note)
         from PySide6.QtWidgets import QPushButton
+        pl.addStretch(1)
+        # Filter stays in sight above the scrolling filters.
+        left = QWidget()
+        left.setFixedWidth(300)
+        ll2 = QVBoxLayout(left)
+        ll2.setContentsMargins(0, 12, 0, 0)
         b = QPushButton("Filter")
         b.setObjectName("Primary")
         b.clicked.connect(self._filter)
-        pl.addWidget(b)
-        pl.addStretch(1)
-        lay.addWidget(panel)
+        ll2.addWidget(b)
+        ll2.addWidget(scroll, 1)
+        lay.addWidget(left)
         spec = ReportSpec(
             key="stock_view", title="Stock View",
             columns=static([Col("location", "LOCATION"), Col("barcode", "STOCK NO"),

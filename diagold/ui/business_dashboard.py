@@ -78,7 +78,13 @@ class _Page(QWidget):
         self.body = QWidget()
         self.body_lay = QVBoxLayout(self.body)
         self.body_lay.setContentsMargins(0, 0, 0, 0)
-        self.lay.addWidget(self.body, 1)
+        # Scrolls on a short laptop screen instead of cutting the charts off.
+        from PySide6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(self.body)
+        self.lay.addWidget(scroll, 1)
 
     def dates(self) -> tuple[date, date]:
         q = lambda d: date(d.date().year(), d.date().month(), d.date().day())  # noqa: E731

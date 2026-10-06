@@ -511,8 +511,10 @@ class _Screen(QWidget):
         # simply fall off the right edge.
         self.toolbar = QHBoxLayout()
         self.toolbar.setSpacing(8)
-        self.secondary = QHBoxLayout()
-        self.secondary.setSpacing(8)
+        # Wraps onto a second line on a narrow screen (6 Oct: the Sale screen's
+        # button row made the window wider than a 1366-px laptop).
+        from diagold.ui.flow import FlowLayout
+        self.secondary = FlowLayout(spacing=8)
         self.picker: JobPicker | None = None
         if with_picker:
             self.picker = JobPicker()
@@ -2317,7 +2319,8 @@ class JobMappingWidget(_Screen):
 # --------------------------------------------------------------------------
 class PrintingOptionsWidget(_Screen):
     def __init__(self, user=None, parent=None):
-        super().__init__("Planning Printing Options", with_picker=False, parent=parent)
+        super().__init__("Planning Printing Options", with_picker=False, parent=parent,
+                         scroll=True)
         self.user = user
         self.outer.removeWidget(self.header)
         self.header.setVisible(False)
@@ -2575,6 +2578,11 @@ class OptionsWidget(QWidget):
         page = QWidget()
         pl = QVBoxLayout(page)
         box = QGroupBox("Production Planning menu")
+        # The menu switches scroll: the list is taller than a laptop screen.
+        page_scroll = QScrollArea()
+        page_scroll.setWidgetResizable(True)
+        page_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        page_scroll.setWidget(page)
         bl = QVBoxLayout(box)
         note = QLabel("The client said only two of these are used day to day and the rest "
                       "should go - but has not yet named the two (C-01). Until then the "
@@ -2602,7 +2610,7 @@ class OptionsWidget(QWidget):
                 hl.addWidget(cb)
         pl.addWidget(hbox)
         pl.addStretch(1)
-        tabs.addTab(page, "Menu")
+        tabs.addTab(page_scroll, "Menu")
         bar = QHBoxLayout()
         b = QPushButton("Save")
         b.setObjectName("Primary")

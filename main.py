@@ -37,6 +37,8 @@ def main() -> int:
     app.setStyle("Fusion")
     app.setPalette(build_palette())   # before the sheet: the sheet wins where both speak
     app.setStyleSheet(APP_QSS)
+    from diagold.ui.reports import wait_for_reports
+    app.aboutToQuit.connect(wait_for_reports)   # never quit with a report still loading
 
     try:
         init_db()
