@@ -73,7 +73,7 @@ Try the hot-keys on any weight-bearing process. Select a line first, then:
 
 | # | Where | You should see |
 |---|---|---|
-| 4.1 | Job History, job **28856** | 11 rows, CAD through Puwai. Casting loss **0.300** (2.22%). HandMade **0.200** (1.52%, allowed 0.455). PrePolish **0.100** (0.77%). Setting **0.050**. Final Polish **0.090**. final setting, Meena and Puwai **0.020** each. Total loss **0.800 g**. |
+| 4.1 | Job History, job **28856** | 11 rows, CAD through Puwai. Casting loss **0.300** (2.22%). HandMade **0.200** (1.52%, allowed 0.462 = 3.5% of the issued 13.200). PrePolish **0.100** (0.77%). Setting **0.050**. Final Polish **0.090**. final setting, Meena and Puwai **0.020** each. Total loss **0.800 g**. |
 | 4.2 | same, Setting row | Labour **₹240**: 8 Polki set × ₹30. The 5 Emerald have no setting type, so they add ₹0. |
 | 4.3 | Job History, job **28853** | Loss rows: HandMade 1.141, PrePolish 1.230, Setting −0.300, Final Polish 0.170, final setting 1.333. The final-setting Labour is **₹2,400**. |
 | 4.4 | Manufacturing ▸ Reports ▸ Karigar ▸ Setting Labour Statement (September) | rakesh sarkar: **₹2,400** on 28853 plus **₹240** on 28856. |

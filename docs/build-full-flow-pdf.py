@@ -3,7 +3,8 @@
     python docs/build-full-flow-pdf.py [out.pdf]
 
 One new job taken from order to ready stock through every screen built so
-far (Masters, Inventory, Production Planning, Manufacturing, Reports), with
+far (Masters, Inventory, Production Planning, Manufacturing, Reports, and the
+5 Oct Accounts / price chart / stock tools / dashboards / Tools in parts R-X), with
 what to type at each step and the figure each screen should show. The job
 uses the same inputs as demo job DEMO-C, whose figures are checked by the
 acceptance scripts, so every expected number below is one the app produced.
@@ -77,7 +78,7 @@ def mfg(process: str, karigar: str, iss: str, rcv: str, allow: str, expect: str,
 HTML = CSS + """
 """ + H1.format("Dia Gold CRM — Full Test Guide") + """
 <p class='muted'>Poore CRM ka testing guide — Order se Ready Stock, phir Sale, Approval, Repair, Purchase,
-Stock Transfer aur saare Reports tak. Har step pe: kahan jaana hai, kya type karna hai, aur screen pe kya aana
+Stock Transfer, saare Reports, aur 5 Oct ke Accounts, price chart, stock tools, dashboards aur Tools (R–X) tak. Har step pe: kahan jaana hai, kya type karna hai, aur screen pe kya aana
 chahiye. Jisne app pehle kabhi nahi chalaya, wo bhi shuru se aakhir tak kar sake — bas step order me chalein.</p>
 """ + BOX.format("""<b>Kya chahiye:</b> Windows PC, aur <b>DiaGoldCRM-Windows-x64.zip</b> (jo file bheji hai).
 Testing ek <b>alag DEMO database</b> pe hoti hai — asli data ko kuch nahi hota. Demo me pehle se: rates
@@ -224,7 +225,7 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
     "Galti sudharna — saved voucher Edit", [
         ("Manufacturing ▸ Received", "Process <b>HandMade</b> → <b>Edit</b> → list me RAHUL JI wala voucher → OK"),
         ("Line", "GrossWt <b>13.000</b> · NetWt <b>13.000</b> → <b>Save</b> → Yes")],
-    ["Job History HandMade: Loss <b>0.200</b> · <b>1.52%</b>, allowed 3.5% of 13.000 = <b>0.455</b>.",
+    ["Job History HandMade: Loss <b>0.200</b> · <b>1.52%</b>, allowed 3.5% of the <b>issued</b> 13.200 = <b>0.462</b> (5 Oct rule).",
      "Edit me sirf weights / price / date / RefNo badalte hain; job ya stones badalne ho to <b>Delete</b> karke dobara banao."],
 ) + mfg(
     "COLOUR", "FACTORY", "GrossWt <b>13.000</b> · NetWt <b>13.000</b>",
@@ -323,7 +324,7 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
     ["CHAND KUMAR HAZRA rows: MI 1.625 · MR 1.000 · MI <b>2.000</b> · MR <b>1.800</b> (Alw 2.5% = 0.045) · "
      "ISS 15.000 · ISS 13.500 · <b>ISS 13.500</b> · RTN 14.800 · RTN 13.200 · <b>RTN 13.200 (loss 0.300)</b>.",
      "Closing <b>1.545 g</b>. Manufacturing ▸ Issue pe Account CHAND chuno → <b>Mt Bal 1.545 g</b> — dono same.",
-     "RAHUL JI: ISS 13.200 · RTN 13.000 · Loss 0.200 · Alw 3.5% = 0.455 · Balance <b>−0.255</b> "
+     "RAHUL JI: ISS 13.200 · RTN 13.000 · Loss 0.200 · Alw 3.5% × 13.200 = 0.462 · Balance <b>−0.262</b> "
      "(allowance asli loss se zyada tha, isliye karigar ka balance minus — legacy ledger bhi aise hi dikhata hai)."],
 ) + step(
     "Manufacturing ▸ Reports ▸ Karigar ▸ Worker Stone Ledger / Worker Balance (Stone)", [],
@@ -485,7 +486,7 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
 ) + part("P. Registers aur baaki reports") + step(
     "Inventory ▸ Reports ▸ Registers", [],
     ["<b>Metal Loss Register</b>: aapke job ki 9 rows — CASTING 0.300 (allow 0 → excess <b>red</b>) · HandMade 0.200 "
-     "(allowed 0.455) · PrePolish 0.100 · Setting 0.050 · Final Polish 0.090 · final setting / Meena / Puwai 0.020.",
+     "(allowed 0.462) · PrePolish 0.100 · Setting 0.050 · Final Polish 0.090 · final setting / Meena / Puwai 0.020.",
      "<b>WIP Register</b> (As on aaj): demo jobs — 28855 <b>WIP</b> PRASENJIT HandMade, 28854 <b>PND</b> CAD. "
      "<b>Process Summary</b>: har process ki row (RECTIFICATION, KHUDAI … bhi), CAD / HandMade / Setting me pcs.",
      "<b>WIP Stone</b>, <b>Dust Register</b> — khul ke chalte hain. Har report: <b>Export</b> → Excel (.xlsx), <b>F1</b> → Show All."],
@@ -497,11 +498,12 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
      "Entered By / Entered At khud bharta hai."],
 ) + part("Q. Settings aur menu") + step(
     "Tools ▸ Option", [],
-    ["Behaviour: <b>Ask \"Save? Yes / No\" before every save</b> untick → Save → ab kisi save pe popup nahi; wapas tick.",
-     "<b>Inventory: when a location would go below zero</b> → <b>Block the save</b> → step 12 wala 500 g issue ab seedha refuse; "
-     "wapas <b>Warn, then allow (default)</b>.",
-     "<b>Tag price on the tag</b> dropdown badlo → MFG Transfer ka Tag column naye format me.",
-     "Production Planning ke items untick → Save → menu se gayab; wapas tick."],
+    ["<b>Settings</b> tab ▸ Others ▸ <b>Ask \"Save? Yes / No\" before every save</b> = False → Save → ab kisi save pe "
+     "popup nahi; wapas True.",
+     "Settings ▸ Inventory ▸ <b>When a location would go below zero</b> → <b>Block the save</b> → step 12 wala 500 g issue ab seedha refuse; "
+     "wapas <b>Warn, then allow</b>.",
+     "Settings ▸ Costing ▸ <b>Tag price on the tag</b> badlo → MFG Transfer ka Tag column naye format me.",
+     "<b>Menu</b> tab: Production Planning ke items untick → Save → menu se gayab; wapas tick."],
 ) + step(
     "UI checks", [],
     ["Sidebar nahi — sab module top menu me; Inventory ▸ Metal / Stone submenu.",
@@ -514,6 +516,123 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
      "Ready Item Receipt, Manufacturing ke Repair Issue / Extra Issue / Stamping <b>nahi</b> dikhte — client ne "
      "use nahi bataya / abhi samjhana baaki. Tools ▸ Option ke 'Other menu items' me tick → wapas aate hain.",
      "Inventory ▸ Metal / Stone ke 'soon' items (Bhav Cut, Conversion …) ek note kholte hain — client ke jawab ka wait."],
+) + part("R. Accounts (5 Oct) — ledger, outstanding, receipt, metal receive") + step(
+    "Account Groups aur Trial Balance", [
+        ("Account ▸ Groups", "tree dekho (Capital, Current Assets ▸ Sundry Debtors …) → <b>Reindex</b>"),
+        ("Account ▸ Trial Balance", "From 01-04 · To aaj → Show; phir <b>Ctrl+F1</b> (Detailed)")],
+    ["Groups seeded hain; Reindex ke baad Index 1, 2, 3 … tree order me.",
+     "Trial Balance ka Dr total = Cr total; Sales A/c, Cash, Purchase, Metal Stock ledger dikhte hain."],
+) + step(
+    "Receivables — bill-wise, aur Cash receipt FIFO", [
+        ("Account ▸ Outstandings ▸ Receivables", "As on aaj"),
+        ("Account ▸ Voucher Entry ▸ Receipt", "Account <b>KK JEWELS</b> · Mode <b>Cash</b> · Amount <b>50000</b> → "
+         "<b>Auto FIFO</b> → Save")],
+    ["Pehle KK JEWELS: MS 1 (metal sale) <b>1,50,500.00</b> aur SS 1 (stone sale) <b>1,296.00</b> pending; "
+     "Cl Bal <b>1,51,796.00 Dr</b>.",
+     "Receipt ke baad sabse purana bill pehle: MS 1 pending <b>1,00,500.00</b>, SS 1 waise hi; KK closing "
+     "<b>1,01,796.00 Dr</b>. Overdue bills red me."],
+) + step(
+    "Metal receive (fine gold se settle)", [
+        ("Account ▸ Voucher Entry ▸ Receipt", "KK JEWELS · Mode <b>Metal</b> · Metal <b>24KT Gold</b> · Location "
+         "<b>Primary</b> · Weight <b>2</b> → Save")],
+    ["Rate aaj ka 24K <b>14,713</b> → Amount <b>29,426.00</b>; KK closing <b>72,370.00 Dr</b>.",
+     "Inventory ▸ Metal Analysis: Primary 24KT Gold 2 g badha. Account ▸ More ▸ <b>Cash Flow</b> me cash "
+     "receipt 50,000 KK ke naam."],
+) + step(
+    "Ledger, Day Book, Client Metal O/S", [
+        ("Account ▸ Ledger", "Account KK JEWELS → Show; month row pe double-click; <b>Ctrl+G</b> graph"),
+        ("Account ▸ Day Book", "aaj"),
+        ("Account ▸ Outstandings ▸ Client Metal O/S", "As on aaj")],
+    ["Ledger month-wise, double-click se vouchers; Mode filter (Cash / Bill / Metal).",
+     "Client Metal O/S KK JEWELS: FINE O/S <b>8.000</b> (10 g sold − 2 g received), AMT O/S <b>72,370.00</b>; "
+     "double-click → KK ka metal ledger."],
+) + part("S. Karigar aur client ka metal / stone balance") + step(
+    "Worker Metal Ledger aur Worker Balance (Metal)", [
+        ("Reports ▸ Karigar ▸ Worker Metal Ledger", "FY"),
+        ("Reports ▸ Inventory ▸ Worker Balance (Metal)", "As on aaj")],
+    ["GROUP column (Worker / Client). RAHUL JI RTN row: ALW L WT <b>0.462</b> (3.5% × issued 13.200), "
+     "ALW L FINE <b>0.273</b>.",
+     "Worker Balance: RAHUL JI 14KT 590 in 13.200 · out 13.000 · balance <b>−0.262</b>; KK JEWELS (Client) "
+     "24KT Gold in 10.000 · out 2.000 · balance <b>8.000</b>. WIP WT / PROCESS: jo karigar ke paas abhi hai.",
+     "Tools ▸ Option ▸ Settings ▸ Manufacturing ▸ 'Loss allowance worked on' = Weight received back karke "
+     "Save → allowed 3.5% × 13.000 = 0.455 ho jaata hai. Wapas 'Weight issued' karo."],
+) + step(
+    "Stone balances aur summaries", [
+        ("Reports ▸ Stone ▸ Location Wise Stone Balance", "Location <b>Primary</b>, FY"),
+        ("Reports ▸ Stone ▸ Stone Summary", "As on aaj; phir Options ▸ Groups only"),
+        ("Reports ▸ Stone ▸ Worker Balance (Stone)", "As on aaj"),
+        ("Reports ▸ Inventory ▸ Metal Summary", "As on aaj")],
+    ["Primary POL: Opening <b>225.000 / 900</b>, Purchase 9.600 / 120, Closing <b>231.640 / 983</b>; CS Closing "
+     "<b>229.200 / 942</b>. Closing = Opening + Inward − Outward. Neeche Job Card / WIP.",
+     "Stone Summary: WHERE = RDY / INV / JC / WIP / LOS.",
+     "Worker Balance (Stone): KK JEWELS (Client) EMERALD PEAR 3*4 closing <b>3</b> pcs (approval par).",
+     "Metal Summary: RAJESH JI 14KT 590 INV <b>249.175</b> (= Metal Analysis closing); jobs WIP_@W / WIP_PND."],
+) + part("T. Client price chart (MANNU BHAI)") + step(
+    "Chart banao aur sale par lagao", [
+        ("Tools ▸ Client Wise Labour Price", "MANNU BHAI chuno (Per Grm Price 1,175)"),
+        ("Masters ▸ Account ▸ KK JEWELS", "Price Chart = <b>MANNU BHAI</b> → Save"),
+        ("Tools ▸ Option ▸ Settings ▸ Order & Quotation", "Client wise price chart applicable = <b>True</b> → Save"),
+        ("Sale ▸ Ready Stock ▸ Sale", "Account KK JEWELS → barcode <b>1</b> scan")],
+    ["'Prices From Client Chart (MANNU BHAI)' khud tick; Labour Rate <b>1,175</b>, Labour <b>14,922.50</b> "
+     "(1,175 × 12.700), Total <b>1,31,351.01</b>. Untick → wapas 1,200 / 15,240 / 1,31,668.51. Sale save mat karo.",
+     "Labour Price me Add Row: Family <b>Diamond Jewellery</b>, From G-Wt 10, To 20, SalePrice 900 → Save → "
+     "dubara scan: labour 900 (rule jeet-ta hai). <b>Make A Copy</b> → naam 'MANNU 2' → saare rules copy."],
+) + part("U. Stock tools") + step(
+    "Stock Reconciliation", [
+        ("Tools ▸ Stock Reconciliation", "New Count → Barcode Id me <b>1</b> scan (Enter), phir <b>999999</b>")],
+    ["In Stock Show (1): Stock 1. Add Stock But Not Show In Stock (1): Stock <b>3</b> (scan nahi hua). "
+     "Data Unfound (1): 999999 'Not found'. Dubara 1 scan → '(1 already scanned)'. Export To Excel → 3 sheets."],
+) + step(
+    "Stock View, SKU Status, Closing Stock, Barcode Catalog", [
+        ("Tools ▸ Stock View", "All Stock → Filter; Stone Info ▸ SSKU <b>POLKI</b> → Filter"),
+        ("Sale ▸ Reports ▸ SKU Status", "SKU <b>NS-1430</b>"),
+        ("Sale ▸ Reports ▸ Ready Closing Stock", "As on aaj → row select → Ctrl+S (Catalog), Ctrl+T (Tag Print)"),
+        ("Tools ▸ Barcode Catalog", "By SKU → NS-1430 Enter → Catalog 4x8")],
+    ["Stock View: All = 3 pieces; POLKI filter = Stock 1.",
+     "SKU Status NS-1430: Stock 1 (RSR, In-Stock), Stock 2 (RPR, Returned), Stock 3 (OPR, In-Stock) + MFG jobs.",
+     "Closing Stock: MT-RATE = aaj ka 14KT 590 rate; Catalog / Tag Print PDF banta hai."],
+) + part("V. Sales registers aur dashboards") + step(
+    "Registers", [
+        ("Sale ▸ Reports ▸ Sales Register / Sales Return Register / Sales Profit Analysis / Purchase - Sales "
+         "Analysis / Today's Daybook", "FY (Daybook: aaj)")],
+    ["Sales Register: KK JEWELS 1,31,668.51, RETURN <b>Y</b>. Return Register: SR row. Ctrl+F1 DIA / POL / CS.",
+     "Today's Daybook: har voucher, piece ke neeche stone lines."],
+) + step(
+    "Sales Dashboard aur Business Dashboard", [
+        ("Reports ▸ Sales Dashboard", "By Client · Show Value → Show; buttons Month-wise, Top 20 …"),
+        ("Reports ▸ Business Dashboard", "4 tabs")],
+    ["Client KK JEWELS net <b>0.00</b> (sale − return). Bar chart + table; Custom Excel.",
+     "Department Pending tiles per process; Daily Output (Ghat in / out-house, casting by karat, setting pcs); "
+     "Daily Sale & Return; Bills Due (KK ke bills)."],
+) + part("W. Tools — settings, corrections, backup, complaint, gate pass") + step(
+    "Option, Advance Options, Audit Log", [
+        ("Tools ▸ Option ▸ Settings", "Others ▸ DIGICAT id = 1203 → Save"),
+        ("Tools ▸ Advance Options ▸ Job Card Corrections", "Job <b>28854</b> → C Ref 'TEST' → Update C Ref (Reason "
+         "khaali) → phir Reason 'test' likh ke dubara"),
+        ("Tools ▸ Advance Options ▸ Declarations", "Sale Ready Stock line 1 'Subject to Jaipur jurisdiction' → Save"),
+        ("Tools ▸ Audit Log", "aaj")],
+    ["Settings me 'Changed by / at' me aapka naam aur time.",
+     "Bina reason correction <b>mana</b>; reason ke saath save. Audit Log me job_c_ref, before → after, reason.",
+     "Sale print (Ready Stock ▸ Sale ▸ Print) ke neeche Declaration line aati hai."],
+) + step(
+    "Backup, Complaint, Gate Pass", [
+        ("Tools ▸ Backup", "Backup Now"),
+        ("Tools ▸ Register a Complaint", "+ New: From Customer, JOB# 28854, complaint 'stone loose' → Save → "
+         "Lookup History"),
+        ("Tools ▸ Gatepass", "+ New: Destination 'Mumbai office', Box Pcs 3 → Save → Print → Register")],
+    ["Backup list me dated file.", "Lookup History: job ki process history.",
+     "Gate pass PDF; Register me CONFIRMED khaali = red."],
+) + part("X. Job History split aur Item Search") + step(
+    "Ek step do karigaron me (0.4 + 0.6)", [
+        ("Job History", "Job <b>28350</b> (agla step Setting, abhi issue nahi) → + Issue → Split share <b>0.4</b>, karigar A, "
+         "Net 10 → Save; + Issue → share khaali (bacha hua 0.6), karigar B, Net 5 → Save")],
+    ["Worker column 'A (0.4 pc)', 'B (0.6 pc)'. Teesra issue mana: 'already out in full'.",
+     "B ka Receive → step abhi bhi wahi; footer WIP <b>0.4</b>. A ka Receive → step poora, agla issue dono ka weight."],
+) + step(
+    "Item Search", [
+        ("Kisi bhi screen pe", "<b>Ctrl+I</b> → Stock No <b>1</b>")],
+    ["Status In-Stock / Primary; 'This SKU Stock: made <b>3</b>, left <b>2</b>'; photo; Print, Cert Excel, "
+     "Costing Sheet; Delete pe 'Delete SKU Also' checkbox."],
 ) + ("<p class='muted'>Jo bhi galat mile — step number, kya kiya, kya aana tha, kya aaya, aur screenshot bhejo. "
      "Testing dobara shuru se: <b>Reset DEMO and open.bat</b>.</p>")
 
