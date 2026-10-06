@@ -320,6 +320,23 @@ with SessionLocal() as s:
           (D("900"), (D("900") * D(str(pc_info["net_wt"]))).quantize(D("0.01"))))
     s.rollback()
     from diagold.services import stone_reports as SRP
+    # Job History: a step split across two karigars (5 Oct §4.15).
+    sj = next(j for j in s.scalars(select(Job).where(Job.status.in_(("mapped", "in_progress"))))
+              if P.current_step(s, j)[0] is not None and P.current_step(s, j)[1] is None
+              and P.current_step(s, j)[0].weight_bearing)
+    sst = P.current_step(s, sj)[0]
+    kar = s.scalars(select(Account).where(Account.account_type == "Worker")).all()[:2]
+    ia = P.post_voucher(s, sj, sst, "issue", kar[0].id, share=D("0.4"), net_wt=D("10"), gross_wt=D("10"))
+    ib = P.post_voucher(s, sj, sst, "issue", kar[1].id, net_wt=D("5"), gross_wt=D("5"))
+    refused("a third issue on a step out in full", lambda: P.post_voucher(s, sj, sst, "issue", kar[1].id))
+    P.post_voucher(s, sj, sst, "receive", kar[1].id, net_wt=D("4.9"), gross_wt=D("4.9"))
+    check("split step: 0.4 + 0.6, one back -> still on the step, 0.4 out",
+          (ib.share, P.current_step(s, sj)[0].id == sst.id, P.job_summary(s, sj)["wip"]),
+          (D("0.600"), True, D("0.4")))
+    P.post_voucher(s, sj, sst, "receive", kar[0].id, net_wt=D("9.8"), gross_wt=D("9.8"))
+    check("split step done; next issue weighs both shares", (P.step_done(s, sj, sst),
+          P.last_weights(s, sj)[1]), (True, D("14.7")))
+    s.rollback()
     from diagold.services import admin as ADM
     ojob = s.scalar(select(Job).where(Job.status.in_(("mapped", "in_progress"))))
     refused("a correction without a reason", lambda: ADM.update_job(s, ojob, "c_ref", "X", ""))

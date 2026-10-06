@@ -723,7 +723,13 @@ class VoucherDialog(QDialog):
                     tag += " — design only, no weights"
                 self._bearing[st.id] = bool(st.weight_bearing)
                 self.step.addItem(f"{st.seq} · {p.name if p else '?'}{tag}", st.id)
-                if kind == "issue" and first_free is None and st.weight_bearing and not open_iss:
+                issued, _out, _o = production.step_shares(s, job, st)
+                if open_iss and issued < Decimal(job.pcs or 1):
+                    self.step.setItemText(self.step.count() - 1, self.step.itemText(
+                        self.step.count() - 1) + f" — {Decimal(job.pcs or 1) - issued:g} pc "
+                        "left to issue")
+                if kind == "issue" and first_free is None and st.weight_bearing and \
+                        issued < Decimal(job.pcs or 1):
                     first_free = self.step.count() - 1
                 if kind == "receive" and open_iss:
                     self.step.setCurrentIndex(self.step.count() - 1)
@@ -755,8 +761,18 @@ class VoucherDialog(QDialog):
         self.allow.setDecimals(4)
         self.allow.setRange(0, 99.9999)
         self.allow.setSuffix(" %")
+        # Split a step across karigars (5 Oct §4.15): the share of the job's
+        # pieces this issue carries - 0 = all that is left of the step.
+        self.share = QDoubleSpinBox()
+        self.share.setDecimals(3)
+        self.share.setRange(0, 100000)
+        self.share.setSpecialValueText("all that is left")
+        self.share.setToolTip("Split the step: e.g. 0.4 to one karigar now and 0.1 to "
+                              "another. Each receives back his own share.")
         form.addRow("Process step *", self.step)
         form.addRow("Worker *", self.worker)
+        if kind == "issue":
+            form.addRow("Split share (pcs)", self.share)
         form.addRow("Date", self.date)
         form.addRow("Time", self.time)
         form.addRow("Pcs", self.pcs)
@@ -935,6 +951,7 @@ class VoucherDialog(QDialog):
                     pcs=self.pcs.value(), gross_wt=val(self.gross), net_wt=val(self.net),
                     user_id=self.user_id, remark=self.remark.text().strip(),
                     allow_loss_pct=Decimal(str(self.allow.value())),
+                    share=Decimal(str(self.share.value())) if self.share.value() else None,
                     **extras,
                 )
                 if self.kind == "issue":
@@ -1258,6 +1275,9 @@ class JobHistoryWidget(_Screen):
         self.button("MFG Price", self._mfg_price, secondary=True)
         self.button("Print", self._print, secondary=True)
         self.button("Stone Dtls", lambda: self.stones.setFocus(), secondary=True)
+        self.button("Link", self._link, secondary=True)
+        self.button("Stone Bag", lambda: self.open_requested.emit("production_planning.stone_issue"),
+                    secondary=True)
         self.button("Job Bag", lambda: self.open_requested.emit("production_planning.job_card_bag"),
                     secondary=True)
         self.button("Add Comments", self._add_comment, secondary=True)
@@ -1268,7 +1288,9 @@ class JobHistoryWidget(_Screen):
                     secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
 
-        legend = QLabel("Double-click a pink cell for its issue voucher, a green cell for its "
+        legend = QLabel("A step can be split across karigars: + Issue with a Split share "
+                        "(0.4 pc, then 0.1 pc); each receives his own share back. "
+                        "Double-click a pink cell for its issue voucher, a green cell for its "
                         "receipt.  Loss (issued net − received net − scrap − dust) and Loss % "
                         "(of the issued net) are beside the worker; a loss in italics went out "
                         "unweighed and is read as the allowance. Issue columns are tinted pink and receive columns green, so "
@@ -1436,6 +1458,16 @@ class JobHistoryWidget(_Screen):
                 self.comments.setText("<b>Comments</b><br>" + "<br>".join(lines))
             else:
                 self.comments.setText("")
+
+    def _link(self) -> None:
+        """Link: files kept with the job - a CAD, a photo, the client's sketch
+        (what the legacy Link holds is still to be confirmed)."""
+        if not self.job_id:
+            return
+        from diagold.ui.attachments import AttachDocDialog
+        with SessionLocal() as s:
+            job_no = s.get(Job, self.job_id).job_no
+        AttachDocDialog("job", job_no, f"Job {job_no}", user=self.user, parent=self).exec()
 
     def _drill(self, row: int, col: int) -> None:
         if not self.job_id or row >= len(getattr(self, "_row_vouchers", [])):

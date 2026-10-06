@@ -197,6 +197,9 @@ class JobVoucher(Base, PKMixin, TimestampMixin):
     vr_date: Mapped[date] = mapped_column(Date, default=date.today)
     vr_time: Mapped[str] = mapped_column(String(5), default="")   # "16:52"
     pcs: Mapped[int] = mapped_column(default=0)
+    # A step split across karigars (5 Oct §4.15): the share of the job's pieces
+    # this issue carries, e.g. 0.4 + 0.1 of a 0.5 lot. Empty = the whole job.
+    share: Mapped[float | None] = mapped_column(Numeric(9, 3), nullable=True)
     gross_wt: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
     net_wt: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
     # issue side

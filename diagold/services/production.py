@@ -460,6 +460,27 @@ def open_issue(session: Session, step: JobStep) -> JobVoucher | None:
     ).first()
 
 
+def issue_share(job: Job, issue: JobVoucher) -> Decimal:
+    """The pieces an issue carries: its split share, else the whole job."""
+    return _dec(issue.share) if issue.share is not None else _dec(job.pcs or 1)
+
+
+def step_shares(session: Session, job: Job, step: JobStep) -> tuple[Decimal, Decimal, list]:
+    """(issued, still out, open issues) on a step, in pieces."""
+    issues = session.scalars(select(JobVoucher).where(
+        JobVoucher.step_id == step.id, JobVoucher.kind == "issue").order_by(JobVoucher.id)).all()
+    closed = set(session.scalars(select(JobVoucher.issue_id).where(
+        JobVoucher.step_id == step.id, JobVoucher.kind == "receive")))
+    open_ = [v for v in issues if v.id not in closed]
+    return (sum((issue_share(job, v) for v in issues), ZERO),
+            sum((issue_share(job, v) for v in open_), ZERO), open_)
+
+
+def step_done(session: Session, job: Job, step: JobStep) -> bool:
+    issued, out, _open = step_shares(session, job, step)
+    return issued > 0 and out == 0 and issued >= _dec(job.pcs or 1)
+
+
 def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
                  worker_id: int | None, *, vr_date: date | None = None,
                  vr_time: str = "", pcs: int = 0, gross_wt: Any = None,
@@ -514,13 +535,38 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
         gross = net = None
 
     issue_ref = None
+    share = None
     if kind == "receive":
-        issue_ref = open_issue(session, step)
+        _iss, _out, open_ = step_shares(session, job, step)
+        # Split step: the receipt closes the issue to this worker.
+        issue_ref = next((v for v in open_ if v.worker_id == worker_id), None) \
+            or (open_[0] if open_ else None)
         if issue_ref is None:
             raise ProductionError(
                 "Nothing is out on this step - issue it to a worker before "
                 "receiving it back."
             )
+    else:
+        issued, out, open_ = step_shares(session, job, step)
+        total = _dec(job.pcs or 1)
+        if extra.get("share") not in (None, "", 0):
+            share = _dec(extra.get("share"))
+            if share <= 0:
+                raise ProductionError("The split share must be more than 0.")
+        if open_:
+            left = total - issued
+            if left <= 0:
+                raise ProductionError(
+                    "This step is already out in full - receive it back first.")
+            if share is None:
+                share = left
+            if share > left:
+                raise ProductionError(
+                    f"Only {left.normalize():f} pc of this step is left to issue.")
+        elif share is not None and share > total:
+            raise ProductionError(f"The job has {job.pcs} pc - a share cannot be more.")
+        if share is not None and share >= total and not open_:
+            share = None                       # the whole job: no split
     allow = extra.get("allow_loss_pct")
     if allow in (None, ""):
         allow = default_allow_loss_pct(session, step, issue_ref)
@@ -532,7 +578,7 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
         kind=kind, job_id=job.id, step_id=step.id,
         issue_id=issue_ref.id if issue_ref is not None else None,
         worker_id=worker_id, vr_date=vr_date or date.today(), vr_time=vr_time,
-        pcs=int(pcs or 0), gross_wt=gross, net_wt=net,
+        pcs=int(pcs or 0), share=share, gross_wt=gross, net_wt=net,
         stone_wt=stone_wt, extra=_dec(extra.get("extra")),
         finding=_dec(extra.get("finding")), mould=_dec(extra.get("mould")),
         wip_value=_dec(extra.get("wip_value")),
@@ -552,10 +598,12 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
     # Receiving the last step of the route finishes the job. ASSUMPTION: the
     # finished piece is "in stock" at that receipt (18 Sept Q8 - it may be the
     # MFG transfer instead once that module exists).
-    if kind == "receive" and job.steps and step.id == job.steps[-1].id:
+    session.flush()
+    if kind == "receive" and job.steps and step.id == job.steps[-1].id \
+            and step_done(session, job, step):
         job.status = "complete"
         job.completed_on = v.vr_date
-    session.flush()
+        session.flush()
     if kind == "issue":
         _claim_bag_movements(session, v)
     else:
@@ -698,8 +746,11 @@ def history_rows(session: Session, job: Job) -> list[HistoryRow]:
         rcv = receives.get(v.id)
         worker = session.get(Account, v.worker_id)
         detail = loss_detail(procs.get(step.id), v, rcv) if step.weight_bearing else None
+        name = worker.name if worker else ""
+        if v.share is not None:
+            name += f" ({_dec(v.share).normalize():f} pc)"
         rows.append(HistoryRow(step=step, process=procs.get(step.id), issue=v,
-                               receive=rcv, worker=worker.name if worker else "",
+                               receive=rcv, worker=name,
                                loss=detail.loss if detail else None, detail=detail))
     for s in job.steps:
         if s.id not in touched:
@@ -712,13 +763,17 @@ def job_summary(session: Session, job: Job) -> dict[str, Any]:
     """The block under Job History: PND (steps not started, by short code),
     WIP (issued, not back), Rejection, MFG transfer counts, total pcs."""
     rows = history_rows(session, job)
-    started = {r.step.id for r in rows if r.issue is not None}
     pnd_parts = []
+    total = _dec(job.pcs or 1)
+    wip = ZERO
     for s in job.steps:
-        if s.id not in started:
+        issued, out, _open = step_shares(session, job, s)
+        wip += out
+        if issued < total:
             p = session.get(ManufacturingProcess, s.process_id)
-            pnd_parts.append(f"{(p.short_code or p.name) if p else '?'} {job.pcs}")
-    wip = sum(1 for r in rows if r.issue is not None and r.receive is None)
+            pnd_parts.append(f"{(p.short_code or p.name) if p else '?'} "
+                             f"{(total - issued).normalize():f}")
+    wip = wip.normalize() if wip else 0
     rejection = sum(int(r.receive.rej_pcs or 0) for r in rows if r.receive is not None)
     order = session.get(Order, job.order_id) if job.order_id else None
     return {
@@ -1317,16 +1372,11 @@ def current_step(session: Session, job: Job) -> tuple[JobStep | None, JobVoucher
     """The step a job is at: the first route step not yet received back, and
     the issue that has it out (None when it is waiting to be issued)."""
     for step in job.steps:
-        issues = session.scalars(select(JobVoucher).where(
-            JobVoucher.step_id == step.id, JobVoucher.kind == "issue")
-            .order_by(JobVoucher.id)).all()
-        if not issues:
-            return step, None
-        received = {v.issue_id for v in session.scalars(select(JobVoucher).where(
-            JobVoucher.step_id == step.id, JobVoucher.kind == "receive"))}
-        open_ = [v for v in issues if v.id not in received]
+        issued, _out, open_ = step_shares(session, job, step)
         if open_:
             return step, open_[0]
+        if issued < _dec(job.pcs or 1):        # not started, or a split share left
+            return step, None
     return None, None
 
 
@@ -1338,6 +1388,15 @@ def last_weights(session: Session, job: Job) -> tuple[Decimal | None, Decimal | 
     ).first()
     if v is None:
         return None, None
+    if v.kind == "receive":
+        issue = session.get(JobVoucher, v.issue_id) if v.issue_id else None
+        if issue is not None and issue.share is not None:
+            # A split step: the piece is whole again only with every share back.
+            backs = session.scalars(select(JobVoucher).where(
+                JobVoucher.step_id == v.step_id, JobVoucher.kind == "receive",
+                JobVoucher.net_wt.is_not(None))).all()
+            return (sum((_dec(b.gross_wt) for b in backs), ZERO),
+                    sum((_dec(b.net_wt) for b in backs), ZERO))
     return (_dec(v.gross_wt) if v.gross_wt is not None else None), _dec(v.net_wt)
 
 
@@ -1460,7 +1519,9 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
     step = session.get(JobStep, ln["step_id"])
     who = worker_id
     if kind == "receive":
-        out = open_issue(session, step)
+        _iss, _left, open_ = step_shares(session, job, step)
+        out = next((v for v in open_ if worker_id and v.worker_id == worker_id), None) \
+            or (open_[0] if open_ else None)
         if out is None:
             raise ProductionError(f"Job {job.job_no}: nothing is out on this step - "
                                   "issue it before receiving it back.")
