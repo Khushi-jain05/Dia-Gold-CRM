@@ -53,6 +53,7 @@ from diagold.db.models.pricing import (PriceChart, PriceChartLabour, PriceChartS
                                         PriceChartStone)
 from diagold.db.models.stock_tools import StockRecon, StockReconScan
 from diagold.db.models.admin import AuditLog
+from diagold.db.models.service import Complaint, ComplaintLine, GatePass
 from diagold.db.models.manufacturing import (
     DeletionLog,
     MfgTransfer,
@@ -90,6 +91,7 @@ from diagold.db.models.sku import (
 )
 
 __all__ = [
+    "Complaint", "ComplaintLine", "GatePass",
     "AuditLog",
     "StockRecon", "StockReconScan",
     "PriceChart", "PriceChartLabour", "PriceChartSetting", "PriceChartStone",

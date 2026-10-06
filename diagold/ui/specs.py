@@ -5,6 +5,9 @@ from datetime import date
 from decimal import Decimal
 
 from diagold.db.models import (
+    Complaint,
+    ComplaintLine,
+    GatePass,
     PriceChart,
     Account,
     InventoryReturn,
@@ -1823,5 +1826,86 @@ _register(CrudSpec(
                         "{{#steps}} seq process short due_date worker status {{/steps}}, "
                         "{{#stones}} particulars size type req_pcs req_wt bal_pcs bal_wt "
                         "unit {{/stones}}, {{#findings}} particulars pcs weight {{/findings}}."),
+    ],
+))
+
+
+# --------------------------------------------------------------------------
+# Tools ▸ Register a Complaint, Gatepass (5 Oct §4.14, T-10 - confirm use, Q5)
+# --------------------------------------------------------------------------
+def _prepare_complaint(values: dict, children: dict, session) -> None:
+    if not values.get("comp_no"):
+        values["comp_no"] = production.next_number(session, Complaint.comp_no)
+
+
+def _svc(name: str):
+    return lambda w, sel: getattr(__import__("diagold.ui.service", fromlist=[name]), name)(w, sel)
+
+
+_register(CrudSpec(
+    key="tools.register_complaint",
+    title="Complaint Registration",
+    model=Complaint,
+    order_by="-comp_no",
+    date_field="comp_date",
+    search_hint="Search by SKU, complaint…",
+    before_save=_prepare_complaint,
+    extra_buttons=[("Lookup History", _svc("complaint_lookup")),
+                   ("Close", _svc("complaint_close")),
+                   ("Complaint Register", _svc("complaint_register"))],
+    fields=[
+        Field("comp_no", "Comp No", type="int", readonly=True, help_text="Allotted on save."),
+        Field("comp_date", "Date", type="date", default=date.today, required=True),
+        Field("comp_from", "Complaint From", type="choice", choices=list(Complaint.FROM),
+              default="Customer"),
+        Field("account_id", "Account", type="fk", fk_model=Account, fk_label=_account_label),
+        Field("job_no", "JOB#", type="int"),
+        Field("stock_no", "STOCK#", type="int"),
+        Field("sku", "SKU"),
+        Field("complaint", "Complaint", type="text", rows=3),
+        Field("lines", "Details", type="child", in_list=False,
+              child=ChildSpec(model=ComplaintLine, fk_attr="complaint_id", order_by="id",
+                              fields=[Field("comp_type", "Comp. Type"),
+                                      Field("complaint", "Complaint"),
+                                      Field("related_person", "Related Person"),
+                                      Field("remark", "Remark")])),
+        Field("status", "Status", type="choice", choices=["Open", "Closed"], default="Open"),
+        Field("closed_on", "Closed On", type="date", in_list=False),
+        Field("resolution", "Resolution", in_list=False),
+    ],
+))
+
+
+def _prepare_gatepass(values: dict, children: dict, session) -> None:
+    if not values.get("gp_no"):
+        values["gp_no"] = production.next_number(session, GatePass.gp_no)
+
+
+_register(CrudSpec(
+    key="tools.gatepass",
+    title="Gate Pass",
+    model=GatePass,
+    order_by="-gp_no",
+    date_field="gp_date",
+    search_hint="Search by destination, description, sealed no…",
+    before_save=_prepare_gatepass,
+    extra_buttons=[("Upload Picture", _svc("gatepass_photo")),
+                   ("Print", _svc("gatepass_print")),
+                   ("Register", _svc("gatepass_register"))],
+    fields=[
+        Field("gp_no", "GP#", type="int", readonly=True, help_text="Allotted on save."),
+        Field("gp_date", "Date", type="date", default=date.today, required=True),
+        Field("box_weight", "Box Weight", type="float", decimals=3),
+        Field("box_pcs", "Box Pcs", type="int"),
+        Field("box_description", "Box Description"),
+        Field("destination", "Destination", required=True),
+        Field("delivery_remark", "Delivery Remark", in_list=False),
+        Field("packed_by", "Packed By"),
+        Field("delivered_by", "Delivered By"),
+        Field("sealed_no", "Sealed Number"),
+        Field("received_by", "Received By"),
+        Field("received_date", "Received Date", type="date", in_list=False),
+        Field("receipt_remark", "Receipt Remark", in_list=False),
+        Field("confirmed", "CONFIRMED", type="bool", default=False),
     ],
 ))
