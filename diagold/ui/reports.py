@@ -1042,6 +1042,13 @@ class ReportWidget(QWidget):
             return
         self.set_adv_filter(dlg.conditions())
 
+    def selected_rows(self, all_if_none: bool = True) -> list[dict]:
+        """The data rows picked in the grid (subtotals skipped) - or, with
+        nothing picked, every row the filters leave (Catalog / Tag Print)."""
+        picked = sorted({i.row() for i in self.view.selectionModel().selectedIndexes()})
+        rows = [r for k, r in (self.model.row_at(i) or ("", {}) for i in picked) if k == "row"]
+        return rows if rows or not all_if_none else list(self._filtered)
+
     def toggle_images(self) -> None:
         self.show_images = not self.show_images
         self.view.verticalHeader().setDefaultSectionSize(60 if self.show_images else 26)
@@ -1494,7 +1501,8 @@ def build_specs() -> dict[str, ReportSpec]:
 
     from diagold.ui.job_costing import job_costing_spec
 
-    return {
+    from diagold.ui import stock_tools as _stock
+    return {**_stock.specs(),
         "job_costing": job_costing_spec(),
         **_register_specs(money, wt, pcs),
         **_sale_specs(money, wt, pcs),
@@ -1853,6 +1861,7 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
                    "account_ledger")),
     ("Manufacturing", ("job_costing", "pending_mfg_transfer", "mfg_transfer_day_book",
                        "ready_stock")),
+    ("Ready Stock", ("ready_stock", "ready_closing_stock", "sku_status")),
     ("Sale", ("rs_sale_register", "rs_approval_register", "rs_approval_balance",
               "rs_approval_analysis", "metal_sale_register", "stone_sale_register",
               "stone_approval_register", "stone_approval_analysis", "repair_register")),

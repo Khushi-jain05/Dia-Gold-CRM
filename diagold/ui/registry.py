@@ -38,6 +38,13 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "production_planning.day_book":
         lambda user: ReportWidget(build_specs()["order_day_book"], user),
     "tools.option": lambda user: OptionsWidget(user),
+    # Stock tools (5 Oct T-09)
+    "tools.stock_reconciliation": lambda user: __import__(
+        "diagold.ui.stock_tools", fromlist=["StockReconWidget"]).StockReconWidget(user),
+    "tools.barcode_catalog": lambda user: __import__(
+        "diagold.ui.stock_tools", fromlist=["BarcodeCatalogWidget"]).BarcodeCatalogWidget(user),
+    "tools.stock_view": lambda user: __import__(
+        "diagold.ui.stock_tools", fromlist=["StockViewWidget"]).StockViewWidget(user),
     # Client price charts (5 Oct T-05)
     "tools.client_labour_price": lambda user: __import__(
         "diagold.ui.price_charts", fromlist=["PriceChartWidget"]).PriceChartWidget("labour", user),
@@ -92,7 +99,8 @@ REPORT_MENUS: dict[str, list[tuple[str | None, tuple[str, ...]]]] = {
     "manufacturing.reports": [(t, _SECTIONS[t]) for t in ("Manufacturing", "Registers",
                                                          "Karigar")],
     "inventory.reports": [(t, _SECTIONS[t]) for t in ("Inventory", "Registers", "Karigar")],
-    "sale.reports": [(None, _SECTIONS["Sale"] + ("ready_stock", "client_metal_os",
+    "sale.reports": [(None, _SECTIONS["Sale"] + ("ready_stock", "ready_closing_stock",
+                                                 "sku_status", "client_metal_os",
                                                  "account_ledger"))],
     "purchase.reports": [(None, ("rp_register", "inv_metal_day_book", "inv_stone_day_book",
                                  "account_ledger"))],

@@ -150,6 +150,8 @@ MENU: list[MenuGroup] = [
         ("backup", "Backup"),
         ("read_barcode", "Read Barcode"),
         ("stock_reconciliation", "Stock Reconciliation"),
+        ("stock_view", "Stock View"),
+        ("barcode_catalog", "Barcode Catalog"),
         ("client_stone_price", "Client Wise Stone Price"),
         ("client_labour_price", "Client Wise Labour Price"),
         ("client_setting_price", "Client Wise Setting Price"),

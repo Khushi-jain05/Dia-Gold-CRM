@@ -319,6 +319,14 @@ with SessionLocal() as s:
     check("price chart: family rule in the 10-20 g slab wins", (v["labour_rate"], v["labour"]),
           (D("900"), (D("900") * D(str(pc_info["net_wt"]))).quantize(D("0.01"))))
     s.rollback()
+    from diagold.services import stock_tools as STK
+    in_stock = [str(n) for n in s.scalars(select(StockItem.stock_no).where(StockItem.status == "in_stock"))]
+    rc = STK.new_recon(s, T)
+    STK.add_scans(s, rc, in_stock[1:] + ["999999"])
+    res = STK.reconcile(s, rc)
+    check("reconciliation: one piece not scanned -> exactly 1 missing, 1 unknown",
+          (len(res["ok"]), len(res["missing"]), len(res["unknown"])), (len(in_stock) - 1, 1, 1))
+    s.rollback()
     led = INV.account_ledger(s, *FY)
     test_sup = [r for r in led if r["ledger"] == "TEST SUPPLIER"]
     check("TEST SUPPLIER closing (stone 14,960 + metal 4,34,033.50 + ready 79,045.36 - return)",
