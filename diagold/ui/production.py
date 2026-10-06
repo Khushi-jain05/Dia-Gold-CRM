@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QTableView,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -2522,16 +2523,25 @@ class OrderDayBookWidget(QWidget):
 # Options (Tools > Option) - the Production-Planning menu switches (T-07)
 # --------------------------------------------------------------------------
 class OptionsWidget(QWidget):
+    """Tools ▸ Option: the legacy settings tree (5 Oct §4.6) and the menu
+    switches."""
+
     nav_changed = Signal()
 
     def __init__(self, user=None, parent=None):
         super().__init__(parent)
+        self.user = user
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 20, 24, 20)
         outer.setSpacing(12)
         h1 = QLabel("Options")
         h1.setObjectName("H1")
         outer.addWidget(h1)
+        tabs = QTabWidget()
+        outer.addWidget(tabs, 1)
+        tabs.addTab(self._settings_page(), "Settings")
+        page = QWidget()
+        pl = QVBoxLayout(page)
         box = QGroupBox("Production Planning menu")
         bl = QVBoxLayout(box)
         note = QLabel("The client said only two of these are used day to day and the rest "
@@ -2549,7 +2559,7 @@ class OptionsWidget(QWidget):
                 cb.setChecked(settings.menu_visible(item.key, s))
                 self.checks[item.key] = cb
                 bl.addWidget(cb)
-        outer.addWidget(box)
+        pl.addWidget(box)
         hbox = QGroupBox("Other menu items - off unless the client wants them back")
         hl = QVBoxLayout(hbox)
         with SessionLocal() as s:
@@ -2558,54 +2568,9 @@ class OptionsWidget(QWidget):
                 cb.setChecked(settings.menu_visible(key, s))
                 self.checks[key] = cb
                 hl.addWidget(cb)
-        outer.addWidget(hbox)
-        fbox = QGroupBox("Behaviour")
-        fl = QVBoxLayout(fbox)
-        self.flags: dict[str, QCheckBox] = {}
-        with SessionLocal() as s:
-            for key, (label, default) in settings.FLAGS.items():
-                cb = QCheckBox(label)
-                cb.setChecked(settings.flag(key, default, s))
-                self.flags[key] = cb
-                fl.addWidget(cb)
-            # 28 Sept Q6: what Inventory does when a voucher takes a location
-            # below zero.
-            row = QHBoxLayout()
-            row.addWidget(QLabel("Inventory: when a location would go below zero"))
-            self.negative = QComboBox()
-            for mode, text in (("warn", "Warn, then allow (default)"),
-                               ("block", "Block the save"), ("allow", "Allow silently")):
-                self.negative.addItem(text, mode)
-            current = settings.get_setting(s, "inventory.negative_stock", "warn")
-            self.negative.setCurrentIndex(max(self.negative.findData(current), 0))
-            row.addWidget(self.negative)
-            row.addStretch(1)
-            fl.addLayout(row)
-            # 28 Sept Q5: how the tag prints the price (3,05,330.12 -> "305").
-            from diagold.services import mfg_pricing
-            row2 = QHBoxLayout()
-            row2.addWidget(QLabel("Tag price on the tag"))
-            self.tag_rule = QComboBox()
-            for key, (label, _fn) in mfg_pricing.TAG_FORMATTERS.items():
-                self.tag_rule.addItem(label, key)
-            cur = settings.get_setting(s, mfg_pricing.TAG_DISPLAY_SETTING, "thousands")
-            self.tag_rule.setCurrentIndex(max(self.tag_rule.findData(cur), 0))
-            row2.addWidget(self.tag_rule)
-            row2.addStretch(1)
-            fl.addLayout(row2)
-            # 5 Oct (verified, ABHIJEET DAS): the allowance is % x the weight
-            # ISSUED; a 28 Sept example matched the weight returned (Q).
-            row3 = QHBoxLayout()
-            row3.addWidget(QLabel("Loss allowance worked on"))
-            self.alw_basis = QComboBox()
-            self.alw_basis.addItem("Weight issued (default, 5 Oct)", "issued")
-            self.alw_basis.addItem("Weight received back", "received")
-            cur = settings.get_setting(s, production.ALLOWANCE_BASIS_SETTING, "issued")
-            self.alw_basis.setCurrentIndex(max(self.alw_basis.findData(cur), 0))
-            row3.addWidget(self.alw_basis)
-            row3.addStretch(1)
-            fl.addLayout(row3)
-        outer.addWidget(fbox)
+        pl.addWidget(hbox)
+        pl.addStretch(1)
+        tabs.addTab(page, "Menu")
         bar = QHBoxLayout()
         b = QPushButton("Save")
         b.setObjectName("Primary")
@@ -2613,24 +2578,73 @@ class OptionsWidget(QWidget):
         bar.addWidget(b)
         bar.addStretch(1)
         outer.addLayout(bar)
-        outer.addStretch(1)
+
+    def _settings_page(self) -> QWidget:
+        """Sections ▸ Particulars / Value / Description / Changed by."""
+        from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
+        self.tree = QTreeWidget()
+        self.tree.setColumnCount(4)
+        self.tree.setHeaderLabels(["Particulars", "Value", "Description", "Changed by / at"])
+        self.tree.setColumnWidth(0, 300)
+        self.tree.setColumnWidth(1, 200)
+        self.tree.setColumnWidth(2, 420)
+        self.editors: dict[str, QWidget] = {}
+        from diagold.services import mfg_pricing
+        with SessionLocal() as s:
+            for section in settings.SECTIONS:
+                top = QTreeWidgetItem([section])
+                f = top.font(0)
+                f.setBold(True)
+                top.setFont(0, f)
+                self.tree.addTopLevelItem(top)
+                items = [st for st in settings.SETTINGS_TREE if st.section == section]
+                if not items:
+                    QTreeWidgetItem(top, ["(no settings yet)"])
+                for st in items:
+                    who, at = settings.changed_info(s, st.key)
+                    it = QTreeWidgetItem(top, [st.label, "", st.description,
+                                               f"{who} {at:%d-%m-%Y %H:%M}" if at else ""])
+                    value = settings.get_setting(s, st.key, st.default)
+                    if st.kind == "bool":
+                        ed = QComboBox()
+                        ed.addItem("True", "1")
+                        ed.addItem("False", "0")
+                        ed.setCurrentIndex(0 if value == "1" else 1)
+                    elif st.kind == "choice":
+                        ed = QComboBox()
+                        choices = st.choices
+                        if st.key == mfg_pricing.TAG_DISPLAY_SETTING:
+                            choices = tuple((k, lbl) for k, (lbl, _f)
+                                            in mfg_pricing.TAG_FORMATTERS.items())
+                        for k, lbl in choices:
+                            ed.addItem(lbl, k)
+                        ed.setCurrentIndex(max(ed.findData(value), 0))
+                    else:
+                        ed = QLineEdit(value)
+                    self.editors[st.key] = ed
+                    self.tree.setItemWidget(it, 1, ed)
+                top.setExpanded(True)
+        return self.tree
+
+    def _values(self) -> dict[str, str]:
+        out = {}
+        for key, ed in self.editors.items():
+            out[key] = ed.currentData() if isinstance(ed, QComboBox) else ed.text().strip()
+        return out
 
     def _save(self) -> None:
         if not confirm_save(self, "the options"):
             return
+        who = getattr(self.user, "username", "") or ""
         with SessionLocal() as s:
             for key, cb in self.checks.items():
                 settings.set_menu_visible(s, key, cb.isChecked())
-            for key, cb in self.flags.items():
-                settings.set_flag(s, key, cb.isChecked())
-            settings.set_setting(s, "inventory.negative_stock", self.negative.currentData())
-            settings.set_setting(s, "pricing.tag_display", self.tag_rule.currentData())
-            settings.set_setting(s, production.ALLOWANCE_BASIS_SETTING,
-                                 self.alw_basis.currentData())
+            for key, value in self._values().items():
+                settings.set_setting(s, key, value, who)
             s.commit()
         production._basis_cache = (-1e9, "issued")   # read the new basis at once
         self.nav_changed.emit()
-        _info(self, "Options", "Saved. The menu has been updated.")
+        _info(self, "Options", "Saved. The menu and settings have been updated.")
 
 
 # --------------------------------------------------------------------------

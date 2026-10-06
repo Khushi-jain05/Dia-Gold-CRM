@@ -320,6 +320,14 @@ with SessionLocal() as s:
           (D("900"), (D("900") * D(str(pc_info["net_wt"]))).quantize(D("0.01"))))
     s.rollback()
     from diagold.services import stone_reports as SRP
+    from diagold.services import admin as ADM
+    ojob = s.scalar(select(Job).where(Job.status.in_(("mapped", "in_progress"))))
+    refused("a correction without a reason", lambda: ADM.update_job(s, ojob, "c_ref", "X", ""))
+    pcs0 = ojob.pcs
+    ADM.add_pcs(s, ojob, 1, "client added one")
+    check("Add Pcs in Job Card: +1, logged", (ojob.pcs, ADM.audit_rows(s, *FY)[0]["kind"]),
+          (pcs0 + 1, "job_add_pcs"))
+    s.rollback()
     from diagold.services import sales_reports as SRR
     sreg = SRR.sales_register(s, *FY)
     check("Sales Register: the sold piece is marked RETURN Y", [(r["vrtype"], r["ret"]) for r in sreg],

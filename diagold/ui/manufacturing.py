@@ -267,6 +267,10 @@ class TagListDialog(QDialog):
             _info(self, "Print", "The tag list is empty.")
             return
         printer = QPrinter()
+        from diagold.services import settings as _settings
+        name = _settings.opt("opt.printer_name").strip()
+        if name:
+            printer.setPrinterName(name)        # Tools > Option > Printer Name
         if QPrintDialog(printer, self).exec() != QDialog.DialogCode.Accepted:
             return
         doc = QTextDocument()
@@ -768,8 +772,13 @@ class MfgTransferWidget(_Screen):
                 return
             t = s.get(MfgTransfer, tid)
             import json as _json
-            parts = [f"<h2>MFG Ready Stock Transfer — Vr {t.vr_no} dt {t.vr_date:%d-%m-%Y}"
-                     + (f" · Ref {t.ref_no}" if t.ref_no else "") + "</h2>"]
+            from diagold.services import admin as ADM
+            lay = ADM.layout(s, "MFG TRANSFER")       # Advance Options ▸ Print Layouts
+            parts = [f"<h2>{lay['title'] or 'MFG Ready Stock Transfer'} — Vr {t.vr_no} dt "
+                     f"{t.vr_date:%d-%m-%Y}"
+                     + (f" · Ref {t.ref_no}" if t.ref_no else "") + "</h2>"
+                     + (f"<p>{lay['header'].replace(chr(10), '<br>')}</p>" if lay["header"]
+                        else "")]
             items = {i.line_id: i for i in mfg.stock_for_transfer(s, t)}
             for l in t.lines:
                 job = s.get(Job, l.job_id)
@@ -808,6 +817,8 @@ class MfgTransferWidget(_Screen):
                     f"{l.margin_amount:,.2f}</td></tr>"
                     f"<tr><td><b>Price / pcs</b></td><td>Tag {l.tag_text}</td>"
                     f"<td align=right><b>{l.price_per_pcs:,.2f}</b></td></tr></table>")
+            if lay["footer"]:
+                parts.append(f"<p>{lay['footer'].replace(chr(10), '<br>')}</p>")
         path = documents.PRINT_DIR / f"mfg_transfer_f2_{datetime.now():%Y%m%d-%H%M%S}.pdf"
         documents.to_pdf("".join(parts), path)
         _info(self, "Format-2", f"Saved {path}")

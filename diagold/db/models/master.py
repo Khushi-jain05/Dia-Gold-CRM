@@ -71,6 +71,9 @@ class Account(Base, PKMixin, TimestampMixin):
     # Client-wise price chart (5 Oct T-05) - "Prices From Client Chart".
     price_chart_id: Mapped[int | None] = mapped_column(ForeignKey("price_charts.id"),
                                                        nullable=True)
+    # Print layout per client (5 Oct §4.14): DEFAULT or the CLIENT layout.
+    invoice_layout: Mapped[str] = mapped_column(String(8), default="DEFAULT")
+    packing_layout: Mapped[str] = mapped_column(String(8), default="DEFAULT")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # One master creates every party. Type is mainly a filter.

@@ -69,6 +69,26 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("F12"), self, activated=self._more_reports)
 
         self._open_dashboard()
+        self._prompt_metal_prices()
+
+    def _prompt_metal_prices(self) -> None:
+        """Tools > Option "Prompt Daily Metal Prices": no rate entered for
+        today -> open Daily Metal Rate at login."""
+        from datetime import date
+
+        from sqlalchemy import select
+
+        from diagold.db.models import DailyMetalRate
+        from diagold.db.session import SessionLocal
+        from diagold.services import settings
+        with SessionLocal() as s:
+            if not settings.opt_on("opt.prompt_metal_prices", s):
+                return
+            if s.scalar(select(DailyMetalRate.id).where(DailyMetalRate.rate_date == date.today())):
+                return
+        self._open_by_key("master.daily_metal_rate")
+        self.statusBar().showMessage("Enter today's metal rates (Prompt Daily Metal Prices).",
+                                     10000)
 
     # -- menu bar ----------------------------------------------------
     def _build_menubar(self) -> None:

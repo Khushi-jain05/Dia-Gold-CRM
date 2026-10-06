@@ -40,6 +40,13 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "tools.option": lambda user: OptionsWidget(user),
     "reports.sales_dashboard": lambda user: __import__(
         "diagold.ui.sales_reports", fromlist=["SalesDashboardWidget"]).SalesDashboardWidget(user),
+    # Admin (5 Oct T-11)
+    "tools.advance_options": lambda user: __import__(
+        "diagold.ui.admin", fromlist=["AdvanceOptionsWidget"]).AdvanceOptionsWidget(user),
+    "tools.backup": lambda user: __import__(
+        "diagold.ui.admin", fromlist=["BackupWidget"]).BackupWidget(user),
+    "tools.audit_log": lambda user: ReportWidget(__import__(
+        "diagold.ui.admin", fromlist=["audit_spec"]).audit_spec(), user),
     # Stock tools (5 Oct T-09)
     "tools.stock_reconciliation": lambda user: __import__(
         "diagold.ui.stock_tools", fromlist=["StockReconWidget"]).StockReconWidget(user),

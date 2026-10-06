@@ -548,6 +548,9 @@ class ReadyVoucherWidget(_Screen):
         self.mode = QComboBox()
         self.mode.addItems(["Bill", "Cash"])
         self.mode.currentIndexChanged.connect(lambda _i: self._render())
+        from diagold.services import settings as _settings
+        if not _settings.opt_on("opt.multi_currency"):
+            self.currency.setEnabled(False)        # Allow Multi-Currency off: INR only
         if vr_type in ("rs_sale", "rs_sale_return"):
             for w in (QLabel("Mode"), self.mode, QLabel("Currency"), self.currency,
                       QLabel("Credit Days"), self.credit, self.due, self.salesperson, self.bank):
@@ -1174,36 +1177,48 @@ class ReadyVoucherWidget(_Screen):
         if vid is None:
             return
         from diagold.services import documents
+        from diagold.services import admin as ADM
         with SessionLocal() as s:
             v = s.get(ReadyVoucher, vid)
             a = s.get(Account, v.account_id) if v.account_id else None
+            # Sale Invoice: the client's layout or the default (5 Oct §4.14).
+            lay = ADM.layout_for(s, "SALE INVOICE", v.account_id)[1] \
+                if self.vr_type == "rs_sale" else dict(ADM.LAYOUT_DEFAULT)
             rows = []
             for l in v.lines:
                 item = s.get(StockItem, l.stock_item_id) if l.stock_item_id else None
                 sku = s.get(ProductSku, l.product_sku_id) if l.product_sku_id else None
-                rows.append(
-                    f"<tr><td>{l.sno}</td><td>{item.stock_no if item else ''}</td>"
-                    f"<td>{sku.sku_code if sku else ''}</td><td align=right>{l.pcs}</td>"
-                    f"<td align=right>{D(str(l.gross_wt)):.3f}</td>"
-                    f"<td align=right>{D(str(l.net_wt)):.3f}</td>"
+                prices = (
                     f"<td align=right>{D(str(l.metal_rate)):,.2f}</td>"
                     f"<td align=right>{D(str(l.metal_amount)):,.2f}</td>"
                     f"<td align=right>{D(str(l.stone_amount)):,.2f}</td>"
                     f"<td align=right>{D(str(l.labour)):,.2f}</td>"
-                    f"<td align=right><b>{D(str(l.total)):,.2f}</b></td></tr>")
-            html = (f"<h2>{self.t.title} — Vr {v.vr_no}</h2>"
-                    f"<p>Date {v.vr_date:%d-%m-%Y} {v.vr_time or ''} · {a.name if a else ''}"
+                    f"<td align=right><b>{D(str(l.total)):,.2f}</b></td>"
+                    if lay["show_prices"] else "")
+                rows.append(
+                    f"<tr><td>{l.sno}</td><td>{item.stock_no if item else ''}</td>"
+                    f"<td>{sku.sku_code if sku else ''}</td><td align=right>{l.pcs}</td>"
+                    f"<td align=right>{D(str(l.gross_wt)):.3f}</td>"
+                    f"<td align=right>{D(str(l.net_wt)):.3f}</td>{prices}</tr>")
+            heads = ("<th>Mt Rate</th><th>Metal</th><th>Stone</th><th>Labour</th><th>Total</th>"
+                     if lay["show_prices"] else "")
+            total_row = (f"<tr><td colspan=10 align=right><b>Total</b></td><td align=right><b>"
+                         f"{D(str(v.total)):,.2f}</b></td></tr>" if lay["show_prices"] else "")
+            html = (f"<h2>{lay['title'] or self.t.title} — Vr {v.vr_no}</h2>"
+                    + (f"<p>{lay['header'].replace(chr(10), '<br>')}</p>" if lay["header"]
+                       else "")
+                    + f"<p>Date {v.vr_date:%d-%m-%Y} {v.vr_time or ''} · {a.name if a else ''}"
                     + (f" · Ref {v.ref_no}" if v.ref_no else "")
                     + (f" · Credit {v.credit_days} days, due {v.due_date:%d-%m-%Y}"
                        if v.due_date else "") + "</p>"
                     "<table border=1 cellspacing=0 cellpadding=3 width=100%><tr><th>#</th>"
                     "<th>Barcode</th><th>SKU</th><th>Pcs</th><th>G-Wt</th><th>N-Wt</th>"
-                    "<th>Mt Rate</th><th>Metal</th><th>Stone</th><th>Labour</th><th>Total</th>"
-                    "</tr>" + "".join(rows) +
-                    f"<tr><td colspan=10 align=right><b>Total</b></td><td align=right><b>"
-                    f"{D(str(v.total)):,.2f}</b></td></tr></table>"
+                    + heads + "</tr>" + "".join(rows) + total_row + "</table>"
                     + ("<p><b>NOTE: Metal Rate Will Be Charged as on Date of Payment</b></p>"
-                       if self.vr_type == "rs_sale" else "") + f"<p>{v.remark or ''}</p>")
+                       if self.vr_type == "rs_sale" else "") + f"<p>{v.remark or ''}</p>"
+                    + (f"<p>{lay['footer'].replace(chr(10), '<br>')}</p>" if lay["footer"]
+                       else "")
+                    + ADM.declaration_html(s, self.vr_type))
             path = documents.PRINT_DIR / f"{self.vr_type}_{v.vr_no}.pdf"
         documents.to_pdf(html, path)
         _info(self, "Print", f"Saved {path}")
@@ -1324,6 +1339,14 @@ class ReadyVoucherWidget(_Screen):
         if vid is None:
             return
         head, rows = self._rows_for(vid)
+        from diagold.services import admin as ADM
+        with SessionLocal() as s:
+            v = s.get(ReadyVoucher, vid)
+            lay = ADM.layout_for(s, "PACKING LIST", v.account_id)[1]
+            decl = ADM.declaration_html(s, self.vr_type)
+        if lay["header"]:
+            head += "<br>" + lay["header"].replace("\n", "<br>")
+        foot = (f"<p>{lay['footer'].replace(chr(10), '<br>')}</p>" if lay["footer"] else "")
         body = "".join(f"<tr><td>{r['sno']}</td><td>{r['stock_no']}</td><td>{r['sku']}</td>"
                        f"<td>{r['metal']}</td><td align=right>{r['pcs']}</td>"
                        f"<td align=right>{r['g']:.3f}</td><td align=right>{r['n']:.3f}</td>"
@@ -1331,7 +1354,8 @@ class ReadyVoucherWidget(_Screen):
                        for r in rows)
         tot = lambda k: sum((r[k] for r in rows), D(0))          # noqa: E731
         self._pdf(f"{self.vr_type}_packing",
-                  f"<h2>Packing List</h2><p>{head}</p><table border=1 cellspacing=0 "
+                  f"<h2>{lay['title'] or 'Packing List'}</h2><p>{head}</p><table border=1 "
+                  "cellspacing=0 "
                   "cellpadding=3 width=100%><tr><th>#</th><th>Barcode</th><th>SKU</th>"
                   "<th>Metal</th><th>Pcs</th><th>Gross</th><th>Net</th><th>St Wt</th>"
                   "<th>Fine</th></tr>" + body +
@@ -1339,7 +1363,7 @@ class ReadyVoucherWidget(_Screen):
                   f"{sum(r['pcs'] for r in rows)}</b></td><td align=right><b>{tot('g'):.3f}</b>"
                   f"</td><td align=right><b>{tot('n'):.3f}</b></td><td align=right><b>"
                   f"{tot('st'):.3f}</b></td><td align=right><b>{tot('fine'):.3f}</b></td></tr>"
-                  "</table>")
+                  "</table>" + foot + decl)
 
     def picture_invoice(self) -> None:
         """Catalog / Picture Invoice: each piece with its photo."""

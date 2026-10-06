@@ -537,4 +537,7 @@ class AppSetting(Base, PKMixin):
     __tablename__ = "app_settings"
 
     key: Mapped[str] = mapped_column(String(80), unique=True)
-    value: Mapped[str] = mapped_column(String(255), default="")
+    value: Mapped[str] = mapped_column(Text, default="")
+    # Who changed it last, and when (5 Oct §4.6, T-11).
+    changed_by: Mapped[str] = mapped_column(String(80), default="")
+    changed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

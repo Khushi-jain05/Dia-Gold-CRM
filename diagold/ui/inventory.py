@@ -210,6 +210,8 @@ def voucher_spec(vr_type: str) -> CrudSpec:
                     "</th><th>Item</th><th>Size</th><th>Pcs</th><th>Weight</th><th>Fine</th>"
                     "<th>Price</th><th>Amount</th></tr>" + "".join(rows) + "</table>"
                     f"<p>{v.remark or ''}</p>")
+            from diagold.services import admin as ADM
+            html += ADM.declaration_html(s, vr_type)
             path = documents.PRINT_DIR / f"{vr_type}_{v.vr_no}.pdf"
         documents.to_pdf(html, path)
         QMessageBox.information(widget, "Print", f"Saved {path}")

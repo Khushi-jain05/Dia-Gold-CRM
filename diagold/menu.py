@@ -158,6 +158,7 @@ MENU: list[MenuGroup] = [
         ("register_complaint", "Register a Complaint"),
         ("gatepass", "Gatepass"),
         ("advance_options", "Advance Options"),
+        ("audit_log", "Audit Log"),
         ("change_password", "Change Password"),
     ]),
     _g("reports", "Reports", [

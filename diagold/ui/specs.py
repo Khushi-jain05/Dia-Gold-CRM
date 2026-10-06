@@ -59,7 +59,7 @@ from diagold.db.models import (
 from sqlalchemy import func, select
 
 from diagold.db.session import SessionLocal
-from diagold.services import costing, production, rates
+from diagold.services import costing, production, rates, settings
 from diagold.ui.crud import ChildSpec, CrudSpec, Field, Shortcut
 
 _metal_label = lambda m: f"{m.code} - {m.name}".strip(" -")
@@ -159,6 +159,11 @@ _register(CrudSpec(
               fk_label=lambda c: c.name, in_list=False,
               help_text="Client-wise price chart (Tools ▸ Client Wise … Price) - used on a "
                         "sale when Prices From Client Chart is ticked."),
+        Field("invoice_layout", "Sale Invoice Layout", type="choice",
+              choices=["DEFAULT", "CLIENT"], default="DEFAULT", in_list=False,
+              help_text="Tools ▸ Advance Options ▸ Print Layouts"),
+        Field("packing_layout", "Packing List Layout", type="choice",
+              choices=["DEFAULT", "CLIENT"], default="DEFAULT", in_list=False),
         Field("is_active", "Active", type="bool", default=True),
     ],
 ))
@@ -1462,6 +1467,48 @@ def _order_repair_list(widget, order) -> None:
                             f"{order.order_no}, each with its job.")
 
 
+def _order_print(widget, order) -> None:
+    """Order print (5 Oct §4.6): C-Ref when "C-ref Applicable", SKU
+    descriptions when "Add SKU Description", prices when "Show/Hide Price in
+    PrintOut", and the Order declaration at the foot."""
+    from PySide6.QtWidgets import QMessageBox
+    from diagold.services import admin as ADM, documents
+    if order is None:
+        QMessageBox.information(widget, "Print", "Select an order first.")
+        return
+    with SessionLocal() as s:
+        o = s.get(Order, order.id)
+        a = s.get(Account, o.account_id) if o.account_id else None
+        cref = settings.opt_on("opt.cref_applicable", s)
+        desc = settings.opt_on("opt.add_sku_description", s)
+        price = settings.opt_on("opt.show_price_in_print", s)
+        head = ("<tr><th>#</th><th>SKU</th>" + ("<th>Description</th>" if desc else "")
+                + ("<th>C-Ref</th>" if cref else "") + "<th>Metal</th><th>Colour</th>"
+                "<th>Size</th><th>Pcs</th><th>Delivery</th>"
+                + ("<th>Metal Amount</th>" if price else "") + "</tr>")
+        rows = []
+        for l in o.lines:
+            sku = s.get(ProductSku, l.product_sku_id) if l.product_sku_id else None
+            metal = s.get(Metal, l.metal_id) if l.metal_id else None
+            rows.append(
+                f"<tr><td>{l.sno}</td><td>{sku.sku_code if sku else ''}</td>"
+                + (f"<td>{l.sku_desc or (sku.description if sku else '')}</td>" if desc else "")
+                + (f"<td>{l.c_ref}</td>" if cref else "")
+                + f"<td>{metal.name if metal else ''}</td><td>{l.colour}</td><td>{l.size}</td>"
+                f"<td align=right>{l.pcs}</td>"
+                f"<td>{l.delivery_date.strftime('%d-%m-%Y') if l.delivery_date else ''}</td>"
+                + (f"<td align=right>{Decimal(str(l.metal_amount or 0)):,.2f}</td>"
+                   if price else "") + "</tr>")
+        html = (f"<h2>Order {o.order_no}</h2><p>Date {o.order_date:%d-%m-%Y} · "
+                f"{a.name if a else ''}" + (f" · Ref {o.ref}" if o.ref else "")
+                + (f" · Terms {o.terms}" if o.terms else "") + "</p>"
+                "<table border=1 cellspacing=0 cellpadding=3 width=100%>" + head
+                + "".join(rows) + "</table>" + ADM.declaration_html(s, "order"))
+        path = documents.PRINT_DIR / f"order_{o.order_no}.pdf"
+    documents.to_pdf(html, path)
+    QMessageBox.information(widget, "Print", f"Saved {path}")
+
+
 def _order_requirement_sheet(widget, order) -> None:
     """Stone Requirements for every job of the selected order (§4.1 action)."""
     from PySide6.QtWidgets import QMessageBox
@@ -1502,7 +1549,7 @@ _register(CrudSpec(
     after_save=_order_saved,
     before_delete=_order_delete,
     form_width=1180,
-    extra_buttons=[("Requirement Sheet", _order_requirement_sheet),
+    extra_buttons=[("Print", _order_print), ("Requirement Sheet", _order_requirement_sheet),
                    ("Day Book", _order_day_book), ("Repair List", _order_repair_list)],
     fields=[
         Field("order_no", "Ord No", type="int", readonly=True,
