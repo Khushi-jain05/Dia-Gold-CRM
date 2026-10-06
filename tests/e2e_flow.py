@@ -320,6 +320,9 @@ with SessionLocal() as s:
           (D("900"), (D("900") * D(str(pc_info["net_wt"]))).quantize(D("0.01"))))
     s.rollback()
     from diagold.services import stone_reports as SRP
+    ms = {(r["location"], r["metal"], r["where"]): r["net_wt"] for r in SRP.metal_summary(s, FY[1])}
+    check("Metal Summary INV = Metal Analysis closing (RAJESH JI 14KT 590)",
+          ms.get(("RAJESH JI", "14KT 590", "INV")), D("249.175"))
     lsb = {r["line"]: r for r in SRP.location_stone_balance(s, prim.id, *FY)}
     g = "pol"
     v = lambda line: lsb[line][f"{g}_wt"] or D(0)

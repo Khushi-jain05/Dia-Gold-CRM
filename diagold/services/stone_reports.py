@@ -232,3 +232,79 @@ def stone_summary(session: Session, date_to: date, *, groups_only: bool = False
                      "weight": w.quantize(D3), "value": v.quantize(Decimal("0.01")),
                      "_negative": p < 0 or w < 0})
     return rows
+
+
+# --------------------------------------------------------------------------
+# Metal Summary (5 Oct §4.11, T-08) - beside Metal Analysis, which stays as is
+# --------------------------------------------------------------------------
+METAL_STAGES = ("INV", "JC", "WIP_PND", "WIP", "WIP_@W")
+
+
+def metal_summary(session: Session, date_to: date) -> list[dict[str, Any]]:
+    """LOCATION, GROUP (GOLD / ALLOY / SILVER), TYPE (M), PURITY, WHERE,
+    NETWT, FINE as on the date.
+
+    INV     = the location's closing (Metal Analysis);
+    JC      = metal issued from inventory against a job number whose job has
+              not reached a karigar yet;
+    WIP_PND = a job waiting for its next process (last net weight);
+    WIP_@W  = a job step out with a karigar (net weight issued).
+    A job's metal belongs to the location its metal came from (F5 / metal
+    issue), else "(factory)". WIP (in process) is not told apart from
+    WIP_@W here - every step in process is with a karigar."""
+    from diagold.db.models import InvVoucher, InvVoucherLine, Metal
+    from diagold.services import costing, inventory, registers
+    acc: dict[tuple, list] = {}
+    metals: dict[int | None, Any] = {}
+
+    def metal_of(mid):
+        if mid not in metals:
+            metals[mid] = session.get(Metal, mid) if mid else None
+        return metals[mid]
+
+    def add(loc_name: str, mid, where: str, wt: Decimal) -> None:
+        m = metal_of(mid)
+        pf = costing.purity_fraction(m) if m else ZERO
+        a = acc.setdefault((loc_name, (m.base_metal if m else "") or "", mid, where),
+                           [ZERO, ZERO])
+        a[0] += wt
+        a[1] += wt * pf
+
+    for r in inventory.metal_analysis(session, date(2000, 1, 1), date_to):
+        add(r["location"], r["_metal_id"], "INV", r["closing"])
+    # Where each job's metal came from.
+    job_loc: dict[int, str] = {}
+    for m in session.scalars(select(StockMovement).where(
+            StockMovement.material_class == "metal", StockMovement.job_id.is_not(None))):
+        if m.job_id not in job_loc:
+            l = session.get(Location, m.location_id)
+            job_loc[m.job_id] = l.name if l else "(factory)"
+    started: set[int] = set()
+    for r in registers.wip_register(session, date(2000, 1, 1), date_to):
+        job = session.get(Job, r["_job_id"])
+        started.add(job.id)
+        where = "WIP_@W" if r["type"] == "WIP" else "WIP_PND"
+        add(job_loc.get(job.id, "(factory)"), job.metal_id, where, _dec(r["n_wt"]))
+    q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
+         .where(InvVoucher.vr_type == "metal_issue", InvVoucher.vr_date <= date_to,
+                InvVoucherLine.job_no.is_not(None)))
+    for line, v in session.execute(q):
+        job = session.scalar(select(Job).where(Job.job_no == line.job_no))
+        if job is None or job.id in started or job.status not in ("pending", "mapped"):
+            continue
+        l = session.get(Location, line.location_id) if line.location_id else None
+        add(l.name if l else "(factory)", line.metal_id, "JC", _dec(line.weight))
+    order = {w: i for i, w in enumerate(METAL_STAGES)}
+    rows = []
+    for (loc_name, group, mid, where), (wt, fine) in sorted(
+            acc.items(), key=lambda kv: (kv[0][0].lower(), kv[0][1], str(kv[0][2]),
+                                         order[kv[0][3]])):
+        if not wt:
+            continue
+        m = metal_of(mid)
+        rows.append({"location": loc_name, "group": group, "type": "M",
+                     "metal": m.name if m else "?",
+                     "purity": (costing.purity_fraction(m) * 1000).quantize(Decimal("0.1"))
+                     if m else None, "where": where, "net_wt": wt.quantize(D3),
+                     "fine": fine.quantize(D3), "_negative": wt < 0})
+    return rows

@@ -1836,6 +1836,18 @@ def build_specs() -> dict[str, ReportSpec]:
                  "add what was issued from here and is still in work: Job Card (in the job's "
                  "bag) and WIP (with karigars / in pieces being made). Negative closings in "
                  "red."),
+        "metal_summary": ReportSpec(
+            key="metal_summary", title="Metal Summary",
+            columns=static([Col("location", "LOCATION"), Col("group", "GROUP"),
+                            Col("type", "TYPE"), Col("metal", "METAL"),
+                            Col("purity", "PURITY", "measure", 1), Col("where", "WHERE"),
+                            wt("net_wt", "NETWT"), wt("fine", "FINE")]),
+            query=lambda s, a, b, **_k: SR.metal_summary(s, b), date_mode="to",
+            group_by="location", filter_column="where", negative_key="_negative",
+            note="Metal by location and stage, as on the date (Metal Analysis stays as it is). "
+                 "INV = the location's closing; JC = metal issued against a job not yet with a "
+                 "karigar; WIP_PND = jobs waiting for the next process; WIP_@W = job steps out "
+                 "with karigars. A job's metal sits with the location it came from."),
         "stone_summary": ReportSpec(
             key="stone_summary", title="Stone Summary",
             columns=static([Col("location", "LOCATION"), Col("group", "GROUP"),
@@ -1907,7 +1919,8 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Outstanding", ("inv_rtn_os_stone", "job_os_stone")),
     ("Analysis", ("job_analysis", "process_analysis", "job_card_analysis_stone",
                   "job_stock_analysis")),
-    ("Inventory", ("metal_analysis", "worker_metal_balance", "inv_metal_day_book",
+    ("Inventory", ("metal_analysis", "metal_summary", "worker_metal_balance",
+                   "inv_metal_day_book",
                    "inv_stone_day_book", "transfer_register", "melting_list",
                    "account_ledger")),
     ("Manufacturing", ("job_costing", "pending_mfg_transfer", "mfg_transfer_day_book",
