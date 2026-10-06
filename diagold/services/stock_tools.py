@@ -89,6 +89,10 @@ def piece_row(session: Session, item: StockItem, c: _Cache | None = None,
     net, gross = _dec(item.net_wt), _dec(item.gross_wt)
     stones = stones_of(session, item)
     st_wt = sum((_dec(s.get("weight")) for s in stones), ZERO)
+    from diagold.services import sales
+    groups = {"DIAMOND": ZERO, "POLKI": ZERO, "COLOR STONE": ZERO}
+    for st in stones:
+        groups[sales.stone_block(st)] += sales.stone_amount(st)
     rate = production.metal_price(session, metal_id, on_date or date.today())
     pcs = int(item.pcs or 1)
     return {
@@ -110,6 +114,8 @@ def piece_row(session: Session, item: StockItem, c: _Cache | None = None,
         "g_wt": gross, "n_wt": net, "st_wt": st_wt.quantize(D3) if st_wt else None,
         "oth_wt": (gross - net - st_wt / 5).quantize(D3) if gross > net + st_wt / 5 else None,
         "fine": costing.fine_metal_weight(metal, net).quantize(D3) if metal else None,
+        "dia": groups["DIAMOND"] or None, "polki": groups["POLKI"] or None,
+        "cs": groups["COLOR STONE"] or None,
         "mt_rate": rate or None, "price": (_dec(item.price) / pcs).quantize(Decimal("0.01")),
         "amount": _dec(item.price), "tag": item.tag_text,
         "status": STATUS_TEXT.get(item.status, item.status), "_status": item.status,

@@ -32,6 +32,11 @@ def _p(k, l):
 STONE_COLS = (("dia", "DIA"), ("polki", "POL"), ("cs", "CS"))
 
 
+def _catalog(widget, rows) -> None:
+    from diagold.ui.stock_tools import catalog
+    catalog(widget, rows)
+
+
 def specs() -> dict[str, ReportSpec]:
     open_job = lambda w, r: w.open_job(r)                       # noqa: E731
     stone = [_m(k, l) for k, l in STONE_COLS]
@@ -39,7 +44,8 @@ def specs() -> dict[str, ReportSpec]:
         "sales_register": ReportSpec(
             key="sales_register", title="Sales Register",
             columns=static([Col("location", "LOCATION"), Col("date", "DATE"),
-                            Col("vrno", "VRNO"), Col("particulars", "PARTICULARS"),
+                            Col("vrno", "VRNO"), Col("acc_code", "A/C ID"),
+                            Col("particulars", "PARTICULARS"),
                             Col("sku", "SKU"), Col("metal", "METAL"), Col("job_no", "JOBNO"),
                             _p("pcs", "PCS"), _w("g_wt", "GROSS WT"), _w("n_wt", "NET WT"),
                             _w("fine_wt", "FINE WT"), Col("metal_rate", "METAL RATE",
@@ -51,8 +57,11 @@ def specs() -> dict[str, ReportSpec]:
             query=lambda s, a, b, **_k: SR.sales_register(s, a, b),
             group_by="particulars", filter_column="particulars", images=True,
             stone_group_cols=tuple(k for k, _l in STONE_COLS), on_activate=open_job,
+            toggle_cols=[("F9", "A/c Ids", ("acc_code",))],
+            actions=[("Catalog", "Ctrl+C", lambda w: _catalog(w, w.selected_rows()))],
             note="Every piece sold. REPAIR = the piece was ever issued for repair; RETURN = "
-                 "it came back on a sale return. Ctrl+F1 DIA / POL / CS, Shift+F12 photos."),
+                 "it came back on a sale return. Ctrl+F1 DIA / POL / CS, Shift+F12 photos, Ctrl+C "
+                 "Catalog of the selected pieces, F9 A/c Ids, Ctrl+E Excel."),
         "sales_return_register": ReportSpec(
             key="sales_return_register", title="Sales Return Register",
             columns=static([Col("location", "LOCATION"), Col("date", "DATE"),

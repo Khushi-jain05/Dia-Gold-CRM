@@ -118,6 +118,9 @@ class ReportSpec:
     # Ctrl+G draws this chart instead of opening Group (the legacy ledger graph):
     # graph(widget) -> None.
     graph: Callable[["ReportWidget"], None] | None = None
+    # Columns hidden until their shortcut shows them: (keys, label, columns),
+    # e.g. ("F9", "A/c Ids", ("acc_code",)) on the Sales Register.
+    toggle_cols: list[tuple[str, str, tuple[str, ...]]] = field(default_factory=list)
 
 
 def static(cols: list[Col]) -> Callable[[date, date], list[Col]]:
@@ -591,6 +594,12 @@ class ReportWidget(QWidget):
         self.group.setMinimumWidth(140)
         self.group.currentIndexChanged.connect(lambda _i: self._rebuild())
         row2.addWidget(self.group)
+        # A second level (5 Oct T-12: multi-level group with subtotals).
+        row2.addWidget(QLabel("then"))
+        self.group2 = QComboBox()
+        self.group2.setMinimumWidth(120)
+        self.group2.currentIndexChanged.connect(lambda _i: self._rebuild())
+        row2.addWidget(self.group2)
         outer.addLayout(row2)
 
         bar = QHBoxLayout()
@@ -622,6 +631,15 @@ class ReportWidget(QWidget):
                       activated=lambda: (self.group.setFocus(), self.group.showPopup()))
         self.show_images = False
         self.show_stone_groups = False
+        # Ctrl+E Export, as on the legacy registers.
+        QShortcut(QKeySequence("Ctrl+E"), self, activated=self._export)
+        self.shown_toggles: set[str] = set()
+        for keys, label, tcols in spec.toggle_cols:
+            QShortcut(QKeySequence(keys), self,
+                      activated=lambda t=tcols: self.toggle_columns(t))
+            b = QPushButton(f"{label}  ({keys})")
+            b.clicked.connect(lambda _c=False, t=tcols: self.toggle_columns(t))
+            bar.addWidget(b)
         if spec.images:
             QShortcut(QKeySequence("Shift+F12"), self, activated=self.toggle_images)
             b = QPushButton("Show Image  (Shift+F12)")
@@ -827,11 +845,17 @@ class ReportWidget(QWidget):
     # -- columns / grouping ----------------------------------------------
     def _load_columns(self) -> list[str] | None:
         with SessionLocal() as s:
-            raw = settings.get_setting(s, f"report.{self.spec.key}.columns", "")
+            raw = settings.get_setting(s, self._columns_key(), "") or \
+                settings.get_setting(s, f"report.{self.spec.key}.columns", "")
         try:
             return json.loads(raw) if raw else None
         except ValueError:
             return None
+
+    def _columns_key(self) -> str:
+        """Set Column is kept per user (5 Oct T-12)."""
+        uid = getattr(self.user, "id", None)
+        return f"report.{self.spec.key}.columns" + (f".u{uid}" if uid else "")
 
     def visible_cols(self) -> list[Col]:
         if not self._visible:
@@ -856,6 +880,13 @@ class ReportWidget(QWidget):
         idx = self.group.findData(want) if want else 0
         self.group.setCurrentIndex(max(idx, 0))
         self.group.blockSignals(False)
+        self.group2.blockSignals(True)
+        current2 = self.group2.currentData()
+        self.group2.clear()
+        for i in range(self.group.count()):
+            self.group2.addItem(self.group.itemText(i), self.group.itemData(i))
+        self.group2.setCurrentIndex(max(self.group2.findData(current2), 0) if current2 else 0)
+        self.group2.blockSignals(False)
 
     def _fill_filter_bar(self) -> None:
         while self.filter_layout.count():
@@ -935,38 +966,40 @@ class ReportWidget(QWidget):
         cols = self.visible_cols()
         if self.spec.stone_group_cols and not self.show_stone_groups:
             cols = [c for c in cols if c.key not in self.spec.stone_group_cols]
+        hidden = {k for _k, _l, ks in self.spec.toggle_cols for k in ks} - self.shown_toggles
+        cols = [c for c in cols if c.key not in hidden]
         if self.show_images:
             cols = [Col("_photo", "IMAGE")] + cols
         self._filtered = [r for r in self._raw if self._passes(r)]
-        gkey = self.group.currentData()
+        gkeys = [k for k in (self.group.currentData(), self.group2.currentData()) if k]
+        gkeys = list(dict.fromkeys(gkeys))
         display: list[tuple[str, dict]] = []
         rows = list(self._filtered)
         first_key = next((c.key for c in cols if c.key != "_photo"), None)
-        if gkey:
-            rows.sort(key=lambda r: (fmt(r.get(gkey)).lower(), r.get("_n", 0)))
-            glabel = next((c.label for c in self._cols if c.key == gkey), gkey)
-            current: Any = None
-            bucket: list[dict] = []
-            started = False
+        if gkeys:
+            rows.sort(key=lambda r: tuple(fmt(r.get(k)).lower() for k in gkeys)
+                      + (r.get("_n", 0),))
 
-            def flush() -> None:
-                if bucket:
+            def emit(part: list[dict], level: int) -> None:
+                if level == len(gkeys):
+                    if not self.summary_only:
+                        display.extend(("row", r) for r in part)
+                    return
+                key = gkeys[level]
+                label = next((c.label for c in self._cols if c.key == key), key)
+                buckets: dict[str, list[dict]] = {}
+                for r in part:
+                    buckets.setdefault(fmt(r.get(key)), []).append(r)
+                for value, bucket in buckets.items():
+                    head = {"_label": ("    " * level) + f"{label.upper()} : {value or '(blank)'}"}
+                    if level == 0:
+                        head["_value"] = value
+                    display.append(("group", head))
+                    emit(bucket, level + 1)
                     display.append(("subtotal", self._sum_row(
-                        bucket, first_key, f"{fmt(current)} Total ({len(bucket)})")))
+                        bucket, first_key, ("    " * level) + f"{value} Total ({len(bucket)})")))
 
-            for r in rows:
-                v = r.get(gkey)
-                if not started or fmt(v) != fmt(current):
-                    flush()
-                    current, started = v, True
-                    bucket = []
-                    display.append(("group", {
-                        "_label": f"{glabel.upper()} : {fmt(v) or '(blank)'}",
-                        "_value": fmt(v)}))
-                if not self.summary_only:
-                    display.append(("row", r))
-                bucket.append(r)
-            flush()
+            emit(rows, 0)
         elif not self.summary_only:
             display = [("row", r) for r in rows]
         if self.show_total:
@@ -996,7 +1029,7 @@ class ReportWidget(QWidget):
             return
         self._visible = dlg.visible()
         with SessionLocal() as s:
-            settings.set_setting(s, f"report.{self.spec.key}.columns", json.dumps(self._visible))
+            settings.set_setting(s, self._columns_key(), json.dumps(self._visible))
             s.commit()
         self._rebuild()
 
@@ -1057,6 +1090,11 @@ class ReportWidget(QWidget):
     def toggle_images(self) -> None:
         self.show_images = not self.show_images
         self.view.verticalHeader().setDefaultSectionSize(60 if self.show_images else 26)
+        self._rebuild()
+
+    def toggle_columns(self, keys: tuple[str, ...]) -> None:
+        for k in keys:
+            self.shown_toggles.symmetric_difference_update({k})
         self._rebuild()
 
     def toggle_stone_groups(self) -> None:

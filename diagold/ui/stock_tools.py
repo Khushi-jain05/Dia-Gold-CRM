@@ -99,17 +99,20 @@ def specs() -> dict[str, ReportSpec]:
                             Col("item", "Item"), Col("metal", "METAL"), Col("col", "COL"),
                             Col("size", "SIZE"), _pcs("pcs", "PCS"), _wt("g_wt", "G-WT"),
                             _wt("n_wt", "N-WT"), _wt("oth_wt", "OTH-WT"), _wt("fine", "FINE"),
+                            _money("dia", "DIA"), _money("polki", "POL"), _money("cs", "CS"),
                             Col("mt_rate", "MT-RATE", "measure", 2), Col("price", "PRICE",
                                                                          "measure", 2),
                             _money("amount", "AMOUNT"), Col("tag", "TAG"),
                             Col("barcode", "BARCODE")]),
             query=lambda s, a, b, **_k: ST.ready_closing_stock(s, b), date_mode="to",
             group_by="location", filter_column="location", images=True,
+            stone_group_cols=("dia", "polki", "cs"),
             on_activate=lambda w, r: w.open_job(r), actions=STOCK_ACTIONS,
             note="Every piece in ready stock on the date. MT-RATE = the day's rate per gram "
                  "of the piece's metal; PRICE per piece, AMOUNT = the piece's price; OTH-WT = "
                  "gross - net - stones (ct / 5). Select rows and Ctrl+S Catalog / Ctrl+T Tag "
-                 "Print (nothing selected = every row shown); Shift+F12 photos."),
+                 "Print (nothing selected = every row shown); Shift+F12 photos; Ctrl+F1 DIA / POL / CS; "
+                 "Ctrl+E Excel."),
         "sku_status": ReportSpec(
             key="sku_status", title="SKU Status",
             columns=static([Col("date", "DATE"), Col("vrtype", "VRTYPE"), Col("vrno", "VRNO"),
