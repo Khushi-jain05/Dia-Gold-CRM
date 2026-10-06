@@ -38,6 +38,8 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "production_planning.day_book":
         lambda user: ReportWidget(build_specs()["order_day_book"], user),
     "tools.option": lambda user: OptionsWidget(user),
+    "reports.sales_dashboard": lambda user: __import__(
+        "diagold.ui.sales_reports", fromlist=["SalesDashboardWidget"]).SalesDashboardWidget(user),
     # Stock tools (5 Oct T-09)
     "tools.stock_reconciliation": lambda user: __import__(
         "diagold.ui.stock_tools", fromlist=["StockReconWidget"]).StockReconWidget(user),
@@ -99,9 +101,9 @@ REPORT_MENUS: dict[str, list[tuple[str | None, tuple[str, ...]]]] = {
     "manufacturing.reports": [(t, _SECTIONS[t]) for t in ("Manufacturing", "Registers",
                                                          "Karigar")],
     "inventory.reports": [(t, _SECTIONS[t]) for t in ("Inventory", "Registers", "Karigar")],
-    "sale.reports": [(None, _SECTIONS["Sale"] + ("ready_stock", "ready_closing_stock",
-                                                 "sku_status", "client_metal_os",
-                                                 "account_ledger"))],
+    "sale.reports": [(None, _SECTIONS["Sale"] + _SECTIONS["Sales Analysis"] + (
+        "ready_stock", "ready_closing_stock", "sku_status", "client_metal_os",
+        "account_ledger"))],
     "purchase.reports": [(None, ("rp_register", "inv_metal_day_book", "inv_stone_day_book",
                                  "account_ledger"))],
     "inventory.metal._reports": [(None, (

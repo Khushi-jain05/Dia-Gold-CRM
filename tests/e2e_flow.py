@@ -320,6 +320,15 @@ with SessionLocal() as s:
           (D("900"), (D("900") * D(str(pc_info["net_wt"]))).quantize(D("0.01"))))
     s.rollback()
     from diagold.services import stone_reports as SRP
+    from diagold.services import sales_reports as SRR
+    sreg = SRR.sales_register(s, *FY)
+    check("Sales Register: the sold piece is marked RETURN Y", [(r["vrtype"], r["ret"]) for r in sreg],
+          [("RS", "Y")])
+    check("Sales Dashboard: sale less its return nets to 0 by client",
+          dict(SRR.cube(s, *FY, "Client", "Value")).get(kk.name), D("0.00"))
+    check("Today's Daybook lists the sale with its stone lines",
+          any(r["vrtype"] == "RS" for r in SRR.todays_daybook(s, T, T))
+          and any(r.get("_sub") for r in SRR.todays_daybook(s, T, T)), True)
     ms = {(r["location"], r["metal"], r["where"]): r["net_wt"] for r in SRP.metal_summary(s, FY[1])}
     check("Metal Summary INV = Metal Analysis closing (RAJESH JI 14KT 590)",
           ms.get(("RAJESH JI", "14KT 590", "INV")), D("249.175"))

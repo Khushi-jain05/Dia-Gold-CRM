@@ -162,6 +162,7 @@ MENU: list[MenuGroup] = [
     ]),
     _g("reports", "Reports", [
         ("all_reports", "All Reports"),
+        ("sales_dashboard", "Sales Dashboard"),
     ]),
     _g("window", "Window", [
         ("cascade", "Cascade"),

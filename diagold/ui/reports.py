@@ -535,6 +535,8 @@ class ReportWidget(QWidget):
         if spec.date_default == "week":
             from datetime import timedelta
             fy0, fy1 = date.today(), date.today() + timedelta(days=7)
+        elif spec.date_default == "today":
+            fy0 = fy1 = date.today()
         elif spec.date_default == "month":
             # The month so far - a settlement is run for one month.
             fy0, fy1 = date.today().replace(day=1), date.today()
@@ -1509,8 +1511,9 @@ def build_specs() -> dict[str, ReportSpec]:
 
     from diagold.ui.job_costing import job_costing_spec
 
+    from diagold.ui import sales_reports as _sales
     from diagold.ui import stock_tools as _stock
-    return {**_stock.specs(),
+    return {**_stock.specs(), **_sales.specs(),
         "job_costing": job_costing_spec(),
         **_register_specs(money, wt, pcs),
         **_sale_specs(money, wt, pcs),
@@ -1929,6 +1932,8 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Sale", ("rs_sale_register", "rs_approval_register", "rs_approval_balance",
               "rs_approval_analysis", "metal_sale_register", "stone_sale_register",
               "stone_approval_register", "stone_approval_analysis", "repair_register")),
+    ("Sales Analysis", ("sales_register", "sales_return_register", "sales_profit",
+                        "purchase_sales", "todays_daybook")),
     ("Purchase", ("rp_register",)),
     ("Registers", ("metal_loss_register", "stone_loss_register", "dust_register",
                    "wip_register", "wip_process_summary", "wip_stone")),
