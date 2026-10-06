@@ -151,4 +151,6 @@ Namaste Rohit ji. Everything we still need from you, in one list. Please reply w
 91. Delivery dates: four sessions, still no dates. *(5 Oct Q12)*
 92. Before we migrate your data: your screens showed negative balances - Primary 24KT Gold −320.891 g, RAJAT JI stones DIA −1,801.76 ct / POL −11,431.79 ct, Worker Balance (Metal) total −12,762.065 g. Shall we clean these up first, or start from fresh opening balances? *(5 Oct X2–X5)*
 
+93. The stone price sheet you sent (299 rows) is loaded as price type **"A"**. Is that the right chart? Its "SPrice" column is 0 everywhere - what goes there (sale price vs Price)? *(6 Oct)*
+
 Thank you!

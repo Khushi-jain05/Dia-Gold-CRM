@@ -141,7 +141,9 @@ def load_demo(s: Session) -> str:
     from diagold.db.models import PriceChart
     if not s.scalar(select(PriceChart).where(PriceChart.name == "MANNU BHAI")):
         mannu = PriceChart(name="MANNU BHAI", labour_per_gm=Decimal("1175"))
-        s.add_all([PriceChart(name="A"), mannu])
+        s.add(mannu)
+        if not s.scalar(select(PriceChart).where(PriceChart.name == "A")):
+            s.add(PriceChart(name="A"))
         s.flush()
         ruby = s.scalar(select(Account).where(Account.code == "RUBY"))
         if ruby is None:

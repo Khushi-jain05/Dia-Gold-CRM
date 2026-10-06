@@ -97,7 +97,12 @@ def stone_keys(session: Session, st: dict[str, Any]) -> dict[str, Any]:
         size = sku.size or ""
     if not size and label and " " in label:
         size = label.rsplit(" ", 1)[1]
-    return {"group": st.get("s_type") or "", "ssku": sku.sku_code if sku else label,
+    code = sku.sku_code if sku else label
+    # Legacy charts give SSKU and Size apart ("POLKI" + "12-14"); our stone
+    # codes often carry the size ("POLKI 12-14"), so the code without its
+    # size is matched too.
+    base = code[: -len(size)].strip() if size and code.endswith(size) else code
+    return {"group": st.get("s_type") or "", "ssku": code, "ssku_base": base,
             "stone": sku.stone if sku else "", "shape": sku.shape if sku else "",
             "stone_type": sku.stone_type if sku else "",
             "quality": sku.quality if sku else "", "size": size}
@@ -106,8 +111,9 @@ def stone_keys(session: Session, st: dict[str, Any]) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 # Resolution
 # --------------------------------------------------------------------------
-def labour_for(chart: PriceChart, keys: dict[str, Any]) -> tuple[Decimal, str, str]:
-    """(rate, "gm" / "pc", what it came from)."""
+def labour_for(chart: PriceChart, keys: dict[str, Any]) -> tuple[Decimal, str, str] | None:
+    """(rate, "gm" / "pc", what it came from); None when the chart prices no
+    labour (no rule matches and no Per Grm Price) - the standard labour stays."""
     g = keys["gross"]
     for r in chart.labour_rules:
         if not all(_match(getattr(r, f), keys[f]) for f in
@@ -118,6 +124,8 @@ def labour_for(chart: PriceChart, keys: dict[str, Any]) -> tuple[Decimal, str, s
             continue
         unit = "pc" if (r.per_unit or "").lower().startswith("p") else "gm"
         return _dec(r.sale_price), unit, f"{chart.name} rule {r.priority}"
+    if not _dec(chart.labour_per_gm):
+        return None
     return _dec(chart.labour_per_gm), "gm", f"{chart.name} per gram"
 
 
@@ -126,8 +134,9 @@ def stone_price_for(chart: PriceChart, pkeys: dict[str, Any],
     for r in chart.stone_rules:
         if all(_match(getattr(r, f), pkeys[f]) for f in ("family", "metal", "style", "sku")) \
                 and _match(r.stone_group, skeys["group"]) \
+                and (_match(r.ssku, skeys["ssku"]) or _match(r.ssku, skeys.get("ssku_base"))) \
                 and all(_match(getattr(r, f), skeys[f]) for f in
-                        ("ssku", "stone", "shape", "stone_type", "quality", "size")):
+                        ("stone", "shape", "stone_type", "quality", "size")):
             return _dec(r.price), ("pcs" if (r.unit or "").lower().startswith("p") else "ct")
     return None
 
@@ -144,8 +153,9 @@ def apply(session: Session, chart: PriceChart, info: dict[str, Any]) -> dict[str
     """The piece re-priced from the chart: labour rate (and unit), each
     stone's price, the setting amount. ``_chart_notes`` says what applied."""
     pkeys = piece_keys(session, info)
-    rate, unit, src = labour_for(chart, pkeys)
-    notes = [f"Labour {rate} per {unit} ({src})"]
+    lab = labour_for(chart, pkeys)
+    notes = [f"Labour {lab[0]} per {lab[1]} ({lab[2]})" if lab else
+             "Labour: standard (the chart has no labour price)"]
     stones, setting, set_hit = [], ZERO, False
     for st in info.get("stones") or []:
         st = dict(st)
@@ -159,8 +169,9 @@ def apply(session: Session, chart: PriceChart, info: dict[str, Any]) -> dict[str
             set_hit = True
             setting += sp * int(st.get("pcs") or 0)
         stones.append(st)
-    out = {**info, "labour_rate": rate, "labour_per": unit, "stones": stones,
-           "_chart_notes": notes}
+    out = {**info, "stones": stones, "_chart_notes": notes}
+    if lab:
+        out["labour_rate"], out["labour_per"] = lab[0], lab[1]
     if set_hit:
         out["setting"] = setting
         notes.append(f"Setting {setting}")
@@ -213,3 +224,108 @@ def delete_chart(session: Session, chart: PriceChart) -> None:
             f"{chart.name} is used by {', '.join(clients_on(session, chart))} - "
             "take them off it in the Account master first.")
     session.delete(chart)
+
+
+# --------------------------------------------------------------------------
+# Excel import / export of a stone chart (the legacy grid's columns)
+# --------------------------------------------------------------------------
+STONE_XL = {"family": "Family", "metal": "Metal", "style": "Style", "sku": "SKU",
+            "stone_group": "StoneGroup", "ssku": "SSKU", "stone": "Stone", "shape": "Shape",
+            "stone_type": "Type", "quality": "Quality", "size": "Size", "price": "Price",
+            "unit": "Unit", "cost_price": "CostPrice"}
+
+
+def _cell(v: Any) -> str:
+    """A legacy cell as text: "-" or blank = any. Excel turns sizes such as
+    6-8 / 12-14 into dates (2026-06-08); they are read back as month-day."""
+    from datetime import date, datetime
+    if isinstance(v, (datetime, date)):
+        return f"{v.month}-{v.day}"
+    text = "" if v is None else str(v).strip()
+    if isinstance(v, float) and v.is_integer():
+        text = str(int(v))
+    return "" if text in ("-", "—") else text
+
+
+def read_stone_excel(path: str) -> tuple[list[dict[str, Any]], list[str]]:
+    """Rows of a Client Wise Stone Price sheet, in the sheet's order (that
+    order is the priority). Returns (rules, notes)."""
+    from openpyxl import load_workbook
+    ws = load_workbook(path, data_only=True, read_only=True).worksheets[0]
+    it = ws.iter_rows(values_only=True)
+    head = [_cell(h).casefold() for h in next(it)]
+    pos = {k: head.index(v.casefold()) for k, v in STONE_XL.items() if v.casefold() in head}
+    if "ssku" not in pos or "price" not in pos:
+        raise PriceChartError("The sheet needs at least the SSKU and Price columns.")
+    rules, notes, dates = [], [], 0
+    from datetime import date
+    for r in it:
+        if not any(v not in (None, "") for v in r):
+            continue
+        row: dict[str, Any] = {}
+        for k, i in pos.items():
+            v = r[i] if i < len(r) else None
+            if k == "size" and isinstance(v, date):
+                dates += 1
+            if k in ("price", "cost_price"):
+                row[k] = _dec(v)
+            elif k == "unit":
+                row[k] = "pc" if _cell(v).lower().startswith("p") else "ct"
+            else:
+                row[k] = _cell(v)
+        if not row.get("ssku"):
+            continue
+        rules.append(row)
+    if dates:
+        notes.append(f"{dates} size(s) Excel had turned into dates were read back "
+                     "(e.g. 08-Jun → 6-8).")
+    return rules, notes
+
+
+def import_stone_excel(session: Session, chart: PriceChart, path: str) -> tuple[int, list[str]]:
+    """Replace the chart's stone rules with the sheet's."""
+    rules, notes = read_stone_excel(path)
+    save_rules(session, chart, "stone", rules)
+    return len(rules), notes
+
+
+def export_stone_excel(chart: PriceChart, path: str) -> None:
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = chart.name[:31]
+    ws.append(list(STONE_XL.values()))
+    for r in chart.stone_rules:
+        ws.append([float(getattr(r, k)) if k in ("price", "cost_price")
+                   else ("Cts" if r.unit == "ct" else "Pcs") if k == "unit"
+                   else (getattr(r, k) or "-") for k in STONE_XL])
+    wb.save(path)
+
+
+# The client's own "A" stone chart (legacy Client Wise Stone Price, sent
+# 6 Oct as stone price.xlsx), shipped with the app.
+DEFAULT_STONE_FILE = "stone_price_A.xlsx"
+
+
+def seed_default_charts(session: Session) -> int:
+    """Create price type "A" with the client's stone prices when it has none
+    yet. Never touches a chart that already has stone rules. Returns rows added."""
+    from pathlib import Path
+
+    from diagold.services import settings
+    done_key = "seed.stone_chart_A"          # once only: a later edit is never undone
+    if settings.get_setting(session, done_key, "") == "1":
+        return 0
+    path = Path(__file__).resolve().parents[1] / "data" / DEFAULT_STONE_FILE
+    chart = session.scalar(select(PriceChart).where(PriceChart.name == "A"))
+    if not path.is_file():
+        return 0
+    settings.set_setting(session, done_key, "1")
+    if chart is not None and chart.stone_rules:
+        return 0
+    if chart is None:
+        chart = PriceChart(name="A", price_type="Sale")
+        session.add(chart)
+        session.flush()
+    n, _notes = import_stone_excel(session, chart, str(path))
+    return n

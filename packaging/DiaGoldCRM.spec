@@ -18,7 +18,7 @@ a = Analysis(
     [str(PROJECT_ROOT / "main.py")],
     pathex=[str(PROJECT_ROOT)],
     binaries=[],
-    datas=[],
+    datas=[(str(PROJECT_ROOT / "diagold" / "data"), "diagold/data")],
     hiddenimports=hiddenimports,
     hookspath=[],
     excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.Qt3DCore",

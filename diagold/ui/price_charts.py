@@ -79,6 +79,8 @@ class PriceChartWidget(_Screen):
         self.button("Move Down", lambda: self._move(1), secondary=True)
         if kind == "stone":
             self.button("Fill Stones", self._fill_stones, secondary=True)
+            self.button("Import Excel", self._import_excel, secondary=True)
+            self.button("Export Excel", self._export_excel, secondary=True)
         if kind == "setting":
             self.button("Fill Setting Types", self._fill_settings, secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
@@ -262,6 +264,45 @@ class PriceChartWidget(_Screen):
                               "price": k.sale_price,
                               "unit": "pc" if (k.per or "").lower().startswith("p") else "ct",
                               "cost_price": k.cost_price})
+
+    def _import_excel(self) -> None:
+        """The legacy grid exported to Excel (Family … SSKU, Size, Price, Unit,
+        CostPrice) replaces this chart's stone prices."""
+        if self.chart_id is None:
+            _info(self, "Import Excel", "Add or choose a price type first.")
+            return
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Import stone prices", "",
+                                              "Excel (*.xlsx)")
+        if not path:
+            return
+        if QMessageBox.question(self, "Import Excel",
+                                f"Replace the stone prices of {self.name.text()} with the "
+                                "sheet's rows?") != QMessageBox.StandardButton.Yes:
+            return
+        with SessionLocal() as s:
+            try:
+                n, notes = PC.import_stone_excel(s, s.get(PriceChart, self.chart_id), path)
+                s.commit()
+            except (PC.PriceChartError, ValueError, KeyError) as exc:
+                _warn(self, "Import Excel", str(exc))
+                return
+        self.refresh()
+        _info(self, "Import Excel", f"{n} stone price(s) imported." +
+              ("\n" + "\n".join(notes) if notes else ""))
+
+    def _export_excel(self) -> None:
+        if self.chart_id is None:
+            return
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(self, "Export stone prices",
+                                              f"stone price {self.name.text()}.xlsx",
+                                              "Excel (*.xlsx)")
+        if not path:
+            return
+        with SessionLocal() as s:
+            PC.export_stone_excel(s.get(PriceChart, self.chart_id), path)
+        _info(self, "Export Excel", f"Saved {path}")
 
     def _fill_settings(self) -> None:
         if not self._need_edit():

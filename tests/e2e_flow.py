@@ -375,6 +375,12 @@ with SessionLocal() as s:
     check("reconciliation: one piece not scanned -> exactly 1 missing, 1 unknown",
           (len(res["ok"]), len(res["missing"]), len(res["unknown"])), (len(in_stock) - 1, 1, 1))
     s.rollback()
+    chart_a = s.scalar(select(PriceChart).where(PriceChart.name == "A"))
+    va = S.value(PC.apply(s, chart_a, pc_info), T, s)
+    check("chart A (client's stone price sheet, 299 rows): POLKI 12-14 at 15,000 / ct, "
+          "EMERALD PEAR 3*4 at 2,500; labour stays standard",
+          (len(chart_a.stone_rules), va["stone_amount"], va["labour_rate"]),
+          (299, D("10850.00"), D("1200.00")))
     led = INV.account_ledger(s, *FY)
     test_sup = [r for r in led if r["ledger"] == "TEST SUPPLIER"]
     check("TEST SUPPLIER closing (stone 14,960 + metal 4,34,033.50 + ready 79,045.36 - return)",

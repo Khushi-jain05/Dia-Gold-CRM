@@ -46,4 +46,6 @@ def init_db() -> None:
         backfill_accounts(session)  # purchases saved before they posted accounts
         backfill_wt_per_pcs(session)  # stone lines saved before Wt/Pcs existed
         backfill_nominals(session)    # Sales / Purchase A/c entries get their account
+        from diagold.services.price_charts import seed_default_charts
+        seed_default_charts(session)  # price type "A" with the client's stone chart
         session.commit()
