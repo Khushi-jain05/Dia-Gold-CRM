@@ -1,12 +1,12 @@
-# Message for the shared group — all open questions (4 Oct)
+# Message for the shared group — all open questions (6 Oct)
 
 Ready to paste. Every question still open from the sessions of 3, 8, 11,
-18, 28 Sept and 2 Oct, merged and numbered once, by topic. The session code
+18, 28 Sept, 2 Oct and 5 Oct, merged and numbered once, by topic. The session code
 in brackets is where each came from, for our own tracking.
 
 ---
 
-**Dia Gold CRM — questions for you (as of 4 Oct)**
+**Dia Gold CRM — questions for you (as of 6 Oct)**
 
 Namaste Rohit ji. Everything we still need from you, in one list. Please reply with the number and one line, for example: "1 — yes", "10 — per karigar". Where we have already built something on an assumption, it says so, so a "yes" is enough.
 
@@ -112,5 +112,43 @@ Namaste Rohit ji. Everything we still need from you, in one list. Please reply w
 62. A date for the factory session (casting, weights, loss, scrap, rejects) with the people who run those steps. *(11 Sep C-04)*
 63. Ten minutes to go over Order, Stone Issue, Order Day Book and M.R.P. again; our recording lost that part. *(11 Sep C-05)*
 64. The daily slot time, and a rough month for go-live. *(3 Sep M-6)*
+
+**Accounts (5 Oct)**
+65. Does a cash sale have its own invoice series and print? (Now a cash sale is a sale voucher in Cash mode and settles at once.) *(5 Oct Q2)*
+66. Bangkok branch: a Bangkok bank account, the "Subject To Bangkok Jurisdiction" text, and a second currency - is this needed here? *(5 Oct Q4)*
+67. Bills Due on the dashboard is grouped by the bill's location (Office / Mumbai office …). Is that what "office / branch" means? *(5 Oct T-14)*
+68. Interest on overdue bills: report only for now. Should it also post a journal entry? *(5 Oct T-10)*
+69. Opening balances for go-live: party-wise (money and fine metal) and metal / stone per location on the cut-over date. The legacy Trial Balance shows "Diff. in Opening Balances" ₹14,75,75,841.01 - please clear that first. *(5 Oct C-05, X1)*
+70. Ten minutes again on Voucher Entry (Receipt, Payment, Journal, Contra), a cash sale and return, metal receive, and how you read cash flow. *(5 Oct C-01)*
+
+**Karigar and client metal / stone (5 Oct)**
+71. Loss allowance: the 5 Oct example (ABHIJEET DAS) works out as % × the weight ISSUED, but a 28 Sept example matched % × the weight RECEIVED. We use "issued" now (switchable in Tools ▸ Option). Which is right? *(5 Oct T-06)*
+72. Where does the 3% allowance come from - process, karigar or metal? *(5 Oct Q3, same as 10)*
+73. Negative loss (piece comes back heavier): credit the karigar, or just flag it? *(5 Oct Q8)*
+74. Client Metal O/S, "RepairRtn": we show the fine of pieces out on a repair issue to the client. Is that the meaning? *(5 Oct T-03)*
+75. Location Wise Stone Balance: we show Closing = loose stones at the location, and then Job Card + WIP added for the total. In your screen the balance details add up to the closing. Should stones issued to a job stay in the location's closing until the piece is made? *(5 Oct T-07)*
+76. Metal Summary: what is the difference between WIP (in process) and WIP_@W (with worker)? For us every step in process is with a karigar. *(5 Oct T-08)*
+
+**Price charts, stock tools, reports (5 Oct)**
+77. Client Wise Labour Price: is "Labour" the name of the labour and "SalePrice" the rate? With a From / To G-Wt slab, is the rate per gram inside the slab, or one flat amount for the slab? *(5 Oct Q11)*
+78. The price chart applies on sale and approval now. Orders carry no labour / stone prices, and Quotation is not built. Should the chart apply on orders too? *(5 Oct T-05)*
+79. Please send the Excel of all Client Wise Stone / Labour / Setting charts (with MANNU BHAI and "A") and your Tools ▸ Option values for every section. *(5 Oct C-03)*
+80. Which reports do you actually use? From the Reports menu, the 32 Exception items and the 35 M.I.S. reports: weekly, rarely, or never? *(5 Oct Q1, C-02)*
+81. Stock View: Origin, Treatment, Creation Type and the FTP / Not Checked flags are not kept on our pieces or masters. Do you use them? *(5 Oct T-09)*
+82. Shopify, Uniware, DIGICAT and IOS export: are they used? *(5 Oct Q6)*
+83. "Virtual" location: opening-stock pieces sit there. What is it? *(5 Oct Q9, 2 Oct Q10)*
+84. Purchase-Sales Analysis shows -162% profit (BANG-100). Is cost recorded on a different basis from the sale price? *(5 Oct Q10)*
+85. Sales Dashboard: what are "Cumulative Sales G-5s" and "Sales Return (Stone)"? Not built yet. *(5 Oct T-13)*
+86. Print layouts: please send one Sale Invoice and one Packing List in the CLIENT layout, so we can match it. *(5 Oct T-11)*
+87. Job History "Link" button: what does it link? (For now it keeps files with the job.) *(5 Oct T-15)*
+88. Complaint register, Gate Pass and Interest: built as shown on the call. Are they used? *(5 Oct Q5)*
+
+**Dashboard (5 Oct)**
+89. For the Looker dashboard: is each number pieces or grams? What is "Ghat", "Assortment" and "lead day"? Which karigars are in-house? (Tick "In-house karigar" in the Account master.) *(5 Oct C-04)*
+90. Which Google Sheets / FMS sheets should move into the ERP (Master Sale Sheet, O2D FMS, Repair / Return FMS, Karigar daily metal …)? *(5 Oct Q7)*
+
+**Meetings and dates (5 Oct)**
+91. Delivery dates: four sessions, still no dates. *(5 Oct Q12)*
+92. Before we migrate your data: your screens showed negative balances - Primary 24KT Gold −320.891 g, RAJAT JI stones DIA −1,801.76 ct / POL −11,431.79 ct, Worker Balance (Metal) total −12,762.065 g. Shall we clean these up first, or start from fresh opening balances? *(5 Oct X2–X5)*
 
 Thank you!
