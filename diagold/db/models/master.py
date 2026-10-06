@@ -72,6 +72,9 @@ class Account(Base, PKMixin, TimestampMixin):
     price_chart_id: Mapped[int | None] = mapped_column(ForeignKey("price_charts.id"),
                                                        nullable=True)
     # Print layout per client (5 Oct §4.14): DEFAULT or the CLIENT layout.
+    # A karigar working inside the factory (5 Oct T-14: Ghat ready in-house
+    # vs out-house on the dashboard).
+    in_house: Mapped[bool] = mapped_column(Boolean, default=False)
     invoice_layout: Mapped[str] = mapped_column(String(8), default="DEFAULT")
     packing_layout: Mapped[str] = mapped_column(String(8), default="DEFAULT")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -159,6 +159,8 @@ _register(CrudSpec(
               fk_label=lambda c: c.name, in_list=False,
               help_text="Client-wise price chart (Tools ▸ Client Wise … Price) - used on a "
                         "sale when Prices From Client Chart is ticked."),
+        Field("in_house", "In-house karigar", type="bool", default=False, in_list=False,
+              help_text="Works inside the factory (dashboard: in-house vs out-house)."),
         Field("invoice_layout", "Sale Invoice Layout", type="choice",
               choices=["DEFAULT", "CLIENT"], default="DEFAULT", in_list=False,
               help_text="Tools ▸ Advance Options ▸ Print Layouts"),
