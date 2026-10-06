@@ -1,4 +1,9 @@
-# Recording the next call (11 Sept T-11 · 18 Sept T-13 · 2 Oct T-17)
+# Recording the next call (11 Sept T-11 · 18 Sept T-13 · 2 Oct T-17 · 5 Oct T-18)
+
+**5 Oct (T-18):** the client's voice was lost in the screen recording again -
+three sessions running. **Before the next call, turn on Meet ▸ Activities ▸
+Transcripts at the start** (it transcribes each speaker at the source). This
+is the first step now, before anything below.
 
 **2 Oct (T-17):** our voices were clear, but Rohit ji presented from a second
 device and his audio transcribed as noise. For the next call:
