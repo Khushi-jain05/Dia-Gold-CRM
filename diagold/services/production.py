@@ -2168,18 +2168,23 @@ def worker_stone_ledger(session: Session, date_from: date, date_to: date) -> lis
     """Worker Stone Ledger (28 Sept §4.15): stones a karigar holds - issued
     from a job bag (ISS) or on an Inventory stone issue (SI), less what came
     back (BACK / SR) and what was set into the piece (SET, when the step is
-    received) - in pieces and carats, running per karigar."""
+    received) - in pieces and carats, running per karigar. BRK / LOS: bag
+    stones broken or lost with the karigar named - shown, but they leave the
+    bag, not what the karigar holds, so the balance does not move. Clients too (5 Oct T-07): stones sold (SS) or sent
+    on approval (SA) to them, less approval returns (SAR)."""
     from diagold.db.models import InvVoucher, InvVoucherLine
     events: list[tuple] = []
+    kinds = {"iss": ("ISS", 1), "back": ("BACK", -1), "break": ("BRK", -1),
+             "lost": ("LOS", -1)}
     for m in session.scalars(select(JobBagMovement).where(
-            JobBagMovement.kind.in_(("iss", "back")), JobBagMovement.worker_id.is_not(None),
+            JobBagMovement.kind.in_(tuple(kinds)), JobBagMovement.worker_id.is_not(None),
             JobBagMovement.mv_date <= date_to)):
         line = session.get(JobBagLine, m.line_id)
         job = session.get(Job, line.job_id) if line else None
-        sign = 1 if m.kind == "iss" else -1
-        events.append((m.mv_date, 0, m.id, m.worker_id, "ISS" if sign > 0 else "BACK",
+        vtype, sign = kinds[m.kind]
+        events.append((m.mv_date, 0, m.id, m.worker_id, vtype,
                        sign * int(m.pcs or 0), sign * _dec(m.weight),
-                       f"{line.particulars} {line.size}".strip() if line else "",
+                       line.particulars if line else "", line.size if line else "",
                        job.job_no if job else "", job.id if job else None, None))
     # Stones set into the piece leave the karigar with the piece, when the
     # step is received back: "SET", pieces = issued - back on that step.
@@ -2198,49 +2203,84 @@ def worker_stone_ledger(session: Session, date_from: date, date_to: date) -> lis
             if l.set_pcs <= 0 and per <= 0:
                 continue
             events.append((rcv.vr_date, 2, rcv.id * 1000 + l.line.id, issue.worker_id, "SET",
-                           -l.set_pcs, -per, f"{l.line.particulars} {l.line.size}".strip(),
+                           -l.set_pcs, -per, l.line.particulars, l.line.size,
                            job.job_no if job else "", job.id if job else None, rcv.vr_no))
+    signs = {"stone_issue": ("SI", 1), "stone_receipt": ("SR", -1), "stone_sale": ("SS", 1),
+             "stone_approval": ("SA", 1), "stone_approval_return": ("SAR", -1)}
     q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
-         .where(InvVoucher.vr_type.in_(("stone_issue", "stone_receipt")),
+         .where(InvVoucher.vr_type.in_(tuple(signs)),
                 InvVoucher.vr_date <= date_to, InvVoucher.account_id.is_not(None)))
     for line, v in session.execute(q):
-        sign = 1 if v.vr_type == "stone_issue" else -1
+        vtype, sign = signs[v.vr_type]
         sku = session.get(StoneSku, line.stone_sku_id) if line.stone_sku_id else None
-        events.append((v.vr_date, 1, line.id, v.account_id, "SI" if sign > 0 else "SR",
+        events.append((v.vr_date, 1, line.id, v.account_id, vtype,
                        sign * int(line.pcs or 0), sign * _dec(line.weight),
-                       (sku.sku_code if sku else line.particulars) or "", line.job_no or "",
-                       None, v.vr_no))
+                       (sku.sku_code if sku else line.particulars) or "",
+                       line.size or (sku.size if sku else "") or "",
+                       line.job_no or "", None, v.vr_no))
     events.sort(key=lambda e: e[:3])
     bal: dict[int, list] = {}
-    names: dict[int, str] = {}
+    names: dict[int, tuple[str, str]] = {}
     rows = []
-    for when, _o, _i, wid, vtype, pcs, wt, stone, job_no, job_id, vr_no in events:
+    for when, _o, _i, wid, vtype, pcs, wt, ssku, size, job_no, job_id, vr_no in events:
         b = bal.setdefault(wid, [0, ZERO])
-        b[0] += pcs
-        b[1] += wt
+        info_only = vtype in ("BRK", "LOS")
+        if not info_only:
+            b[0] += pcs
+            b[1] += wt
         if when < date_from:
             continue
         if wid not in names:
             a = session.get(Account, wid)
-            names[wid] = a.name if a else "?"
-        rows.append({"worker": names[wid], "date": when, "vrtype": vtype, "vrno": vr_no or "",
-                     "stone": stone, "job_no": job_no, "_job_id": job_id,
-                     "in_pcs": pcs if pcs > 0 else None, "in_wt": wt if wt > 0 else None,
-                     "out_pcs": -pcs if pcs < 0 else None, "out_wt": -wt if wt < 0 else None,
+            names[wid] = (a.name if a else "?",
+                          "Worker" if a is not None and a.account_type == "Worker" else "Client")
+        ssku, size = (ssku or "").strip(), (size or "").strip()
+        if size and ssku.endswith(" " + size):
+            ssku = ssku[: -len(size) - 1]
+        rows.append({"worker": names[wid][0], "group": names[wid][1], "_wid": wid,
+                     "date": when, "vrtype": vtype, "vrno": vr_no or "",
+                     "stone": f"{ssku} {size}".strip(), "ssku": ssku, "size": size,
+                     "job_no": job_no, "_job_id": job_id,
+                     "in_pcs": pcs if pcs > 0 and not info_only else None,
+                     "in_wt": wt if wt > 0 and not info_only else None,
+                     "out_pcs": -pcs if pcs < 0 and not info_only else None,
+                     "out_wt": -wt if wt < 0 and not info_only else None,
+                     "brk_pcs": -pcs if info_only else None,
+                     "brk_wt": (-wt).quantize(D3) if info_only else None,
                      "bal_pcs": b[0], "bal_wt": b[1].quantize(D3)})
     return rows
 
 
+STONE_BAL_HEADS = {"ISS": "iss", "SI": "iss", "SS": "iss", "SA": "iss", "BACK": "rtn",
+                   "SR": "rtn", "SAR": "rtn", "SET": "set", "BRK": "brk", "LOS": "los"}
+
+
 def worker_stone_balance(session: Session, date_to: date) -> list[dict[str, Any]]:
-    """Worker Balance (Stone): what each karigar holds now, by stone."""
-    acc: dict[tuple[str, str], list] = {}
+    """Worker Balance (Stone) (5 Oct §4.10, T-07): per worker or client, per
+    SSKU and size - pieces / carats issued (bag issue, stone issue, sale,
+    approval), returned (back, receipt, approval return), set in the piece,
+    and the closing they still hold; bag stones broken / lost with them
+    named are shown beside it (not part of what they hold)."""
+    acc: dict[tuple, dict[str, Any]] = {}
     for r in worker_stone_ledger(session, date(1900, 1, 1), date_to):
-        a = acc.setdefault((r["worker"], r["stone"]), [0, ZERO])
-        a[0] += (r["in_pcs"] or 0) - (r["out_pcs"] or 0)
-        a[1] += (r["in_wt"] or ZERO) - (r["out_wt"] or ZERO)
-    return [{"worker": w, "stone": st, "pcs": p, "weight": wt.quantize(D3),
-             "_negative": p < 0 or wt < 0}
-            for (w, st), (p, wt) in sorted(acc.items()) if p or wt]
+        a = acc.setdefault((r["group"] != "Worker", r["worker"], r["ssku"], r["size"]), {
+            "group": r["group"], "worker": r["worker"], "ssku": r["ssku"], "size": r["size"],
+            "stone": r["stone"], "pcs": 0, "weight": ZERO})
+        head = STONE_BAL_HEADS.get(r["vrtype"], "iss")
+        p = (r["in_pcs"] or 0) or (r["out_pcs"] or 0) or (r["brk_pcs"] or 0)
+        w = (r["in_wt"] or ZERO) or (r["out_wt"] or ZERO) or (r["brk_wt"] or ZERO)
+        a[f"{head}_pcs"] = a.get(f"{head}_pcs", 0) + p
+        a[f"{head}_wt"] = a.get(f"{head}_wt", ZERO) + w
+        a["pcs"] += (r["in_pcs"] or 0) - (r["out_pcs"] or 0)
+        a["weight"] += (r["in_wt"] or ZERO) - (r["out_wt"] or ZERO)
+    rows = []
+    for _k, a in sorted(acc.items()):
+        if not any(v for k, v in a.items() if k.endswith(("_pcs", "_wt"))):
+            continue
+        a = {k: (v.quantize(D3) if isinstance(v, Decimal) else v) for k, v in a.items()}
+        a["_negative"] = a["pcs"] < 0 or a["weight"] < 0
+        rows.append(a)
+    return rows
 
 
 def job_loss_total(session: Session, job: Job) -> tuple[Decimal, Decimal | None, int]:

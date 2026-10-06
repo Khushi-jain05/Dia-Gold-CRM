@@ -17,6 +17,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Callable
 
+from sqlalchemy import select
+
 from PySide6.QtCore import (
     QAbstractTableModel,
     QDate,
@@ -60,6 +62,7 @@ from diagold.services import inventory as INV
 from diagold.services import manufacturing as MF
 from diagold.services import production as P
 from diagold.services import reports as R
+from diagold.services import stone_reports as SR
 
 TINT_KEY = QColor("#FBEEEE")
 TINT_MEASURE = QColor("#EAF5EC")
@@ -1264,6 +1267,11 @@ def _drill_client_metal(widget: ReportWidget, row: dict) -> None:
     show_in_dialog(widget, ReportWidget(spec, widget.user), spec.title, (1200, 600))
 
 
+def _locations(s) -> list[tuple[Any, str]]:
+    from diagold.db.models import Location
+    return [(l.id, l.name) for l in s.scalars(select(Location).order_by(Location.name))]
+
+
 def _register_specs(money, wt, pcs) -> dict[str, ReportSpec]:
     """Loss, Dust and WIP registers (2 Oct T-08) - legacy Inventory ▸ Reports."""
     from diagold.services import registers as RG
@@ -1777,10 +1785,12 @@ def build_specs() -> dict[str, ReportSpec]:
             note="Every job step received back in the period, with its loss and labour."),
         "worker_stone_ledger": ReportSpec(
             key="worker_stone_ledger", title="Worker Stone Ledger",
-            columns=static([Col("worker", "WORKER"), Col("date", "DATE"), Col("vrtype", "VRTYPE"),
+            columns=static([Col("group", "GROUP"), Col("worker", "WORKER"), Col("date", "DATE"),
+                            Col("vrtype", "VRTYPE"),
                             Col("vrno", "VRNO"), Col("stone", "STONE"), Col("job_no", "JOBNO"),
                             pcs("in_pcs", "IN PCS"), wt("in_wt", "IN WT"),
                             pcs("out_pcs", "OUT PCS"), wt("out_wt", "OUT WT"),
+                            pcs("brk_pcs", "BRK/LOS PCS"), wt("brk_wt", "BRK/LOS WT"),
                             Col("bal_pcs", "BAL PCS", "measure", 0),
                             Col("bal_wt", "BAL WT", "measure", 3)]),
             query=lambda s, a, b, **_k: P.worker_stone_ledger(s, a, b),
@@ -1791,11 +1801,52 @@ def build_specs() -> dict[str, ReportSpec]:
                  "on a stone receipt out."),
         "worker_stone_balance": ReportSpec(
             key="worker_stone_balance", title="Worker Balance (Stone)",
-            columns=static([Col("worker", "WORKER"), Col("stone", "STONE"), pcs("pcs", "PCS"),
-                            wt("weight", "WEIGHT")]),
-            query=lambda s, a, b, **_k: P.worker_stone_balance(s, b),
-            group_by="worker", filter_column="worker", negative_key="_negative",
-            note="Stones each karigar holds as of the To date."),
+            columns=static([Col("group", "GROUP"), Col("worker", "WORKER"), Col("ssku", "SSKU"),
+                            Col("size", "SIZE"),
+                            Col("iss_pcs", "PCS", "measure", 0, "ISSUE", True),
+                            Col("iss_wt", "WEIGHT", "measure", 3, "ISSUE", True),
+                            Col("rtn_pcs", "PCS", "measure", 0, "RETURN", True),
+                            Col("rtn_wt", "WEIGHT", "measure", 3, "RETURN", True),
+                            Col("set_pcs", "PCS", "measure", 0, "SET", True),
+                            Col("set_wt", "WEIGHT", "measure", 3, "SET", True),
+                            Col("brk_pcs", "PCS", "measure", 0, "BREAK", True),
+                            Col("brk_wt", "WEIGHT", "measure", 3, "BREAK", True),
+                            Col("los_pcs", "PCS", "measure", 0, "LOSS", True),
+                            Col("los_wt", "WEIGHT", "measure", 3, "LOSS", True),
+                            Col("pcs", "PCS", "measure", 0, "CLOSING", True),
+                            Col("weight", "WEIGHT", "measure", 3, "CLOSING", True)]),
+            query=lambda s, a, b, **_k: P.worker_stone_balance(s, b), date_mode="to",
+            group_by="worker", filter_column="group", negative_key="_negative",
+            note="Stones each karigar - and each client (stones sold or on approval to "
+                 "them) - holds as on the date, by SSKU and size: ISSUE (bag issue, stone "
+                 "issue, sale, approval), RETURN (back, receipt, approval return), SET into "
+                 "the piece, CLOSING = issue - return - set. BREAK / LOSS: bag stones broken "
+                 "or lost with them named - shown, not part of the closing. Negative "
+                 "closings in red."),
+        "location_stone_balance": ReportSpec(
+            key="location_stone_balance", title="Location Wise Stone Balance",
+            columns=static([Col("section", ""), Col("line", "PARTICULARS")] + [
+                c for g, h in (("dia", "DIA"), ("cs", "CS"), ("pol", "POL"), ("oth", "OTHER"))
+                for c in (Col(f"{g}_wt", "CT", "measure", 3, h),
+                          Col(f"{g}_pcs", "PCS", "measure", 0, h))]),
+            query=lambda s, a, b, location=None, **_k: SR.location_stone_balance(s, location, a, b),
+            pickers=[("location", "Location", _locations)], negative_key="_negative",
+            note="One location's stones for the period, in carats and pieces per group. Closing "
+                 "= Opening + Inward - Outward (loose stones at the location). Balance Details "
+                 "add what was issued from here and is still in work: Job Card (in the job's "
+                 "bag) and WIP (with karigars / in pieces being made). Negative closings in "
+                 "red."),
+        "stone_summary": ReportSpec(
+            key="stone_summary", title="Stone Summary",
+            columns=static([Col("location", "LOCATION"), Col("group", "GROUP"),
+                            Col("stone", "STONE"), Col("where", "WHERE"), pcs("pcs", "PCS"),
+                            wt("weight", "WEIGHT"), money("value", "VALUE")]),
+            query=lambda s, a, b, **k: SR.stone_summary(s, b, **k), date_mode="to",
+            options={"groups_only": ("Groups only (DIAMOND / POLKI / COLOR STONE)", False)},
+            group_by="location", filter_column="where", negative_key="_negative",
+            note="Every stone by location and where it is: RDY in ready-stock pieces, INV loose "
+                 "at the location, JC in a job's bag, WIP with karigars / in pieces being made, "
+                 "LOS broken or lost. Tick Groups only to roll up to the three heads."),
         "setting_labour_statement": ReportSpec(
             key="setting_labour_statement", title="Setting Labour Statement",
             columns=static([Col("worker", "WORKER"), Col("month", "MONTH"), Col("date", "DATE"),
@@ -1868,6 +1919,7 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Purchase", ("rp_register",)),
     ("Registers", ("metal_loss_register", "stone_loss_register", "dust_register",
                    "wip_register", "wip_process_summary", "wip_stone")),
+    ("Stone", ("location_stone_balance", "stone_summary", "worker_stone_balance")),
     ("Karigar", ("worker_metal_ledger", "worker_stone_ledger", "worker_stone_balance",
                  "setting_labour_statement", "issue_day_book", "received_day_book")),
     ("Client", ("client_metal_os", "worker_metal_balance")),

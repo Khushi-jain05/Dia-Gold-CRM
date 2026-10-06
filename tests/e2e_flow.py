@@ -319,6 +319,17 @@ with SessionLocal() as s:
     check("price chart: family rule in the 10-20 g slab wins", (v["labour_rate"], v["labour"]),
           (D("900"), (D("900") * D(str(pc_info["net_wt"]))).quantize(D("0.01"))))
     s.rollback()
+    from diagold.services import stone_reports as SRP
+    lsb = {r["line"]: r for r in SRP.location_stone_balance(s, prim.id, *FY)}
+    g = "pol"
+    v = lambda line: lsb[line][f"{g}_wt"] or D(0)
+    check("Location Stone Balance: closing = opening + inward - outward; total = inv + JC + WIP",
+          (v("Closing Stock") == v("Opening Stock") + v("Inward Total") - v("Outward Total"),
+           v("Total (location + in work)") == v("Balance Details: Inventory") + v("Job Card") + v("WIP")),
+          (True, True))
+    wsb = {(r["worker"], r["ssku"]): r for r in P.worker_stone_balance(s, FY[1])}
+    check("Worker Balance (Stone): client KK holds the 3 emeralds on approval",
+          wsb.get((kk.name, "EMERALD PEAR"), {}).get("pcs"), 3)
     from diagold.services import stock_tools as STK
     in_stock = [str(n) for n in s.scalars(select(StockItem.stock_no).where(StockItem.status == "in_stock"))]
     rc = STK.new_recon(s, T)
