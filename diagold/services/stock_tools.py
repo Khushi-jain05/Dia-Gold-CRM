@@ -379,3 +379,49 @@ def reconcile(session: Session, recon: StockRecon) -> dict[str, list[dict[str, A
             r["status"] += f" - {r['holder']}"
         unknown.append(r)
     return {"ok": ok, "missing": missing, "unknown": unknown}
+
+
+# --------------------------------------------------------------------------
+# Item Search helpers (5 Oct §4.1, T-16)
+# --------------------------------------------------------------------------
+def sku_made_left(session: Session, sku_id: int | None) -> tuple[int, int]:
+    """"This SKU Stock made / left": pieces ever made (or bought) of the SKU,
+    and how many are still in stock."""
+    if not sku_id:
+        return 0, 0
+    made = session.scalar(select(func.count(StockItem.id)).where(
+        StockItem.product_sku_id == sku_id)) or 0
+    left = session.scalar(select(func.count(StockItem.id)).where(
+        StockItem.product_sku_id == sku_id, StockItem.status == "in_stock")) or 0
+    return made, left
+
+
+def cert_xlsx(session: Session, item: StockItem, path: str) -> None:
+    """Cert Excel: the piece's certificate data - identity, weights, metal,
+    every stone line - for the certificate lab / the client."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    r = piece_row(session, item)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Certificate"
+    bold = Font(bold=True)
+    for k, label in (("stock_no", "Stock No"), ("sku", "SKU"), ("job_no", "Job No"),
+                     ("item", "Item"), ("family", "Family"), ("metal", "Metal"),
+                     ("col", "Colour"), ("size", "Size"), ("pcs", "Pcs"),
+                     ("g_wt", "Gross Wt (g)"), ("n_wt", "Net Wt (g)"), ("fine", "Fine (g)"),
+                     ("st_wt", "Stone Wt (ct)")):
+        v = r.get(k)
+        ws.append([label, float(v) if isinstance(v, Decimal) else v])
+        ws.cell(ws.max_row, 1).font = bold
+    ws.append(["Cert No", item.cert_no or ""])
+    ws.append(["HUID", item.huid or ""])
+    ws.append([])
+    ws.append(["Stone", "S Type", "Size", "Pcs", "Weight (ct)"])
+    for c in ws[ws.max_row]:
+        c.font = bold
+    for st in r["_stones"]:
+        ws.append([st.get("label") or "", st.get("s_type") or "", st.get("size") or "",
+                   int(st.get("pcs") or 0), float(_dec(st.get("weight")))])
+    ws.column_dimensions["A"].width = 22
+    wb.save(path)

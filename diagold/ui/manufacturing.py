@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QGroupBox,
     QInputDialog,
     QLabel,
@@ -964,7 +965,10 @@ class ItemSearchWidget(_Screen):
         self.toolbar.addWidget(self.search)
         self.button("Search", self.refresh, primary=True)
         self.toolbar.addStretch(1)
+        self.button("Print", self.print_card, secondary=True)
         self.button("Tag Print", self.tag_print, secondary=True)
+        self.button("Cert Excel", self.cert_excel, secondary=True)
+        self.button("Costing Sheet", self.costing_sheet, secondary=True)
         self.button("Job History", self.open_job, secondary=True)
         self.button("Delete History && Purchase", self.delete_item, secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
@@ -980,8 +984,17 @@ class ItemSearchWidget(_Screen):
         self.card.setWordWrap(True)
         self.card.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         box = QGroupBox("Piece")
-        bl = QVBoxLayout(box)
-        bl.addWidget(self.card)
+        bl = QHBoxLayout(box)
+        bl.addWidget(self.card, 1)
+        # The product photo ("Double Click Here" in the legacy screen).
+        self.photo = QLabel("no photo")
+        self.photo.setObjectName("ImageSlot")
+        self.photo.setFixedSize(120, 120)
+        self.photo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.photo.setToolTip("Double-click to enlarge")
+        self.photo.mouseDoubleClickEvent = lambda _e: self._enlarge()
+        self._photo_path = ""
+        bl.addWidget(self.photo)
         rl.addWidget(box)
         self.moves = _table(["Location", "Date", "Vr Type", "Vr No", "Particulars", "Loss %",
                              "Pcs", "Price", "Amount", "HUID"])
@@ -1037,15 +1050,28 @@ class ItemSearchWidget(_Screen):
             d = mfg.item_detail(s, it)
             job, line, t = d["job"], d["line"], d["transfer"]
             self.job_id = job.id if job else None
+            from diagold.services import stock_tools as STK
+            made, left = STK.sku_made_left(s, it.product_sku_id)
+            status = STK.STATUS_TEXT.get(it.status, it.status)
+            holder = s.get(Account, it.holder_account_id) if it.holder_account_id else None
+            self._photo_path = (d["sku"].image_finished or d["sku"].image_design) \
+                if d["sku"] else ""
+            pix = QPixmap(self._photo_path) if self._photo_path else QPixmap()
+            if pix.isNull():
+                self.photo.setPixmap(QPixmap())
+                self.photo.setText("no photo")
+            else:
+                self.photo.setPixmap(pix.scaled(118, 118, Qt.AspectRatioMode.KeepAspectRatio,
+                                                Qt.TransformationMode.SmoothTransformation))
             self.card.setText(
                 f"<b style='font-size:15px'>Stock No {it.stock_no}</b> · "
                 f"{d['sku'].sku_code if d['sku'] else ''} · Job {job.job_no if job else ''}"
                 f"<br>Client: {d['client'].name if d['client'] else 'stock'} · "
                 f"Ord No: {d['order'].order_no if d['order'] else '—'}"
                 f"{' dt ' + d['order'].order_date.strftime('%d-%m-%Y') if d['order'] else ''} · "
-                f"{'In Stock' if it.status == 'in_stock' else it.status} at "
+                f"Status <b>{status}</b>{' - ' + holder.name if holder else ''} / "
                 f"<b>{d['location'].name if d['location'] else ''}</b> · "
-                f"This SKU in stock: {d['same_sku_in_stock']}"
+                f"This SKU Stock: made <b>{made}</b>, left <b>{left}</b>"
                 f"<br>G-Wt {it.gross_wt} g · N-Wt {it.net_wt} g · "
                 f"Cost {Decimal(str(it.cost)):,.2f} · Net <b>{Decimal(str(it.price)):,.2f}</b>"
                 f" · TAG <b style='color:#A9861B'>{it.tag_text}</b>")
@@ -1093,6 +1119,63 @@ class ItemSearchWidget(_Screen):
         if self.job_id:
             self.open_requested.emit("production_planning.job_history")
 
+    def _enlarge(self) -> None:
+        pix = QPixmap(self._photo_path) if self._photo_path else QPixmap()
+        if pix.isNull():
+            return
+        lbl = QLabel()
+        lbl.setPixmap(pix.scaled(640, 640, Qt.AspectRatioMode.KeepAspectRatio,
+                                 Qt.TransformationMode.SmoothTransformation))
+        show_in_dialog(self, lbl, "Photo", (680, 680))
+
+    def print_card(self) -> None:
+        """Print: the piece card, its voucher history, stones and value."""
+        if self._current() is None:
+            return
+        from diagold.services import documents
+
+        def table(t) -> str:
+            head = "".join(f"<th>{t.horizontalHeaderItem(c).text()}</th>"
+                           for c in range(t.columnCount()))
+            body = "".join("<tr>" + "".join(
+                f"<td>{t.item(r, c).text() if t.item(r, c) else ''}</td>"
+                for c in range(t.columnCount())) + "</tr>" for r in range(t.rowCount()))
+            return f"<table border=1 cellspacing=0 cellpadding=3><tr>{head}</tr>{body}</table>"
+        html = (f"<h2>Item Search</h2><p>{self.card.text()}</p><h3>History</h3>"
+                f"{table(self.moves)}<h3>Stones</h3>{table(self.stones)}"
+                f"<p>{self.summary.text()}</p>")
+        path = documents.PRINT_DIR / f"item_{datetime.now():%Y%m%d-%H%M%S}.pdf"
+        documents.to_pdf(html, path)
+        _info(self, "Print", f"Saved {path}")
+
+    def cert_excel(self) -> None:
+        iid = self._current()
+        if iid is None:
+            return
+        from diagold.services import stock_tools as STK
+        with SessionLocal() as s:
+            it = s.get(StockItem, iid)
+            path, _ = QFileDialog.getSaveFileName(self, "Cert Excel", f"cert_{it.stock_no}.xlsx",
+                                                  "Excel (*.xlsx)")
+            if not path:
+                return
+            STK.cert_xlsx(s, it, path)
+        _info(self, "Cert Excel", f"Saved {path}")
+
+    def costing_sheet(self) -> None:
+        """Costing Sheet: the job's costing (frozen on its MFG transfer)."""
+        if not self.job_id:
+            _info(self, "Costing Sheet", "This piece has no job (bought in / opening stock).")
+            return
+        from diagold.services import job_costing as JC
+        with SessionLocal() as s:
+            sheet = JC.costing_sheet(s, s.get(Job, self.job_id))
+        path, _ = QFileDialog.getSaveFileName(self, "Costing Sheet",
+                                              f"costing_{sheet.job_no}.xlsx", "Excel (*.xlsx)")
+        if path:
+            JC.sheet_xlsx(sheet, path)
+            _info(self, "Costing Sheet", f"Saved {path}")
+
     def tag_print(self) -> None:
         iid = self._current()
         if iid is None:
@@ -1126,21 +1209,25 @@ class ItemSearchWidget(_Screen):
             "MFG Transfer, to be corrected and transferred again.\n\nReason:")
         if not ok:
             return
-        if QMessageBox.question(self, "Delete", f"Delete Stock No {no}?") \
-                != QMessageBox.StandardButton.Yes:
+        box = QMessageBox(QMessageBox.Icon.Warning, "Delete",
+                          f"Delete Stock No {no}?\nAfter Delete You can not Recover.",
+                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, self)
+        also = QCheckBox("Delete SKU Also (only when nothing else uses it)")
+        box.setCheckBox(also)
+        if box.exec() != QMessageBox.StandardButton.Yes:
             return
+        from diagold.services import admin
         with SessionLocal() as s:
             try:
-                mfg.delete_stock_item(s, s.get(StockItem, iid),
-                                      user_id=getattr(self.user, "id", None),
-                                      reason=reason.strip())
+                msg = admin.delete_item_history(s, no, delete_sku=also.isChecked(),
+                                                reason=reason.strip() or "Item Search delete",
+                                                user=self.user)
                 s.commit()
             except ProductionError as exc:
                 s.rollback()
                 _warn(self, "Cannot delete", str(exc))
                 return
-        _info(self, "Deleted", f"Stock No {no} deleted. Job {jn} is back in Pending for "
-                               "MFG Transfer.")
+        _info(self, "Deleted", msg)
         self.refresh()
 
 

@@ -65,6 +65,9 @@ class MainWindow(QMainWindow):
         # Job History is F11 in the legacy system - a habit worth keeping (UX7).
         QShortcut(QKeySequence("F11"), self,
                   activated=lambda: self._open_by_key("production_planning.job_history"))
+        # Item Search from anywhere (5 Oct R9).
+        QShortcut(QKeySequence("Ctrl+I"), self,
+                  activated=lambda: self._open_by_key("manufacturing.item_search"))
         # "More… (F12)" on the legacy Reports menu: every report in one list.
         QShortcut(QKeySequence("F12"), self, activated=self._more_reports)
 
@@ -261,6 +264,7 @@ class MainWindow(QMainWindow):
         item_search = QToolButton()
         item_search.setObjectName("UserButton")
         item_search.setText("Item Search")
+        item_search.setToolTip("Item Search (Ctrl+I)")
         item_search.clicked.connect(lambda: self._open_by_key("manufacturing.item_search"))
         h.addWidget(item_search)
 
