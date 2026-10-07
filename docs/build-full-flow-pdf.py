@@ -78,7 +78,8 @@ def mfg(process: str, karigar: str, iss: str, rcv: str, allow: str, expect: str,
 HTML = CSS + """
 """ + H1.format("Dia Gold CRM — Full Test Guide") + """
 <p class='muted'>Poore CRM ka testing guide — Order se Ready Stock, phir Sale, Approval, Repair, Purchase,
-Stock Transfer, saare Reports, aur 5 Oct ke Accounts, price chart, stock tools, dashboards aur Tools (R–X) tak. Har step pe: kahan jaana hai, kya type karna hai, aur screen pe kya aana
+Stock Transfer, saare Reports, 5 Oct ke Accounts, price chart, stock tools, dashboards aur Tools (R–X), aur
+6–7 Oct ke fixes (Y) tak. Har step pe: kahan jaana hai, kya type karna hai, aur screen pe kya aana
 chahiye. Jisne app pehle kabhi nahi chalaya, wo bhi shuru se aakhir tak kar sake — bas step order me chalein.</p>
 """ + BOX.format("""<b>Kya chahiye:</b> Windows PC, aur <b>DiaGoldCRM-Windows-x64.zip</b> (jo file bheji hai).
 Testing ek <b>alag DEMO database</b> pe hoti hai — asli data ko kuch nahi hota. Demo me pehle se: rates
@@ -633,6 +634,46 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
         ("Kisi bhi screen pe", "<b>Ctrl+I</b> → Stock No <b>1</b>")],
     ["Status In-Stock / Primary; 'This SKU Stock: made <b>3</b>, left <b>2</b>'; photo; Print, Cert Excel, "
      "Costing Sheet; Delete pe 'Delete SKU Also' checkbox."],
+) + part("Y. 6–7 Oct — crash fix, laptop screen, report grid, stone price chart A") + step(
+    "App band nahi hona chahiye (crash fix)", [
+        ("Reports ▸ Karigar ▸ Worker Metal Ledger", "khulte hi (jab 'Running…' dikhe) tab ka <b>×</b> dabao"),
+        ("Account ▸ Outstandings ▸ Client Metal O/S", "KK JEWELS row double-click → ledger popup turant band karo; "
+         "ye 5 baar jaldi-jaldi")],
+    ["App <b>band nahi</b> hota (pehle yahi karne par poora app close ho jaata tha)."],
+) + step(
+    "Laptop screen (1366 × 768) pe sab dikhe", [
+        ("Sale ▸ Ready Stock ▸ Sale", "screen kholo"),
+        ("Tools ▸ Stock View", "screen kholo"),
+        ("Tools ▸ Option", "Menu tab")],
+    ["Sale: neeche ke buttons (Show Stock … Exit) do line me aate hain, kuch kata nahi, left-right slide nahi karna padta.",
+     "Stock View: <b>Filter</b> button upar; left ke filters scroll hote hain; window screen se bahar nahi jaati.",
+     "Option ▸ Menu tab, Printing Options, Business Dashboard — lambi list scroll hoti hai, neeche ka hissa kata nahi."],
+) + step(
+    "Report grid — 2 level group, Ctrl+E, Set Column", [
+        ("Reports ▸ Karigar ▸ Worker Metal Ledger", "Group = <b>GROUP</b> · then = <b>WORKER</b>"),
+        ("Same report", "<b>Ctrl+E</b>; phir Set Column se ek column chhupao"),
+        ("App band karke dobara kholo", "same report")],
+    ["Pehle 'GROUP : Client' / 'GROUP : Worker', uske andar har WORKER, dono level pe Total row.",
+     "Ctrl+E → Excel save hota hai.",
+     "Chhupaya column chhupa hi rehta hai (Set Column har user ke liye alag save hota hai)."],
+) + step(
+    "Sales Register aur Ready Closing Stock ke shortcuts", [
+        ("Sale ▸ Reports ▸ Sales Register", "<b>F9</b>, phir row select → <b>Ctrl+C</b>"),
+        ("Sale ▸ Reports ▸ Ready Closing Stock", "<b>Ctrl+F1</b>")],
+    ["F9 → A/C ID column aata hai (KK); dobara F9 → chhup jaata hai. Ctrl+C → Catalog PDF.",
+     "Closing Stock: DIA / POL / CS columns; Stock 1 me DIA khaali, POL <b>5,184.00</b>, CS <b>1,000.00</b>. Ctrl+F1 se "
+     "chhupte / dikhte hain."],
+) + step(
+    "Client ki stone price sheet = price type A", [
+        ("Tools ▸ Client Wise Stone Price", "left me <b>A</b> chuno"),
+        ("Masters ▸ Account ▸ KK JEWELS", "Price Chart = <b>A</b> → Save"),
+        ("Sale ▸ Ready Stock ▸ Sale", "Account KK JEWELS → barcode <b>1</b> scan (save mat karo)"),
+        ("Client Wise Stone Price ▸ A", "<b>Export Excel</b>, phir <b>Import Excel</b> wahi file")],
+    ["A me <b>299</b> rows: AMETHYST CABS 250 … POLKI 6-8 <b>10,750</b> … POLKI 12-14 <b>15,000</b> (Excel ki date wali sizes "
+     "theek padhi hui).",
+     "Sale: Prices From Client Chart (A) tick; Stone Amount <b>10,850.00</b> (POLKI 0.640 × 15,000 + EMERALD PEAR 0.500 × 2,500); "
+     "Labour wahi <b>1,200 / 15,240.00</b> (chart A me labour nahi); Total <b>1,36,334.51</b>.",
+     "Import Excel: '299 stone price(s) imported' — rows wahi rehte hain."],
 ) + ("<p class='muted'>Jo bhi galat mile — step number, kya kiya, kya aana tha, kya aaya, aur screenshot bhejo. "
      "Testing dobara shuru se: <b>Reset DEMO and open.bat</b>.</p>")
 
