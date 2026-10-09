@@ -414,7 +414,9 @@ appear. Type in the green cells.</p>
         ("Account ▸ Voucher Entry ▸ Receipt", "Account <b>KK JEWELS</b> · Mode <b>Cash</b> · Amount <b>50000</b> → "
          "<b>Auto FIFO</b> → Save")],
     ["Before: KK owes MS 1 <b>1,50,500.00</b> and SS 1 <b>1,296.00</b>; balance <b>1,51,796.00 Dr</b>.",
-     "After: MS 1 pending <b>1,00,500.00</b>; KK balance <b>1,01,796.00 Dr</b>."],
+     "After: MS 1 pending <b>1,00,500.00</b>; KK balance <b>1,01,796.00 Dr</b>.",
+     "Cash / Bank A/c shows <b>Cash in Hand</b> by itself. After Save, the receipt is at the top of the "
+     "<b>Saved Receipts</b> list at the bottom of the screen; select it → Print."],
 ) + step(
     "Metal receive (settle in gold)", [
         ("Account ▸ Voucher Entry ▸ Receipt", "KK JEWELS · Mode <b>Metal</b> · Metal <b>24KT Gold</b> · Location "

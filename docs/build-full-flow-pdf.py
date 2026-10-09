@@ -532,7 +532,9 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
     ["Pehle KK JEWELS: MS 1 (metal sale) <b>1,50,500.00</b> aur SS 1 (stone sale) <b>1,296.00</b> pending; "
      "Cl Bal <b>1,51,796.00 Dr</b>.",
      "Receipt ke baad sabse purana bill pehle: MS 1 pending <b>1,00,500.00</b>, SS 1 waise hi; KK closing "
-     "<b>1,01,796.00 Dr</b>. Overdue bills red me."],
+     "<b>1,01,796.00 Dr</b>. Overdue bills red me.",
+     "Cash / Bank A/c me <b>Cash in Hand</b> khud aata hai. Save ke baad receipt screen ke neeche "
+     "<b>Saved Receipts</b> list me sabse upar dikhta hai; select → Print."],
 ) + step(
     "Metal receive (fine gold se settle)", [
         ("Account ▸ Voucher Entry ▸ Receipt", "KK JEWELS · Mode <b>Metal</b> · Metal <b>24KT Gold</b> · Location "

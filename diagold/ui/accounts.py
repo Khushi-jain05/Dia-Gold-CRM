@@ -334,7 +334,66 @@ class AccountVoucherWidget(_Screen):
         self.outer.addWidget(self.narration)
         self.status = QLabel("")
         self.outer.addWidget(self.status)
+        # Saved vouchers of this type, newest first (9 Oct: a saved receipt
+        # was nowhere to be seen). Pick a row for Print / Delete.
+        self.saved_title = QLabel(f"<b>Saved {A.ACC_TYPES[vr_type][1]}s</b> — select a row to "
+                                  "Print or Delete it")
+        self.outer.addWidget(self.saved_title)
+        self.saved = QTableWidget(0, 8)
+        self.saved.setHorizontalHeaderLabels(["Vr No", "Date", "Party / Accounts", "Mode",
+                                              "Amount", "Metal · Weight", "Ref", "Narration"])
+        self.saved.verticalHeader().setVisible(False)
+        self.saved.horizontalHeader().setStretchLastSection(True)
+        self.saved.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.saved.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.saved.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.saved.setMinimumHeight(140)
+        self.saved.setMaximumHeight(220)
+        self.saved.itemSelectionChanged.connect(self._saved_selected)
+        self.outer.addWidget(self.saved)
+        self._saved_ids: list[int] = []
         self.refresh()
+
+    def _fill_saved(self) -> None:
+        with SessionLocal() as s:
+            rows = []
+            for v in s.scalars(select(AccountVoucher).where(AccountVoucher.vr_type == self.vr_type)
+                               .order_by(AccountVoucher.vr_date.desc(),
+                                         AccountVoucher.vr_no.desc()).limit(300)):
+                if v.account_id:
+                    a = s.get(Account, v.account_id)
+                    party = a.name if a else ""
+                else:
+                    names = [s.get(Account, l.account_id) for l in v.lines]
+                    party = ", ".join(n.name for n in names if n)[:80]
+                metal = ""
+                if v.mode == "Metal" and v.metal_id:
+                    m = s.get(Metal, v.metal_id)
+                    metal = f"{m.name if m else ''} · {D(str(v.weight)):.3f} g"
+                amount = D(str(v.amount)) or sum((D(str(l.debit)) for l in v.lines), D(0))
+                rows.append((v.id, [str(v.vr_no), f"{v.vr_date:%d-%m-%Y}", party,
+                                    v.mode if v.vr_type in ("receipt", "payment") else "",
+                                    f"{amount:,.2f}", metal, v.ref_no or "", v.narration or ""]))
+        self._saved_ids = [r[0] for r in rows]
+        self.saved.setRowCount(len(rows))
+        for i, (_vid, vals) in enumerate(rows):
+            for c, val in enumerate(vals):
+                it = QTableWidgetItem(val)
+                if c in (0, 4):
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self.saved.setItem(i, c, it)
+        self.saved.resizeColumnsToContents()
+        self.saved_title.setText(f"<b>Saved {A.ACC_TYPES[self.vr_type][1]}s ({len(rows)})</b> — "
+                                 "select a row to Print or Delete it")
+
+    def _saved_selected(self) -> None:
+        r = self.saved.currentRow()
+        if 0 <= r < len(self._saved_ids):
+            self._last_id = self._saved_ids[r]
+
+    def _selected_saved(self) -> int | None:
+        rows = self.saved.selectionModel().selectedRows() if self.saved.selectionModel() else []
+        return self._saved_ids[rows[0].row()] if rows else None
 
     # -- receipt / payment ----------------------------------------------
     def _combo(self, items, editable=True) -> QComboBox:
@@ -361,6 +420,7 @@ class AccountVoucherWidget(_Screen):
         cash_like = [(i, t) for i, t, g in self._accounts
                      if g in ("Cash-In-Hand", "Bank Account", "Bangkok bank saving a/c")]
         self.book = self._combo(cash_like, editable=False)
+        self._book_group = {i: g for i, _t, g in self._accounts}
         self.amount = QDoubleSpinBox()
         self.amount.setRange(0, 1e12)
         self.amount.setDecimals(2)
@@ -444,8 +504,10 @@ class AccountVoucherWidget(_Screen):
         metal = self.mode.currentText() == "Metal"
         self.metal_box.setVisible(metal)
         self.book.setEnabled(not metal)
-        want = "Cash" if self.mode.currentText() == "Cash" else "Bank"
-        i = self.book.findText(want)
+        # By the ledger's group, not its name: the cash ledger is "Cash in Hand".
+        want = "Cash-In-Hand" if self.mode.currentText() == "Cash" else "Bank Account"
+        i = next((k for k in range(self.book.count())
+                  if self._book_group.get(self.book.itemData(k)) == want), -1)
         if i >= 0 and not metal:
             self.book.setCurrentIndex(i)
 
@@ -526,6 +588,8 @@ class AccountVoucherWidget(_Screen):
     def refresh(self) -> None:
         with SessionLocal() as s:
             self.vr.setText(str(A.next_vr_no(s, self.vr_type)))
+        if hasattr(self, "saved"):
+            self._fill_saved()
 
     def new_voucher(self) -> None:
         self.ref.clear()
@@ -571,9 +635,12 @@ class AccountVoucherWidget(_Screen):
                 s.rollback()
                 QMessageBox.warning(self, "Cannot save", str(exc))
                 return
-        self._last_id = vid
         self.new_voucher()
-        self.status.setText(f"Saved {A.ACC_TYPES[self.vr_type][1]} Vr {vr}.")
+        self._last_id = vid
+        if vid in self._saved_ids:
+            self.saved.selectRow(self._saved_ids.index(vid))
+        self.status.setText(f"Saved {A.ACC_TYPES[self.vr_type][1]} Vr {vr} - it is at the top "
+                            "of the list below.")
 
     def _pick(self, title: str) -> int | None:
         with SessionLocal() as s:
@@ -608,7 +675,7 @@ class AccountVoucherWidget(_Screen):
         return lst.currentItem().data(Qt.ItemDataRole.UserRole)
 
     def delete_voucher(self) -> None:
-        vid = self._pick("Delete — pick the voucher")
+        vid = self._selected_saved() or self._pick("Delete — pick the voucher")
         if vid is None:
             return
         if QMessageBox.question(self, "Delete", "Delete this voucher? Its postings and bill "
@@ -619,10 +686,11 @@ class AccountVoucherWidget(_Screen):
             A.delete_voucher(s, s.get(AccountVoucher, vid), user_id=getattr(self.user, "id", None))
             s.commit()
         self.status.setText("Deleted.")
+        self._last_id = None
         self.refresh()
 
     def print_voucher(self) -> None:
-        vid = self._last_id or self._pick("Print — pick the voucher")
+        vid = self._selected_saved() or self._last_id or self._pick("Print — pick the voucher")
         if vid is None:
             return
         from diagold.services import documents
