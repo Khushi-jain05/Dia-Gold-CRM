@@ -84,7 +84,8 @@ chahiye. Jisne app pehle kabhi nahi chalaya, wo bhi shuru se aakhir tak kar sake
 """ + BOX.format("""<b>Kya chahiye:</b> Windows PC, aur <b>DiaGoldCRM-Windows-x64.zip</b> (jo file bheji hai).
 Testing ek <b>alag DEMO database</b> pe hoti hai — asli data ko kuch nahi hota. Demo me pehle se: rates
 (24K fine 14,713/g → 14KT 590 = 8,680.67/g), labour 1,200/g, margin 50%, karigar CHAND KUMAR HAZRA,
-supplier SHRIKANT, customer KK JEWELS, demo jobs 28854–28856.""") + part("0. Install aur app kholna") + step(
+supplier SHRIKANT, customer KK JEWELS, demo jobs 28854–28856, aur client ki master lists aur stone price
+sheet.""") + part("0. Install aur app kholna") + step(
     "Zip kholna (sirf pehli baar)", [
         ("Zip file", "<b>DiaGoldCRM-Windows-x64.zip</b> pe right-click → <b>Extract All…</b> → Extract"),
         ("Folder", "Naye folder me <b>DiaGoldCRM.exe</b> aur do files dikhengi: "
@@ -674,6 +675,17 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
      "Sale: Prices From Client Chart (A) tick; Stone Amount <b>10,850.00</b> (POLKI 0.640 × 15,000 + EMERALD PEAR 0.500 × 2,500); "
      "Labour wahi <b>1,200 / 15,240.00</b> (chart A me labour nahi); Total <b>1,36,334.51</b>.",
      "Import Excel: '299 stone price(s) imported' — rows wahi rehte hain."],
+) + step(
+    "Client ki master sheet aur locations", [
+        ("Master ▸ Account", "<b>A B JEWELS</b> search karo, phir <b>SWARNVILLA</b>"),
+        ("Master ▸ Metal", "<b>22KT GOLD 92.25</b> aur <b>9KT GOLD</b> dhoondo"),
+        ("Master ▸ Location", "list dekho"),
+        ("Tools ▸ Advance Options ▸ Masters Excel", "<b>Masters Excel</b> → save; phir <b>Import Masters Excel</b> "
+         "wahi file")],
+    ["A B JEWELS client (Sundry Debtors); SWARNVILLA vendor (Accounts Payable).",
+     "22KT GOLD 92.25 ki purity 92.25; 9KT GOLD 37.5.",
+     "Locations me <b>vishal ji</b> aur <b>VISHAL JIDISMENTAL</b>.",
+     "Import me har count 0 — kuch dobara nahi judta."],
 ) + ("<p class='muted'>Jo bhi galat mile — step number, kya kiya, kya aana tha, kya aaya, aur screenshot bhejo. "
      "Testing dobara shuru se: <b>Reset DEMO and open.bat</b>.</p>")
 
