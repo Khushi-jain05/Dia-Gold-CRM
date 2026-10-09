@@ -155,4 +155,6 @@ Namaste Rohit ji. Everything we still need from you, in one list. Please reply w
 
 94. Master sheet (9 Oct) is loaded: 345 clients, 27 vendors, 315 stones, metals, items, colours, family, and the 18 locations. Please check: (a) purity of the new metals - we read 22KT GOLD 91.6, 22KT GOLD 92.25, 9KT 37.5; 22KT SILVER, AEROLITE and KUNDAN MEENA have none - what are they? (b) stones were grouped by name (DIA… / Diamond → Diamond, POLKI → Polki, the rest Colour Stone) - correct any wrong ones; (c) the karigar sheet is loaded too (98 karigars with department; OUTSIDE HANDMADE / OUTSIDE SETTING marked out-house) - are "BUDDHA POL", "JAGDISH PRA", "akshay j", "TUHIN BHANI" from your screens the same as BUDDHA POLISH, JAGDISH PRASAD SONI, akshay ji office, TUHIN BHANDARI?; (d) "DIAMONDS JEWELLERY" and "Gold CZ" were added as families beside our "Diamond Jewellery" - same thing? *(9 Oct)*
 
+95. Thank you for the Tools ▸ Option screenshots - every value is now in our Tools ▸ Option. Two things: (a) "Mfg Loss % Calculation Method" is 2 (On Return Wt), but your ABHIJEET DAS ledger rows of 5 Oct work the 3% allowance on the ISSUED weight (3% × 11.240 = 0.337). Which is right for the allowance? (b) The Accounts tab was not in the screenshots - please send it. *(9 Oct)*
+
 Thank you!

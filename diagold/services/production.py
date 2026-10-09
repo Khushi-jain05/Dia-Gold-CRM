@@ -79,6 +79,16 @@ def _dec(value: Any) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
+def next_job_no(session: Session) -> int:
+    """Max + 1, never below Tools > Option "Starting Job No" (legacy 25001)."""
+    from diagold.services import settings
+    try:
+        start = int(settings.opt("legacy.production_planning_starting_job_no", session) or 0)
+    except ValueError:
+        start = 0
+    return max(next_number(session, Job.job_no), start)
+
+
 def next_number(session: Session, column) -> int:
     """The next free number in an explicit sequence (job no, order no, vr no).
 
@@ -193,7 +203,7 @@ def sync_jobs_for_order(session: Session, order: Order) -> list[Job]:
         seen.add(line.sno)
         job = existing.get(line.sno)
         if job is None:
-            job = Job(job_no=next_number(session, Job.job_no), order_id=order.id,
+            job = Job(job_no=next_job_no(session), order_id=order.id,
                       line_sno=line.sno, status="pending")
             session.add(job)
         job.product_sku_id = line.product_sku_id

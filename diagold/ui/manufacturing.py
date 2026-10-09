@@ -738,7 +738,9 @@ class MfgTransferWidget(_Screen):
         self.ref.clear()
         self.refresh()
         self.totals.setText(f"Saved Vr {vr}: Stock No {', '.join(map(str, nos))} in Primary.")
-        TagListDialog(tid, self).exec()
+        from diagold.services import settings as _settings
+        if _settings.opt_on("legacy.inventory_prompt_tag_printing_when_stock_entry"):
+            TagListDialog(tid, self).exec()       # Tools > Option: Prompt Tag Printing
 
     def _save_edit(self, lines: list[dict[str, Any]]) -> None:
         tid = self._edit_tid

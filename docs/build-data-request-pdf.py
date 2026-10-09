@@ -44,7 +44,8 @@ SECTIONS: list[tuple[str, str, list[tuple[str, str, str, str]]]] = [
         ("2c", "MANNU BHAI stone sheet", "Received (282 rows), now in the system. One row's size reads "
                                          "\"NN AGARWAL DIA.\" (DIA.ROSE CUT PEAR\\OVAL) - please check",
          RECEIVED),
-        ("2d", "Tools ▸ Option values", "Every section (a screenshot is enough)", NEEDED),
+        ("2d", "Tools ▸ Option values", "Received - all in the system. Still needed: the "
+                                       "<b>Accounts</b> tab (not in the screenshots)", RECEIVED),
     ]),
     ("3. Opening balances", "All on the go-live (cut-over) date.", [
         ("3a", "Go-live date", "The date from which the new system takes over", URGENT),
