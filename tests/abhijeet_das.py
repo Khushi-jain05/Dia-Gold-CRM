@@ -37,9 +37,13 @@ LEGACY = [
 ]
 fails = []
 with SessionLocal() as s:
-    abhi = Account(code="ABHIJEET", name="ABHIJEET DAS", account_type="Worker", group_name="Karigar")
-    s.add(abhi)
-    s.flush()
+    # The karigar is on the client's worker sheet (loaded at start); else add him.
+    abhi = s.scalar(select(Account).where(Account.name == "ABHIJEET DAS"))
+    if abhi is None:
+        abhi = Account(code="ABHIJEET", name="ABHIJEET DAS", account_type="Worker",
+                       group_name="Karigar")
+        s.add(abhi)
+        s.flush()
     metal = s.scalar(select(Metal).where(Metal.name == "14KT 590"))
     job = next(j for j in s.scalars(select(Job).where(Job.status.in_(("mapped", "in_progress"))))
                if P.current_step(s, j)[0] is not None and P.current_step(s, j)[1] is None

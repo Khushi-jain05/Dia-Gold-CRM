@@ -48,6 +48,8 @@ def init_db() -> None:
         backfill_nominals(session)    # Sales / Purchase A/c entries get their account
         from diagold.services.master_import import seed_master_sheet
         seed_master_sheet(session)    # the client's master sheet + locations (9 Oct)
+        from diagold.services.master_import import seed_workers
+        seed_workers(session)         # the client's karigars by department (9 Oct)
         from diagold.services.price_charts import seed_default_charts
         seed_default_charts(session)  # price type "A" with the client's stone chart
         session.commit()

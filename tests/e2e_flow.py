@@ -106,7 +106,7 @@ with SessionLocal() as s:
     rahul = Account(code="RAHUL", name="RAHUL JI", account_type="Worker", group_name="x")
     mb = Account(code="MANNU", name="MANNU BHAI", account_type="Client", group_name="Sundry Debtors")
     s.add_all([sup, rahul, mb]); s.flush()
-    kk, chand = g(Account, code="KK"), g(Account, code="CHANDKH")
+    kk, chand = g(Account, code="KK"), g(Account, name="CHAND KUMAR HAZRA")
     prim, raj = g(Location, name="Primary"), g(Location, name="RAJESH JI")
     m590, g24 = g(Metal, name="14KT 590"), g(Metal, name="24KT Gold")
     polki, em = g(StoneSku, sku_code="POLKI 12-14"), g(StoneSku, sku_code="EMERALD PEAR 3*4")

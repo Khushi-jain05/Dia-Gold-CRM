@@ -689,7 +689,10 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
     ["A B JEWELS client (Sundry Debtors); SWARNVILLA vendor (Accounts Payable).",
      "22KT GOLD 92.25 ki purity 92.25; 9KT GOLD 37.5.",
      "Locations me <b>vishal ji</b> aur <b>VISHAL JIDISMENTAL</b>.",
-     "Import me har count 0 — kuch dobara nahi judta."],
+     "Import me har count 0 — kuch dobara nahi judta.",
+     "Karigar (All Department Worker sheet): Master ▸ Account → <b>ABHIJEET DAS</b> Worker, Department "
+     "<b>Setting</b>, In-house tick; <b>AJAY BABU</b> HandMade, In-house <b>tick nahi</b> (outside); "
+     "Manufacturing ▸ Issue ke Account list me saare karigar."],
 ) + ("<p class='muted'>Jo bhi galat mile — step number, kya kiya, kya aana tha, kya aaya, aur screenshot bhejo. "
      "Testing dobara shuru se: <b>Reset DEMO and open.bat</b>.</p>")
 

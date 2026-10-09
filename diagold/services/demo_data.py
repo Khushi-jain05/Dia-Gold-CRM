@@ -22,7 +22,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from diagold.db.models import (
@@ -58,6 +58,10 @@ DEMO_SKU = "NS-1430"
 
 def _account(s: Session, code: str, name: str, kind: str, group: str) -> Account:
     a = s.scalar(select(Account).where(Account.code == code))
+    if a is None:
+        # The client's own lists (master sheet, karigar sheet) may already
+        # hold this party under another code - never add it twice.
+        a = s.scalar(select(Account).where(func.lower(Account.name) == name.lower()))
     if a is None:
         a = Account(code=code, name=name, account_type=kind, group_name=group)
         s.add(a)

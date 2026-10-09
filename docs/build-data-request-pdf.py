@@ -23,9 +23,8 @@ RECEIVED = "<b style='color:#0E6B54'>Received ✓</b>"
 SECTIONS: list[tuple[str, str, list[tuple[str, str, str, str]]]] = [
     ("1. Masters", "Access to the legacy database (SERVER2\\ERP → Diagold26) is the easiest - we can "
      "take every list below from there. If that is not possible, Excel exports of each list.", [
-        ("1a", "Accounts", "Received: 345 clients and 27 vendors (names). Still needed: the "
-                           "<b>karigar list</b>, and code, city, GSTIN, credit days for each party",
-         URGENT),
+        ("1a", "Accounts", "Received: 345 clients, 27 vendors and 98 karigars by department. Still "
+                           "needed: code, city, GSTIN and credit days for each party", NEEDED),
         ("1b", "Metals", "Names received. Please confirm the purity of 22KT GOLD (91.6?), 22KT GOLD "
                          "92.25, 9KT (37.5?), and tell us 22KT SILVER, AEROLITE, KUNDAN MEENA",
          NEEDED),

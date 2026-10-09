@@ -157,3 +157,63 @@ def seed_master_sheet(session: Session) -> dict[str, int]:
         return {}
     settings.set_setting(session, key, "1")
     return import_masters(session, DATA / MASTER_FILE, LEGACY_LOCATIONS)
+
+
+
+# --------------------------------------------------------------------------
+# All Department Worker sheet (9 Oct): blocks of "WORKER : NAME" | PROCESS
+# (Ghat, Setting, Other). OUTSIDE HANDMADE / OUTSIDE SETTING = out-house.
+# --------------------------------------------------------------------------
+WORKER_FILE = "all_department_workers.xlsx"
+OUTSIDE = {"OUTSIDE HANDMADE": "HandMade", "OUTSIDE SETTING": "Setting"}
+
+
+def read_workers(path: str | Path) -> list[tuple[str, str, bool]]:
+    """[(name, department, in_house)] in the sheet's order."""
+    from openpyxl import load_workbook
+    ws = load_workbook(path, data_only=True, read_only=True).worksheets[0]
+    out: list[tuple[str, str, bool]] = []
+    seen: set[str] = set()
+    for r in ws.iter_rows(values_only=True):
+        for i, v in enumerate(r):
+            text = " ".join(str(v).split()) if v not in (None, "") else ""
+            if not text.upper().startswith("WORKER :"):
+                continue
+            name = text.split(":", 1)[1].strip()
+            proc = " ".join(str(r[i + 1]).split()) if i + 1 < len(r) and r[i + 1] else ""
+            proc = "" if proc in ("-", "—") else proc
+            if not name or name.upper() in seen:
+                continue
+            seen.add(name.upper())
+            outside = proc.upper() in OUTSIDE
+            out.append((name, OUTSIDE.get(proc.upper(), proc), not outside and bool(proc)))
+    return out
+
+
+def import_workers(session: Session, path: str | Path) -> dict[str, int]:
+    """Add every karigar not in the system as a Worker with its department
+    and in-house flag; a karigar already there only gets an empty
+    department filled. Returns {"added": n, "updated": n}."""
+    added = updated = 0
+    for name, dept, in_house in read_workers(path):
+        acc = session.scalar(select(Account).where(func.lower(Account.name) == name.lower()))
+        if acc is None:
+            session.add(Account(name=name, code=_code(session, Account, name, 24),
+                                account_type="Worker", group_name="Accounts Payable",
+                                department=dept, in_house=in_house))
+            session.flush()
+            added += 1
+        elif not acc.department and dept:
+            acc.department, acc.in_house = dept, in_house
+            updated += 1
+    return {"added": added, "updated": updated}
+
+
+def seed_workers(session: Session) -> dict[str, int]:
+    """Once only, on first start: the client's karigar list."""
+    from diagold.services import settings
+    key = "seed.workers"
+    if settings.get_setting(session, key, "") == "1" or not (DATA / WORKER_FILE).is_file():
+        return {}
+    settings.set_setting(session, key, "1")
+    return import_workers(session, DATA / WORKER_FILE)

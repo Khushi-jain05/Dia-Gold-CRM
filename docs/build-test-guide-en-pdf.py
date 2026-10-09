@@ -550,7 +550,10 @@ appear. Type in the green cells.</p>
     ["A B JEWELS is a client (Sundry Debtors); SWARNVILLA is a vendor (Accounts Payable).",
      "22KT GOLD 92.25 has purity 92.25; 9KT GOLD 37.5.",
      "Locations include <b>vishal ji</b> and <b>VISHAL JIDISMENTAL</b>.",
-     "Import says every count is 0 — nothing is added twice."],
+     "Import says every count is 0 — nothing is added twice.",
+     "Karigars (All Department Worker sheet): Master ▸ Account → <b>ABHIJEET DAS</b> is a Worker, Department "
+     "<b>Setting</b>, In-house ticked; <b>AJAY BABU</b> is HandMade, In-house <b>not</b> ticked (outside); "
+     "Manufacturing ▸ Issue's Account list has all the karigars."],
 ) + ("<p class='muted'>If anything is wrong, send: the step number, what you did, what you expected, what you saw, "
      "and a screenshot. To start again from zero: <b>Reset DEMO and open.bat</b>.</p>")
 

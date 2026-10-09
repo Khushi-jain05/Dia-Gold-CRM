@@ -75,6 +75,9 @@ class Account(Base, PKMixin, TimestampMixin):
     # A karigar working inside the factory (5 Oct T-14: Ghat ready in-house
     # vs out-house on the dashboard).
     in_house: Mapped[bool] = mapped_column(Boolean, default=False)
+    # A karigar's department / process (All Department Worker sheet, 9 Oct):
+    # HandMade, Setting, CASTING, PrePolish …
+    department: Mapped[str] = mapped_column(String(40), default="")
     invoice_layout: Mapped[str] = mapped_column(String(8), default="DEFAULT")
     packing_layout: Mapped[str] = mapped_column(String(8), default="DEFAULT")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
