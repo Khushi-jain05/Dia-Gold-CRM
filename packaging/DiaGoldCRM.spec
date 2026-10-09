@@ -6,9 +6,27 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
 
 PROJECT_ROOT = Path(SPECPATH).parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+
+def _all_diagold_modules() -> list[str]:
+    """Every module under diagold/, read from the files - collect_submodules
+    alone found nothing on the build machine (diagold was not importable
+    there), so screens loaded by name were left out of the exe (9 Oct:
+    Advance Options, Backup, Audit Log, Client Wise Price "not found")."""
+    base = PROJECT_ROOT / "diagold"
+    mods = []
+    for f in base.rglob("*.py"):
+        parts = f.relative_to(PROJECT_ROOT).with_suffix("").parts
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        mods.append(".".join(parts))
+    return sorted(mods)
+
 
 hiddenimports = (
-    collect_submodules("diagold")
+    _all_diagold_modules()
+    + collect_submodules("diagold")
     + collect_submodules("sqlalchemy")
     + collect_submodules("openpyxl")      # Excel exports / invoice
     + ["PIL.Image", "PIL.PngImagePlugin", "PIL.JpegImagePlugin"]   # photos in Excel
@@ -53,8 +71,8 @@ if sys.platform == "darwin":
         icon=None,
         bundle_identifier="works.iterativetech.diagoldcrm",
         info_plist={
-            "CFBundleShortVersionString": "0.8.3",
-            "CFBundleVersion": "0.8.3",
+            "CFBundleShortVersionString": "0.8.4",
+            "CFBundleVersion": "0.8.4",
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
         },

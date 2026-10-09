@@ -5,5 +5,5 @@ and SQLAlchemy. The menu structure mirrors the client-supplied design in
 ``HEADING OR SUB HEADING.xlsx``.
 """
 
-__version__ = "0.8.3"
+__version__ = "0.8.4"
 APP_NAME = "Dia Gold CRM"
