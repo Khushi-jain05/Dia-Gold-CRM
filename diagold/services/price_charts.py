@@ -302,30 +302,37 @@ def export_stone_excel(chart: PriceChart, path: str) -> None:
     wb.save(path)
 
 
-# The client's own "A" stone chart (legacy Client Wise Stone Price, sent
-# 6 Oct as stone price.xlsx), shipped with the app.
-DEFAULT_STONE_FILE = "stone_price_A.xlsx"
+# The client's own stone charts (legacy Client Wise Stone Price), shipped
+# with the app: "A" (sent 6 Oct) and MANNU BHAI (sent 9 Oct, labour 1,175 / gm
+# as seen on the 5 Oct call).
+DEFAULT_CHARTS: tuple[tuple[str, str, str, Decimal], ...] = (
+    ("A", "stone_price_A.xlsx", "seed.stone_chart_A", ZERO),
+    ("MANNU BHAI", "stone_price_MANNU_BHAI.xlsx", "seed.stone_chart_MANNU_BHAI", Decimal("1175")),
+)
 
 
 def seed_default_charts(session: Session) -> int:
-    """Create price type "A" with the client's stone prices when it has none
-    yet. Never touches a chart that already has stone rules. Returns rows added."""
+    """Create each shipped chart with its stone prices, once only: a chart
+    that already has stone rules, or a later edit, is never touched. Returns
+    rows added."""
     from pathlib import Path
 
     from diagold.services import settings
-    done_key = "seed.stone_chart_A"          # once only: a later edit is never undone
-    if settings.get_setting(session, done_key, "") == "1":
-        return 0
-    path = Path(__file__).resolve().parents[1] / "data" / DEFAULT_STONE_FILE
-    chart = session.scalar(select(PriceChart).where(PriceChart.name == "A"))
-    if not path.is_file():
-        return 0
-    settings.set_setting(session, done_key, "1")
-    if chart is not None and chart.stone_rules:
-        return 0
-    if chart is None:
-        chart = PriceChart(name="A", price_type="Sale")
-        session.add(chart)
-        session.flush()
-    n, _notes = import_stone_excel(session, chart, str(path))
-    return n
+    added = 0
+    for name, file, done_key, per_gm in DEFAULT_CHARTS:
+        if settings.get_setting(session, done_key, "") == "1":
+            continue
+        path = Path(__file__).resolve().parents[1] / "data" / file
+        if not path.is_file():
+            continue
+        settings.set_setting(session, done_key, "1")
+        chart = session.scalar(select(PriceChart).where(PriceChart.name == name))
+        if chart is not None and chart.stone_rules:
+            continue
+        if chart is None:
+            chart = PriceChart(name=name, price_type="Sale", labour_per_gm=per_gm)
+            session.add(chart)
+            session.flush()
+        n, _notes = import_stone_excel(session, chart, str(path))
+        added += n
+    return added

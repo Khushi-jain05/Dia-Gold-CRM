@@ -42,7 +42,9 @@ SECTIONS: list[tuple[str, str, list[tuple[str, str, str, str]]]] = [
                                             "holds (0 in every row).", RECEIVED),
         ("2b", "Labour and Setting price", "Client Wise Labour Price and Setting Price sheets, in the "
                                            "same format as the stone sheet", NEEDED),
-        ("2c", "MANNU BHAI stone sheet", "Only if it is different from \"A\"", NEEDED),
+        ("2c", "MANNU BHAI stone sheet", "Received (282 rows), now in the system. One row's size reads "
+                                         "\"NN AGARWAL DIA.\" (DIA.ROSE CUT PEAR\\OVAL) - please check",
+         RECEIVED),
         ("2d", "Tools ▸ Option values", "Every section (a screenshot is enough)", NEEDED),
     ]),
     ("3. Opening balances", "All on the go-live (cut-over) date.", [

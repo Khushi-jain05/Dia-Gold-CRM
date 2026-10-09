@@ -375,6 +375,10 @@ with SessionLocal() as s:
     check("reconciliation: one piece not scanned -> exactly 1 missing, 1 unknown",
           (len(res["ok"]), len(res["missing"]), len(res["unknown"])), (len(in_stock) - 1, 1, 1))
     s.rollback()
+    mb = S.value(PC.apply(s, mannu, pc_info), T, s)
+    check("MANNU BHAI stone sheet (282 rows): POLKI 12-14 at 14,400 -> stone 10,466, labour 1,175 / gm",
+          (len(mannu.stone_rules), mb["stone_amount"], mb["labour_rate"]),
+          (282, D("10466.00"), D("1175.00")))
     chart_a = s.scalar(select(PriceChart).where(PriceChart.name == "A"))
     va = S.value(PC.apply(s, chart_a, pc_info), T, s)
     check("chart A (client's stone price sheet, 299 rows): POLKI 12-14 at 15,000 / ct, "

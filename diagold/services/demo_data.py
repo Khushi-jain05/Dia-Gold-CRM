@@ -139,17 +139,18 @@ def load_demo(s: Session) -> str:
     # Client price charts as on the 5 Oct call: "A" and MANNU BHAI 1,175 / gm
     # (T-05) - RUBY SINGH is on MANNU BHAI to try "Prices From Client Chart".
     from diagold.db.models import PriceChart
-    if not s.scalar(select(PriceChart).where(PriceChart.name == "MANNU BHAI")):
+    mannu = s.scalar(select(PriceChart).where(PriceChart.name == "MANNU BHAI"))
+    if mannu is None:
         mannu = PriceChart(name="MANNU BHAI", labour_per_gm=Decimal("1175"))
         s.add(mannu)
-        if not s.scalar(select(PriceChart).where(PriceChart.name == "A")):
-            s.add(PriceChart(name="A"))
-        s.flush()
-        ruby = s.scalar(select(Account).where(Account.code == "RUBY"))
-        if ruby is None:
-            ruby = s.scalar(select(Account).where(Account.name == "RUBY SINGH"))
-        if ruby is not None:
-            ruby.price_chart_id = mannu.id
+    if not s.scalar(select(PriceChart).where(PriceChart.name == "A")):
+        s.add(PriceChart(name="A"))
+    s.flush()
+    ruby = s.scalar(select(Account).where(Account.code == "RUBY"))
+    if ruby is None:
+        ruby = s.scalar(select(Account).where(Account.name == "RUBY SINGH"))
+    if ruby is not None and ruby.price_chart_id is None:
+        ruby.price_chart_id = mannu.id
     s.flush()
 
     # -- Inventory (28 Sept §4.12) ----------------------------------------

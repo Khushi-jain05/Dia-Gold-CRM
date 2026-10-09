@@ -576,9 +576,13 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
         ("Tools ▸ Option ▸ Settings ▸ Order & Quotation", "Client wise price chart applicable = <b>True</b> → Save"),
         ("Sale ▸ Ready Stock ▸ Sale", "Account KK JEWELS → barcode <b>1</b> scan")],
     ["'Prices From Client Chart (MANNU BHAI)' khud tick; Labour Rate <b>1,175</b>, Labour <b>14,922.50</b> "
-     "(1,175 × 12.700), Total <b>1,31,351.01</b>. Untick → wapas 1,200 / 15,240 / 1,31,668.51. Sale save mat karo.",
+     "(1,175 × 12.700); Stone Amount <b>10,466.00</b> (MANNU BHAI ki sheet: POLKI 12-14 0.640 × 14,400 + EMERALD "
+     "PEAR 0.500 × 2,500); Total <b>1,35,633.01</b>. Untick → wapas 1,200 / 15,240 / 6,184 / 1,31,668.51. "
+     "Sale save mat karo.",
+     "Tools ▸ Client Wise Stone Price ▸ MANNU BHAI me <b>282</b> rows (POLKI 12-14 <b>14,400</b>).",
      "Labour Price me Add Row: Family <b>Diamond Jewellery</b>, From G-Wt 10, To 20, SalePrice 900 → Save → "
-     "dubara scan: labour 900 (rule jeet-ta hai). <b>Make A Copy</b> → naam 'MANNU 2' → saare rules copy."],
+     "dubara scan: Labour <b>11,430.00</b> (900 × 12.700, rule jeet-ta hai), Total <b>1,32,140.51</b>. "
+     "<b>Make A Copy</b> → naam 'MANNU 2' → saare rules copy."],
 ) + part("U. Stock tools") + step(
     "Stock Reconciliation", [
         ("Tools ▸ Stock Reconciliation", "New Count → Barcode Id me <b>1</b> scan (Enter), phir <b>999999</b>")],

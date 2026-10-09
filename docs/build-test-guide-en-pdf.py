@@ -62,7 +62,7 @@ do</b>, and <b>what you should see</b>. You do not need to know the app — just
 All testing happens on a separate <b>DEMO database</b> — your real data is never touched. The demo already has:
 gold rate (24K 14,713 / g, so 14KT 590 = 8,680.67 / g), labour 1,200 / g, margin 50%, karigar CHAND KUMAR
 HAZRA, supplier SHRIKANT, customer KK JEWELS, demo jobs 28854–28856, and the client's master lists and
-stone price sheet.""") + part("0. Install and open the app") + step(
+stone price sheets (A and MANNU BHAI).""") + part("0. Install and open the app") + step(
     "Unzip (first time only)", [
         ("Zip file", "Right-click <b>DiaGoldCRM-Windows-x64.zip</b> → <b>Extract All…</b> → Extract"),
         ("Folder", "The new folder has <b>DiaGoldCRM.exe</b> and two files: "
@@ -449,10 +449,12 @@ appear. Type in the green cells.</p>
         ("Master ▸ Account ▸ KK JEWELS", "Price Chart = <b>MANNU BHAI</b> → Save"),
         ("Tools ▸ Option ▸ Settings ▸ Order & Quotation", "Client wise price chart applicable = <b>True</b> → Save"),
         ("Sale ▸ Ready Stock ▸ Sale", "Account KK JEWELS → scan barcode <b>1</b> (do not save)")],
-    ["'Prices From Client Chart (MANNU BHAI)' is ticked; Labour Rate <b>1,175</b>, Labour <b>14,922.50</b>, Total "
-     "<b>1,31,351.01</b>. Untick → back to 1,200 / 15,240 / 1,31,668.51.",
+    ["'Prices From Client Chart (MANNU BHAI)' is ticked; Labour Rate <b>1,175</b>, Labour <b>14,922.50</b>; "
+     "Stone Amount <b>10,466.00</b> (MANNU BHAI's sheet: POLKI 12-14 0.640 × 14,400 + EMERALD PEAR 0.500 × 2,500); "
+     "Total <b>1,35,633.01</b>. Untick → back to 1,200 / 15,240 / 6,184 / 1,31,668.51.",
+     "Tools ▸ Client Wise Stone Price ▸ MANNU BHAI has <b>282</b> rows (POLKI 12-14 <b>14,400</b>).",
      "Labour Price → Add Row: Family <b>Diamond Jewellery</b>, From G-Wt 10, To 20, SalePrice 900 → Save → scan "
-     "again: labour 900."],
+     "again: Labour <b>11,430.00</b>, Total <b>1,32,140.51</b>."],
 ) + part("U. Stock tools") + step(
     "Stock Reconciliation", [
         ("Tools ▸ Stock Reconciliation", "New Count → scan <b>1</b> (Enter), then <b>999999</b>")],
