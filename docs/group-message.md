@@ -153,4 +153,6 @@ Namaste Rohit ji. Everything we still need from you, in one list. Please reply w
 
 93. The stone price sheet you sent (299 rows) is loaded as price type **"A"**. Is that the right chart? Its "SPrice" column is 0 everywhere - what goes there (sale price vs Price)? *(6 Oct)*
 
+94. Master sheet (9 Oct) is loaded: 345 clients, 27 vendors, 315 stones, metals, items, colours, family, and the 18 locations. Please check: (a) purity of the new metals - we read 22KT GOLD 91.6, 22KT GOLD 92.25, 9KT 37.5; 22KT SILVER, AEROLITE and KUNDAN MEENA have none - what are they? (b) stones were grouped by name (DIA… / Diamond → Diamond, POLKI → Polki, the rest Colour Stone) - correct any wrong ones; (c) the sheet has no karigars - please send the karigar list; (d) "DIAMONDS JEWELLERY" and "Gold CZ" were added as families beside our "Diamond Jewellery" - same thing? *(9 Oct)*
+
 Thank you!

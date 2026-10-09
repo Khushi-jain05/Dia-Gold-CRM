@@ -370,6 +370,11 @@ class AdvanceOptionsWidget(_Screen):
         b.setObjectName("Primary")
         b.clicked.connect(self._masters)
         lay.addWidget(b)
+        imp = QPushButton("Import Masters Excel")
+        imp.setToolTip("The same sheet back in: adds every Item, Family, Metal, Colour, Stone, "
+                       "Vendor and Client not in the system yet (nothing is changed or removed).")
+        imp.clicked.connect(self._import_masters)
+        lay.addWidget(imp)
         lay.addStretch(1)
         return w
 
@@ -381,6 +386,23 @@ class AdvanceOptionsWidget(_Screen):
         with SessionLocal() as s:
             n = A.masters_excel(s, path)
         _info(self, "Masters Excel", f"Saved {path} ({n} entries).")
+
+
+    def _import_masters(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import Masters Excel", "", "Excel (*.xlsx)")
+        if not path:
+            return
+        from diagold.services import master_import as MI
+        with SessionLocal() as s:
+            try:
+                added = MI.import_masters(s, path)
+                s.commit()
+            except Exception as exc:  # noqa: BLE001 - a wrong file; shown to the user
+                _warn(self, "Import Masters Excel", f"Could not read the sheet: {exc}")
+                return
+        _info(self, "Import Masters Excel", "Added: " + ", ".join(
+            f"{k} {v}" for k, v in added.items() if k != "Location") +
+            "\nAlready there: skipped.")
 
 
 class BackupWidget(_Screen):

@@ -23,14 +23,18 @@ RECEIVED = "<b style='color:#0E6B54'>Received ✓</b>"
 SECTIONS: list[tuple[str, str, list[tuple[str, str, str, str]]]] = [
     ("1. Masters", "Access to the legacy database (SERVER2\\ERP → Diagold26) is the easiest - we can "
      "take every list below from there. If that is not possible, Excel exports of each list.", [
-        ("1a", "Accounts", "All clients, suppliers and karigars - code, name, group, city, GSTIN, "
-                           "credit days", URGENT),
-        ("1b", "Metals", "Name and purity (title) of every metal", URGENT),
-        ("1c", "Locations", "Every location, including karigar locations and \"Virtual\"", URGENT),
-        ("1d", "Stone master", "Every SSKU with size, shape, quality and group (Diamond / Polki / "
-                               "Colour Stone)", URGENT),
+        ("1a", "Accounts", "Received: 345 clients and 27 vendors (names). Still needed: the "
+                           "<b>karigar list</b>, and code, city, GSTIN, credit days for each party",
+         URGENT),
+        ("1b", "Metals", "Names received. Please confirm the purity of 22KT GOLD (91.6?), 22KT GOLD "
+                         "92.25, 9KT (37.5?), and tell us 22KT SILVER, AEROLITE, KUNDAN MEENA",
+         NEEDED),
+        ("1c", "Locations", "Received (18 locations)", RECEIVED),
+        ("1d", "Stone master", "315 stone names received. Still needed: sizes, shape, quality and "
+                               "group (Diamond / Polki / Colour Stone) - we grouped by name for now",
+         NEEDED),
         ("1e", "Product SKUs", "SKU code, item, family, style, metal; photos if available", URGENT),
-        ("1f", "Other lists", "Items, Family, Colours, Setting Types", URGENT),
+        ("1f", "Other lists", "Items, Family, Colours received. Still needed: Setting Types", NEEDED),
     ]),
     ("2. Price charts", "", [
         ("2a", "Stone price - chart \"A\"", "Received (299 rows), now in the system. Please confirm it "
