@@ -1680,6 +1680,16 @@ def _stone_issue_saved(issue, children, session) -> None:
     production.apply_stone_issue(session, issue)
 
 
+def _stone_issue_warn(values: dict, children: dict, session) -> str | None:
+    """"Stock Negative ... Do You Want To Continue" (12 Oct, Vr 14800) - asked
+    when Tools ▸ Option says warn; block refuses at save, allow says nothing."""
+    from diagold.services import inventory as INV
+    if values.get("is_opening") or INV.negative_mode(session) != "warn":
+        return None
+    short = production.stone_issue_shortfalls(session, children.get("lines", []))
+    return ("Stock Negative...\n" + "\n".join(short)) if short else None
+
+
 _register(CrudSpec(
     key="production_planning.stone_issue",
     title="Stone Issue on Job-Card",
@@ -1690,6 +1700,7 @@ _register(CrudSpec(
     editable=False, deletable=False,
     before_save=_prepare_stone_issue,
     after_save=_stone_issue_saved,
+    warn=_stone_issue_warn,
     extra_buttons=[("Show Pending", _stone_issue_pending)],
     form_width=1180,
     fields=[

@@ -567,36 +567,48 @@ RECEIVE_COLS = [("del_date", "Del-Date"), ("vr_date", "Date"), ("vr_time", "Time
 
 class StoneBagDialog(QDialog):
     """F3 on an issue / receive voucher - the "Stone Job Bag" pop-up (28 Sept
-    §4.7): the job's stone lines with their setting type and setting price.
-    On an issue, type the pieces going to the karigar; on a receive, the
-    pieces coming back (whole or broken) - the rest count as set."""
+    §4.7, 12 Oct video): the job's stone lines with their setting type and
+    price. On an issue, the pieces and carats going to the karigar (a pearl
+    or sarafa line may go by weight only, pcs 0). On a receive, per stone the
+    Return / Break / Loss pieces and carats - the rest count as set."""
+
+    ISSUE_COLS = (("pcs", "Issue Pcs"), ("wt", "Issue Cts"))
+    RECEIVE_COLS = (("pcs", "Return Pcs"), ("wt", "Return Cts"), ("break_pcs", "Break Pcs"),
+                    ("break_wt", "Break Cts"), ("lost_pcs", "Loss Pcs"), ("lost_wt", "Loss Cts"))
 
     def __init__(self, job_id: int, kind: str, worker_id: int | None,
-                 current: dict[int, int], parent=None):
+                 current: dict[int, Any], parent=None):
         super().__init__(parent)
         self.kind = kind
         self.setWindowTitle("Stone Job Bag (F3)")
-        self.setMinimumSize(860, 380)
+        self.setMinimumSize(980, 400)
         lay = QVBoxLayout(self)
         issue = kind == "issue"
-        note = QLabel("Pieces going to the karigar with this step (from the bag's balance)."
+        note = QLabel("Pieces / carats going to the karigar with this step (from the bag's "
+                      "balance). A line by weight only (pearls, sarafa) takes carats with 0 pcs."
                       if issue else
-                      "Pieces the karigar hands back into the bag on this receipt - whole or "
-                      "broken. What stays with the piece is set, and paid at the setting price.")
+                      "What the karigar hands back - whole (Return), broken (Break) or lost "
+                      "(Loss). Leave the carats blank to take the average weight. What stays "
+                      "with the piece is set, and N-Wt = G-Wt less those stones x 0.2 g.")
         note.setWordWrap(True)
         note.setObjectName("Muted")
         lay.addWidget(note)
-        self.grid = _table(["Stone", "Size", "S Type", "Setting Type", "Setting Price",
-                            "In bag" if issue else "With karigar",
-                            "Issue Pcs" if issue else "Back Pcs"])
+        self.edit_cols = self.ISSUE_COLS if issue else self.RECEIVE_COLS
+        self.fixed = ["Stone", "Size", "S Type", "Setting Type", "Setting Price",
+                      "In bag Pcs" if issue else "With karigar Pcs",
+                      "In bag Cts" if issue else "With karigar Cts"]
+        self.grid = _table(self.fixed + [h for _k, h in self.edit_cols])
         self.rows: list[int] = []
-        self._caps: list[int] = []
+        self._caps: list[tuple[int, Decimal]] = []
         with SessionLocal() as s:
             job = s.get(Job, job_id)
             for b in production.bag_ledger(s, job):
-                cap = b["bal"][0] if issue else (
-                    production._out_with_worker(b.line, worker_id) if worker_id else 0)
-                if cap <= 0:
+                if issue:
+                    cap = b["bal"]
+                else:
+                    cap = production.out_with_worker(b.line, worker_id) if worker_id \
+                        else (0, Decimal("0"))
+                if cap[0] <= 0 and cap[1] <= 0:
                     continue
                 st = s.get(SettingType, b.line.setting_type_id) if b.line.setting_type_id \
                     else None
@@ -604,16 +616,20 @@ class StoneBagDialog(QDialog):
                 r = self.grid.rowCount()
                 self.grid.insertRow(r)
                 self.rows.append(b.line.id)
-                self._caps.append(cap)
+                self._caps.append((cap[0], Decimal(str(cap[1]))))
                 for c, v in enumerate([b.line.particulars, b.line.size, b.line.s_type,
-                                       st.name if st else "—", f"{rate:,.2f}", cap]):
+                                       st.name if st else "—", f"{rate:,.2f}", cap[0],
+                                       f"{Decimal(str(cap[1])):.3f}"]):
                     it = _item(v, right=c >= 4)
                     it.setFlags(Qt.ItemFlag.ItemIsEnabled)
                     self.grid.setItem(r, c, it)
-                it = _item(current.get(b.line.id, ""), TINT_RECEIVE, right=True)
-                it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-                            | Qt.ItemFlag.ItemIsEditable)
-                self.grid.setItem(r, 6, it)
+                spec = production.stone_spec(current.get(b.line.id, 0))
+                for j, (k, _h) in enumerate(self.edit_cols):
+                    v = spec[k]
+                    it = _item(v if v else "", TINT_RECEIVE, right=True)
+                    it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+                                | Qt.ItemFlag.ItemIsEditable)
+                    self.grid.setItem(r, len(self.fixed) + j, it)
         self.grid.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
         _fit_columns(self.grid, 0)
         lay.addWidget(self.grid, 1)
@@ -622,30 +638,59 @@ class StoneBagDialog(QDialog):
                                  if issue else "This karigar holds no stones from this job."))
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                    | QDialogButtonBox.StandardButton.Cancel)
-        fill = buttons.addButton("All" if issue else "None back",
+        fill = buttons.addButton("All" if issue else "Click For Return All Stone",
                                  QDialogButtonBox.ButtonRole.ActionRole)
         fill.clicked.connect(self._fill_all)
+        if not issue:
+            none = buttons.addButton("None back", QDialogButtonBox.ButtonRole.ActionRole)
+            none.clicked.connect(self._clear)
         buttons.accepted.connect(self._ok)
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
 
     def _fill_all(self) -> None:
-        for r, cap in enumerate(self._caps):
-            self.grid.item(r, 6).setText(str(cap) if self.kind == "issue" else "")
+        base = len(self.fixed)
+        for r, (pcs, wt) in enumerate(self._caps):
+            self.grid.item(r, base).setText(str(pcs) if pcs else "")
+            self.grid.item(r, base + 1).setText(f"{wt:.3f}" if wt else "")
+
+    def _clear(self) -> None:
+        for r in range(self.grid.rowCount()):
+            for j in range(len(self.edit_cols)):
+                self.grid.item(r, len(self.fixed) + j).setText("")
 
     def _ok(self) -> None:
-        self.values: dict[int, int] = {}
+        self.values: dict[int, dict[str, Any]] = {}
+        base = len(self.fixed)
         for r, line_id in enumerate(self.rows):
-            text = self.grid.item(r, 6).text().strip()
-            if not text:
+            spec: dict[str, Any] = {}
+            name = f"{self.grid.item(r, 0).text()} {self.grid.item(r, 1).text()}".strip()
+            for j, (k, h) in enumerate(self.edit_cols):
+                text = self.grid.item(r, base + j).text().strip().replace(",", "")
+                if not text:
+                    continue
+                try:
+                    v = int(text) if k.endswith("pcs") else Decimal(text)
+                except (ValueError, ArithmeticError):
+                    _warn(self, "Stone Job Bag", f"{name}: {h} must be a number.")
+                    return
+                if v < 0:
+                    _warn(self, "Stone Job Bag", f"{name}: {h} cannot be negative.")
+                    return
+                if v:
+                    spec[k] = v
+            if not spec:
                 continue
-            if not text.isdigit() or int(text) > self._caps[r]:
+            cap_pcs, cap_wt = self._caps[r]
+            pcs = sum(int(spec.get(k, 0)) for k in ("pcs", "break_pcs", "lost_pcs"))
+            wt = sum((Decimal(str(spec.get(k, 0))) for k in ("wt", "break_wt", "lost_wt")),
+                     Decimal("0"))
+            if pcs > cap_pcs or wt > cap_wt + Decimal("0.001"):
                 _warn(self, "Stone Job Bag",
-                      f"{self.grid.item(r, 0).text()} {self.grid.item(r, 1).text()}: enter "
-                      f"whole pieces, at most {self._caps[r]}.")
+                      f"{name}: at most {cap_pcs} pcs / {cap_wt:.3f} ct "
+                      + ("are in the bag." if self.kind == "issue" else "are with the karigar."))
                 return
-            if int(text):
-                self.values[line_id] = int(text)
+            self.values[line_id] = spec
         self.accept()
 
 
@@ -899,7 +944,7 @@ class VoucherDialog(QDialog):
     def _show_picked(self) -> None:
         parts = []
         if self.stone_moves:
-            n = sum(self.stone_moves.values())
+            n = sum(production.stone_spec(v)["pcs"] for v in self.stone_moves.values())
             parts.append(f"F3: {n} stone pcs "
                          + ("to issue" if self.kind == "issue" else "coming back"))
         for m in self.metal_lines:
@@ -931,39 +976,22 @@ class VoucherDialog(QDialog):
             step = next((st for st in job.steps if st.id == self.step.currentData()), None)
             worker_id = self.worker.currentData()
             try:
-                lines = {l.id: l for l in s.scalars(select(JobBagLine).where(
-                    JobBagLine.id.in_(list(self.stone_moves))))}
-                if self.kind == "receive":
-                    # Stones back first, so the receipt counts only what was set.
-                    for line_id, pcs in self.stone_moves.items():
-                        production.bag_move(s, lines[line_id], "back", pcs,
-                                            worker_id=worker_id, mv_date=_pydate(self.date))
-                if self.kind == "issue" and self.metal_lines and not extras.get("extra"):
-                    extras["extra"] = sum((m["weight"] for m in self.metal_lines), Decimal("0"))
-                if self.kind == "issue" and self.stone_moves and not extras.get("stone_wt"):
-                    extras["stone_wt"] = sum(
-                        ((production.bag_row(lines[i])["bal"][1]
-                          / production.bag_row(lines[i])["bal"][0]) * p
-                         for i, p in self.stone_moves.items()
-                         if production.bag_row(lines[i])["bal"][0]), Decimal("0")
-                    ).quantize(Decimal("0.001"))
-                voucher = production.post_voucher(
-                    s, job, step, self.kind, worker_id,
-                    vr_date=_pydate(self.date), vr_time=self.time.text().strip(),
-                    pcs=self.pcs.value(), gross_wt=val(self.gross), net_wt=val(self.net),
-                    user_id=self.user_id, remark=self.remark.text().strip(),
-                    allow_loss_pct=Decimal(str(self.allow.value())),
-                    share=Decimal(str(self.share.value())) if self.share.value() else None,
-                    **extras,
-                )
-                if self.kind == "issue":
-                    for line_id, pcs in self.stone_moves.items():
-                        production.bag_move(s, lines[line_id], "iss", pcs,
-                                            worker_id=worker_id, mv_date=_pydate(self.date))
-                    from diagold.services import inventory as INV
-                    for m in self.metal_lines:
-                        INV.metal_to_job_step(s, voucher, m["location_id"], m["metal_id"],
-                                              m["weight"], m.get("pcs") or 0)
+                # The same path as the multi-job voucher: stones back first on
+                # a receipt (N-Wt follows from them when left blank), F3 / F5
+                # out with an issue.
+                ln = {**{k: v for k, v in extras.items() if v not in (None, "")},
+                      "job_id": job.id, "step_id": step.id if step else None,
+                      "pcs": self.pcs.value(), "gross": val(self.gross), "net": val(self.net),
+                      "allow": Decimal(str(self.allow.value())),
+                      "share": Decimal(str(self.share.value())) if self.share.value() else None,
+                      "stones": self.stone_moves, "metal": self.metal_lines}
+                if step is None:
+                    raise ProductionError("Choose the step.")
+                production._post_line_full(
+                    s, self.kind, worker_id, ln,
+                    production.next_number(s, JobVoucher.vr_no), vr_date=_pydate(self.date),
+                    vr_time=self.time.text().strip(), allow_loss_pct=None,
+                    user_id=self.user_id, remark=self.remark.text().strip())
                 s.commit()
             except ProductionError as exc:
                 s.rollback()

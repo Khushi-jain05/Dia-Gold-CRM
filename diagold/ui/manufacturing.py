@@ -1655,7 +1655,8 @@ class ProcessVoucherWidget(_Screen):
                 elif key == "f3f5":
                     parts = []
                     if ln.get("stones"):
-                        parts.append(f"{sum(ln['stones'].values())} st")
+                        from diagold.services import production as _P
+                        parts.append(f"{sum(_P.stone_spec(x)['pcs'] for x in ln['stones'].values())} st")
                     if ln.get("metal_lines"):
                         parts.append(f"{sum(Decimal(str(m['weight'])) for m in ln['metal_lines'])} g")
                     v = " · ".join(parts)

@@ -545,10 +545,18 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
         # weight (Vr 3018 carried only stones, Vr 3019 nothing at all), so an
         # issue may go out unweighed; a receive on a metal step may not.
         if kind == "receive" and not (net and net > 0):
-            raise ProductionError(
-                "This step carries metal - enter the gross and net weight "
-                "received back from the worker."
-            )
+            # Unless nothing weighed went out either: the 12 Oct walkthrough
+            # issues and receives CASTING on job 29456 with no weight at all
+            # (Vr 3247 / 3245) - the first weight is HandMade's 50.000.
+            _i, _o, open_now = step_shares(session, job, step)
+            out = next((v for v in open_now if v.worker_id == worker_id), None) \
+                or (open_now[0] if open_now else None)
+            if out is None or _dec(out.net_wt) > 0 or any(
+                    _dec(extra.get(k)) > 0 for k in ("scrap", "dust", "rej_wt")):
+                raise ProductionError(
+                    "This step carries metal - enter the gross and net weight "
+                    "received back from the worker."
+                )
     else:
         # Design-only step: nothing is weighed, so nothing may be typed.
         if (gross and gross > 0) or (net and net > 0):
@@ -867,6 +875,31 @@ def holdings(session: Session, material_class: str, ref_id: int | None,
     return out
 
 
+def stone_issue_shortfalls(session: Session, rows: list[dict[str, Any]]) -> list[str]:
+    """Stone lines that would take a location below zero, the way the legacy
+    lists them: "Primary  daank  - Cl Wt -9796.06" (12 Oct, Vr 14800)."""
+    need: dict[tuple, list[Any]] = {}
+    for r in rows:
+        if not r.get("location_id"):
+            continue
+        key = (r["location_id"], r.get("stone_sku_id"), r.get("size") or "",
+               "" if r.get("stone_sku_id") else (r.get("particulars") or ""))
+        acc = need.setdefault(key, [0, ZERO])
+        acc[0] += int(r.get("pcs") or 0)
+        acc[1] += _dec(r.get("weight"))
+    out = []
+    for (loc_id, ref, size, text), (pcs, wt) in need.items():
+        have_pcs, have_wt = stock_balance(session, loc_id, "stone", ref, size, text)
+        if wt > have_wt or pcs > have_pcs:
+            loc = session.get(Location, loc_id)
+            sku = session.get(StoneSku, ref) if ref else None
+            out.append(f"{loc.name if loc else '?'}  {sku.sku_code if sku else text}"
+                       f"{' ' + size if size and sku and size not in sku.sku_code else ''}"
+                       f"  - Cl Wt {(have_wt - wt).quantize(D3)}"
+                       + (f", Cl Pcs {have_pcs - pcs}" if pcs > have_pcs else ""))
+    return out
+
+
 def adjust_stock(session: Session, location_id: int, material_class: str,
                  ref_id: int | None, d_pcs: int, d_wt: Any, size: str = "",
                  ref_text: str = "", what: str = "", *, kind: str = "adjust",
@@ -1011,6 +1044,8 @@ def apply_stone_issue(session: Session, issue: StoneIssue) -> None:
     if head_job is None:
         raise ProductionError("Pick the job the stones are being issued to.")
     _reject_negative_lines(issue.lines)
+    from diagold.services import inventory as INV
+    allow_negative = INV.negative_mode(session) != "block"
     lines = [l for l in issue.lines if (l.pcs or 0) > 0 or _dec(l.weight) > 0]
     if not lines:
         raise ProductionError("Enter at least one stone line with pieces or weight.")
@@ -1027,11 +1062,15 @@ def apply_stone_issue(session: Session, issue: StoneIssue) -> None:
         if not issue.is_opening:
             if not l.location_id:
                 raise ProductionError(f"Choose the location {name} is issued from.")
+            # Inventory's block / warn / allow (Tools ▸ Option): the legacy
+            # warns "Stock Negative ... Do You Want To Continue" and lets the
+            # issue through (12 Oct, Vr 14800); "block" refuses it.
             adjust_stock(session, l.location_id, "stone", l.stone_sku_id,
                          -int(l.pcs or 0), -_dec(l.weight), size=size,
                          ref_text="" if sku else l.particulars, what=name,
                          kind="outward", mv_date=issue.vr_date, job_id=job.id,
-                         ref_kind="stone_issue", ref_no=issue.vr_no)
+                         ref_kind="stone_issue", ref_no=issue.vr_no,
+                         allow_negative=allow_negative)
         bag = _find_bag_line(session, job, l.stone_sku_id, l.particulars, size)
         if bag.source_location_id is None and l.location_id:
             bag.source_location_id = l.location_id
@@ -1136,8 +1175,14 @@ def bag_move(session: Session, line: JobBagLine, kind: str, pcs: int,
             )
     if kind == "back":
         out_pcs = row["iss"][0] - row["back"][0]
+        out_wt = row["iss"][1] - row["back"][1]
         if worker_id:
-            out_pcs = min(out_pcs, _out_with_worker(line, worker_id))
+            w_pcs, w_wt = out_with_worker(line, worker_id)
+            out_pcs, out_wt = min(out_pcs, w_pcs), min(out_wt, w_wt)
+        if weight > out_wt + D3:
+            who = session.get(Account, worker_id) if worker_id else None
+            raise ProductionError(
+                f"Only {out_wt} of {name} is out with {who.name if who else 'a worker'}.")
         if pcs > out_pcs:
             who = session.get(Account, worker_id) if worker_id else None
             raise ProductionError(
@@ -1193,15 +1238,22 @@ def bag_move(session: Session, line: JobBagLine, kind: str, pcs: int,
 
 def _out_with_worker(line: JobBagLine, worker_id: int) -> int:
     """Pieces of this bag line still with one karigar: issued less back."""
-    out = 0
+    return out_with_worker(line, worker_id)[0]
+
+
+def out_with_worker(line: JobBagLine, worker_id: int) -> tuple[int, Decimal]:
+    """Pieces and weight of this bag line still with one karigar."""
+    pcs, wt = 0, ZERO
     for m in line.movements:
         if m.worker_id != worker_id:
             continue
         if m.kind == "iss":
-            out += int(m.pcs or 0)
+            pcs += int(m.pcs or 0)
+            wt += _dec(m.weight)
         elif m.kind == "back":
-            out -= int(m.pcs or 0)
-    return out
+            pcs -= int(m.pcs or 0)
+            wt -= _dec(m.weight)
+    return pcs, wt.quantize(D3)
 
 
 # --------------------------------------------------------------------------
@@ -1550,18 +1602,36 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
             raise ProductionError(f"Job {job.job_no}: nothing is out on this step - "
                                   "issue it before receiving it back.")
         who = out.worker_id
+    stones = {k: stone_spec(v) for k, v in (ln.get("stones") or {}).items()}
     lines = {l.id: l for l in session.scalars(select(JobBagLine).where(
-        JobBagLine.id.in_(list((ln.get("stones") or {}).keys()))))}
+        JobBagLine.id.in_(list(stones.keys()))))}
     moved: list[JobBagMovement] = []
     try:
         if kind == "receive":
-            for line_id, pcs in (ln.get("stones") or {}).items():
-                moved.append(bag_move(session, lines[line_id], "back", pcs, worker_id=who,
-                                      mv_date=vr_date))
+            # F3 on a receipt (12 Oct video, Vr 6138): per stone the pieces /
+            # carats handed back whole, broken and lost. Broken and lost
+            # stones come off the piece too: back into the bag, then out as
+            # breakage / loss, so the bag balance shows only whole returns.
+            for line_id, sp in stones.items():
+                for part, then in (("", None), ("break_", "break"), ("lost_", "lost")):
+                    p_, w_ = sp[part + "pcs"], sp[part + "wt"]
+                    if not p_ and not w_:
+                        continue
+                    moved.append(bag_move(session, lines[line_id], "back", p_,
+                                          w_ if w_ else None, worker_id=who, mv_date=vr_date))
+                    if then:
+                        bag_move(session, lines[line_id], then, p_, moved[-1].weight,
+                                 mv_date=vr_date, remark=f"{then} by the karigar")
+            if ln.get("net") in (None, "") and ln.get("gross") not in (None, ""):
+                # N-Wt = G-Wt less every stone now in the piece at 0.2 g / ct:
+                # 58.100 - 51.580 ct x 0.2 = 47.784 (12 Oct, final setting).
+                ln = {**ln, "net": (_dec(ln["gross"]) - piece_stone_ct(session, job)
+                                    * CT_TO_GRAM).quantize(D3)}
         extra = {k: ln.get(k) for k in ("scrap", "dust", "rej_pcs", "rej_wt", "stone_wt",
                                         "extra", "finding", "mould", "mt_price", "mt_amt",
                                         "manual_price", "manual_amt", "rej_type", "price_on",
-                                        "ref_no")}
+                                        "ref_no", "share", "del_date", "wip_value")
+                 if ln.get(k) not in (None, "")}
         if kind == "issue" and ln.get("metal"):
             # F5 metal is the line's extra metal; the column shows its total.
             extra["extra"] = sum((_dec(m["weight"]) for m in ln["metal"]), ZERO)
@@ -1572,9 +1642,13 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
                          allow_loss_pct=allow if allow not in (None, "") else
                          (allow_loss_pct if kind == "issue" else None), **extra)
         if kind == "issue":
-            for line_id, pcs in (ln.get("stones") or {}).items():
-                moved.append(bag_move(session, lines[line_id], "iss", pcs, worker_id=who,
+            for line_id, sp in stones.items():
+                moved.append(bag_move(session, lines[line_id], "iss", sp["pcs"],
+                                      sp["wt"] if sp["wt"] else None, worker_id=who,
                                       mv_date=vr_date))
+            if moved and not _dec(v.stone_wt):
+                # Issue St Wt: the carats sent with the step (53.520, Vr 6115).
+                v.stone_wt = sum((_dec(m.weight) for m in moved), ZERO).quantize(D3)
             from diagold.services import inventory as INV
             for m in ln.get("metal") or []:
                 INV.metal_to_job_step(session, v, m["location_id"], m["metal_id"],
@@ -1584,7 +1658,91 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
     for m in moved:
         m.voucher_id = v.id
     session.flush()
+    if kind == "receive":
+        refresh_order_remark(session, job)
     return v
+
+
+# Carats to grams on a piece's weight (1 ct = 0.2 g).
+CT_TO_GRAM = Decimal("0.2")
+
+
+def stone_spec(value: Any) -> dict[str, Any]:
+    """An F3 entry: whole pieces (the old shape), (pcs, weight), or a dict
+    with pcs / wt / break_pcs / break_wt / lost_pcs / lost_wt."""
+    out = {"pcs": 0, "wt": ZERO, "break_pcs": 0, "break_wt": ZERO, "lost_pcs": 0,
+           "lost_wt": ZERO}
+    if isinstance(value, dict):
+        for k in out:
+            if value.get(k) not in (None, ""):
+                out[k] = int(value[k]) if k.endswith("pcs") else _dec(value[k])
+        if value.get("weight") not in (None, "") and not out["wt"]:
+            out["wt"] = _dec(value["weight"])
+    elif isinstance(value, (tuple, list)):
+        out["pcs"] = int(value[0] or 0)
+        out["wt"] = _dec(value[1]) if len(value) > 1 else ZERO
+    else:
+        out["pcs"] = int(value or 0)
+    return out
+
+
+def piece_stone_ct(session: Session, job: Job) -> Decimal:
+    """Carats now set in the piece: every bag line issued to karigars less
+    what came back, plus the old stones of a repair job."""
+    total = ZERO
+    for row in bag_ledger(session, job):
+        total += row["iss"][1] - row["back"][1]
+    from diagold.services import repair
+    for st in repair.old_stones(session, job):
+        total += _dec(st.get("weight"))
+    return total
+
+
+def _num(v: Decimal) -> str:
+    """12.02, 0.5, 25 - the way the legacy order remark writes weights."""
+    t = f"{_dec(v).quantize(Decimal('0.01'))}"
+    return t.rstrip("0").rstrip(".") if "." in t else t
+
+
+def stones_used_text(session: Session, job: Job) -> str:
+    """"daank/167/12.02, DIA./412/5.55, ..." - the stones in the piece by
+    stone name, as the legacy writes them into the Order Remark."""
+    acc: dict[str, list] = {}
+    for row in bag_ledger(session, job):
+        pcs = row["iss"][0] - row["back"][0]
+        wt = row["iss"][1] - row["back"][1]
+        if pcs <= 0 and wt <= 0:
+            continue
+        sku = session.get(StoneSku, row.line.stone_sku_id) if row.line.stone_sku_id else None
+        name = ((sku.stone if sku else "") or row.line.particulars or "").strip()
+        a = acc.setdefault(name, [0, ZERO])
+        a[0] += pcs
+        a[1] += wt
+    return ", ".join(f"{n}/{p}/{_num(w)}" for n, (p, w) in
+                     sorted(acc.items(), key=lambda kv: kv[0].lower())) + ("," if acc else "")
+
+
+REMARK_SETTING = "pp.remark_stones_used"
+
+
+def refresh_order_remark(session: Session, job: Job) -> None:
+    """After a receipt the legacy rewrites the Order Remark with the stones
+    used (12 Oct video). Only for a one-job order - on a several-line order
+    the remark is the user's own. A switch in Tools ▸ Option."""
+    from diagold.services import settings
+    if settings.opt(REMARK_SETTING, session) != "1" or not job.order_id:
+        return
+    order = session.get(Order, job.order_id)
+    if order is None or order.is_repair:
+        return
+    n = session.scalar(select(func.count(Job.id)).where(Job.order_id == order.id,
+                                                       Job.status != "cancelled"))
+    if n != 1:
+        return
+    text = stones_used_text(session, job)
+    if text:
+        order.remark = text[:200]
+        session.flush()
 
 
 # --------------------------------------------------------------------------

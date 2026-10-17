@@ -134,8 +134,9 @@ class Job(Base, PKMixin, TimestampMixin):
     # A repair job (9 Oct §4.9, T-06): the stock piece it was made from (a
     # sales return or a piece in stock), and that piece as it was - its
     # weights and its stones - so the repaired piece shows old next to new.
-    repair_item_id: Mapped[int | None] = mapped_column(ForeignKey("stock_items.id"),
-                                                       nullable=True)
+    # A plain id, not a foreign key: stock_items already points at jobs, and
+    # a key both ways would make the two tables impossible to order.
+    repair_item_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
     repair_prev_status: Mapped[str] = mapped_column(String(16), default="")
     old_stock_no: Mapped[int | None] = mapped_column(nullable=True)
     old_gross_wt: Mapped[float] = mapped_column(Numeric(12, 3), default=0)

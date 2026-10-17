@@ -141,6 +141,11 @@ SETTINGS_TREE: tuple[Setting, ...] = (
     Setting("Production Planning", "flag.pp.return_other_classes",
             "Return to Inventory: Metal / Mould / Finding classes", "bool", "0",
             "Show the other classes on Rtn To Inv"),
+    Setting("Production Planning", "pp.remark_stones_used",
+            "Rewrite the Order Remark with the stones used", "bool", "1",
+            "After each receipt the order remark becomes \"daank/167/12.02, DIA./412/5.55, "
+            "...\" - the stones in the piece, as the legacy does (12 Oct). One-job orders "
+            "only"),
     Setting("Manufacturing", "loss.allowance_basis", "Loss allowance worked on", "choice",
             "issued", "Allowance % x the weight issued (5 Oct) or received back",
             (("issued", "Weight issued"), ("received", "Weight received back"))),
