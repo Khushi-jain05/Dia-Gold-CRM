@@ -451,7 +451,9 @@ class JobHeaderCard(QFrame):
                       if metal else job.colour),
             "pcs": str(job.pcs),
             "delivery": _s(job.prod_del_date or (order.delivery_date if order else None)),
-            "route": production.route_string(session, job) or "(not mapped)",
+            "route": (production.route_string(session, job) or "(not mapped)")
+            + (f"  ·  merged with {', '.join(map(str, production.merged_with(session, job)))}"
+               if job.merge_group else ""),
         }
         for k, v in vals.items():
             self.values[k].setText(v or "—")
@@ -1182,6 +1184,9 @@ class PendingVoucherDialog(QDialog):
         lay.addWidget(self.grid, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         self.b_open = buttons.addButton("Open Job", QDialogButtonBox.ButtonRole.ActionRole)
+        self.b_unmerge = buttons.addButton("Unmerge", QDialogButtonBox.ButtonRole.ActionRole)
+        self.b_unmerge.setToolTip("Take the selected job out of its merged group")
+        self.b_unmerge.clicked.connect(self._unmerge)
         self.b_save = buttons.addButton("Save as one voucher",
                                         QDialogButtonBox.ButtonRole.ActionRole)
         self.b_save.setObjectName("Primary")
@@ -1192,6 +1197,30 @@ class PendingVoucherDialog(QDialog):
         for sig in (self.r_issue.toggled, self.process.currentIndexChanged,
                     self.worker.currentIndexChanged):
             sig.connect(lambda *_: self.reload())
+        self.grid.itemChanged.connect(self._tick_merged)
+        self.reload()
+
+    def _tick_merged(self, item: QTableWidgetItem) -> None:
+        """Merged jobs go together: ticking one ticks the rest of its group."""
+        if item.column() != 0 or not hasattr(self, "rows"):
+            return
+        group = self.rows[item.row()].get("merge_group") if item.row() < len(self.rows) else ""
+        if not group:
+            return
+        self.grid.blockSignals(True)
+        for r, row in enumerate(self.rows):
+            if row.get("merge_group") == group and r != item.row():
+                self.grid.item(r, 0).setCheckState(item.checkState())
+        self.grid.blockSignals(False)
+
+    def _unmerge(self) -> None:
+        sel = self.grid.selectionModel().selectedRows()
+        if not sel or not self.rows[sel[0].row()].get("merge_group"):
+            _info(self, "Unmerge", "Select a merged job (its Job No shows the group).")
+            return
+        with SessionLocal() as s:
+            production.unmerge_job(s, self.rows[sel[0].row()]["_job_id"])
+            s.commit()
         self.reload()
 
     @property
@@ -1204,6 +1233,7 @@ class PendingVoucherDialog(QDialog):
             # A receive lists every karigar's jobs; each comes back from whoever
             # has it out, so the worker box only matters for an issue.
             self.rows = production.pending_steps(s, self.kind, self.process.currentData())
+        self.grid.blockSignals(True)
         self.grid.setRowCount(0)
         for row in self.rows:
             r = self.grid.rowCount()
@@ -1212,7 +1242,9 @@ class PendingVoucherDialog(QDialog):
             chk.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
             chk.setCheckState(Qt.CheckState.Unchecked)
             self.grid.setItem(r, 0, chk)
-            vals = [row["job_no"], row["sku"], row["client"], row["process"],
+            job_no = (f"{row['job_no']} ({row['merge_group']})" if row.get("merge_group")
+                      else row["job_no"])
+            vals = [job_no, row["sku"], row["client"], row["process"],
                     row["worker"] or "—", row["issued_on"]]
             for c, v in enumerate(vals, start=1):
                 it = _item(v)
@@ -1230,6 +1262,7 @@ class PendingVoucherDialog(QDialog):
                     flags |= Qt.ItemFlag.ItemIsEditable
                 it.setFlags(flags)
                 self.grid.setItem(r, c, it)
+        self.grid.blockSignals(False)
         _fit_columns(self.grid, 3)
         self.hint.setText(
             (f"{len(self.rows)} job(s) waiting to be issued" if issue else
@@ -1275,6 +1308,17 @@ class PendingVoucherDialog(QDialog):
             what += f" to {self.worker.currentText()}"
         if not confirm_save(self, what):
             return
+        # The legacy issue asks "Do you want to merge jobs?" (12 Oct video).
+        merge = False
+        if self.kind == "issue" and len(lines) > 1 and settings.opt_on(production.MERGE_SETTING):
+            ans = QMessageBox.question(
+                self, "Merge", "Do you want to merge jobs?\n\nYes keeps these jobs "
+                "together from now on (each keeps its own weights and stones).",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.No)
+            if ans == QMessageBox.StandardButton.Cancel:
+                return
+            merge = ans == QMessageBox.StandardButton.Yes
         allow = None if self.use_default_allow.isChecked() else Decimal(str(self.allow.value()))
         with SessionLocal() as s:
             try:
@@ -1282,12 +1326,15 @@ class PendingVoucherDialog(QDialog):
                     s, self.kind, self.worker.currentData(), lines,
                     vr_date=_pydate(self.date), vr_time=self.time.text().strip(),
                     allow_loss_pct=allow, user_id=self.user_id)
+                group = production.merge_jobs(s, [ln["job_id"] for ln in lines], vr) \
+                    if merge else ""
                 s.commit()
             except ProductionError as exc:
                 s.rollback()
                 _warn(self, "Cannot save", str(exc))
                 return
-        _info(self, "Saved", f"Vr {vr}: {len(lines)} job(s).")
+        _info(self, "Saved", f"Vr {vr}: {len(lines)} job(s)."
+              + (f" Merged as {group}." if group else ""))
         self.reload()
 
 

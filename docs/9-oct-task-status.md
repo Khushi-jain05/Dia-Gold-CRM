@@ -2,7 +2,7 @@
 
 Source: *Dia_Gold_Meeting5_MIS_Reports_Repair_GoLive_Data_Requirements_9Oct2026.pdf*
 and the three 12 Oct walkthrough videos (`12-oct-flow-video.md`). Tests:
-`tests/e2e_flow.py` (140 checks), `tests/ns1430_flow.py` (26 - the 12 Oct job
+`tests/e2e_flow.py` (150 checks), `tests/ns1430_flow.py` (26 - the 12 Oct job
 replayed), `tests/abhijeet_das.py`.
 
 ## Our tasks (§7)
@@ -82,8 +82,9 @@ replayed), `tests/abhijeet_das.py`.
 | Order Remark rewritten with stones used | Done (one-job orders; switch) |
 | Unweighed CASTING issue / receive | Done |
 | "Stock Negative ... continue?" on stone issue | Done (warn mode) |
-| Order Shipping Details dialog | Dispatch fields on the sale (T-07); order-level export details not built (not asked) |
-| "Do you want to merge jobs?" | Asked (question 115) |
+| Order Shipping Details dialog | Done - Order list > Shipping Details: Despatch (with Tracking No), Order, Buyer's / Consignee details, Export; Fetch Dept / Fetch Last Dtls (question 117); on the order print. Tracking No also on the order form |
+| Save -> "Print Order Sheet? Yes / No" | Done |
+| "Do you want to merge jobs?" | Done on a multi-job issue (Show Pending): Yes keeps the jobs together, Unmerge, switch in Tools > Option - meaning to confirm (question 115) |
 
 ## Client (§8) - all open
 

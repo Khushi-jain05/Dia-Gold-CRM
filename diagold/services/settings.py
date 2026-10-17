@@ -154,6 +154,11 @@ SETTINGS_TREE: tuple[Setting, ...] = (
             "After each receipt the order remark becomes \"daank/167/12.02, DIA./412/5.55, "
             "...\" - the stones in the piece, as the legacy does (12 Oct). One-job orders "
             "only"),
+    Setting("Production Planning", "pp.ask_merge_jobs",
+            "Ask \"Do you want to merge jobs?\" on a multi-job issue", "bool", "1",
+            "Yes keeps the ticked jobs together: each keeps its own weights and stones, "
+            "and ticking one on a later voucher ticks the rest (12 Oct video) - what the "
+            "legacy merge does is to confirm (question 115)"),
     Setting("Manufacturing", "loss.allowance_basis", "Loss allowance worked on", "choice",
             "issued", "Allowance % x the weight issued (5 Oct) or received back",
             (("issued", "Weight issued"), ("received", "Weight received back"))),

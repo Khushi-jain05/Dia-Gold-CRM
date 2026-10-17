@@ -550,6 +550,36 @@ with SessionLocal() as s:
     UMIS.parallel_export(s, T, OUT + "/parallel.xlsx")
     check("parallel-run export has 4 sheets", load_workbook(OUT + "/parallel.xlsx").sheetnames, ["Sales Analysis", "Stone Daily Touch", "Metal Summary", "Refining Analysis"])
 
+    print("\n== N10. 12 Oct video: order Shipping Details / Tracking No, merge jobs")
+    from diagold.services import order_shipping as OSH
+    o1, o2 = s.scalars(select(Order).where(Order.account_id.is_not(None))
+                       .order_by(Order.order_no)).all()[:2]
+    o2.account_id = o1.account_id
+    o1.tracking_no = "TRK-1680"
+    OSH.save(s, o1, {"ship_via": "BlueDart", "awb_no": "AW 77", "buyer": "A\nB", "x": "ignored"})
+    check("shipping details saved", (OSH.get(o1)["ship_via"], OSH.get(o1)["buyer"], "x" in OSH.get(o1)), ("BlueDart", "A\nB", False))
+    check("Fetch Last Dtls = the customer's last order", (OSH.last_details(s, o2) or {}).get("awb_no"), "AW 77")
+    check("Fetch Dept fills buyer from the account", OSH.account_details(s, o2)["buyer"].split("\n")[0], s.get(Account, o1.account_id).name)
+    check("order print carries the details", "TRK-1680" in OSH.print_html(o1) and "BlueDart" in OSH.print_html(o1), True)
+    OSH.save(s, o1, {})
+    check("cleared details store nothing", o1.shipping, "")
+    pend = [r for r in P.pending_steps(s, "issue")][:2]
+    if len(pend) == 2:
+        wk = s.scalars(select(Account).where(Account.account_type == "Worker")).first()
+        vr = P.post_multi_voucher(s, "issue", wk.id if wk else None,
+                                  [{"job_id": r["_job_id"], "step_id": r["_step_id"], "gross": r["gross"], "net": r["net"]} for r in pend])
+        grp = P.merge_jobs(s, [r["_job_id"] for r in pend], vr)
+        check("merged jobs share M<vr>", {s.get(Job, r["_job_id"]).merge_group for r in pend}, {f"M{vr}"})
+        check("merged with the other job", P.merged_with(s, s.get(Job, pend[0]["_job_id"])), [pend[1]["job_no"]])
+        rcv = {r["_job_id"]: r["merge_group"] for r in P.pending_steps(s, "receive")}
+        check("the receive list shows the group", rcv.get(pend[0]["_job_id"]), grp)
+        P.unmerge_job(s, pend[0]["_job_id"])
+        check("unmerging one of two ends the group", {s.get(Job, r["_job_id"]).merge_group for r in pend}, {""})
+        refused("one job cannot be merged", lambda: P.merge_jobs(s, [pend[0]["_job_id"]], vr))
+    else:
+        check("two jobs pending issue for the merge check", len(pend), 2)
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

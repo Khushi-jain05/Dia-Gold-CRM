@@ -184,7 +184,8 @@ Before the questions, the follow-up from 9 Oct (T-01):
 112. Quotation 161 used metal rate 8,670.64; the same day's sale used 8,798. Do quotations have their own rate, or the client's chart? (We take the day's rate; it can be typed over.) *(9 Oct Q18)*
 113. A piece coming into stock with TAG 0 (BELGEE NS-2958) - we now refuse that, except a repair line ticked "Repair (tag 0)". OK? *(9 Oct §4.6)*
 114. Stone Issue on Job-Card warned "Stock Negative ... Do You Want To Continue" and went ahead (12 Oct). We do the same (warn). Should it block instead? *(12 Oct video)*
-115. The issue screens ask "Do you want to merge jobs?" - what does merging do? *(12 Oct video)*
+115. The issue screens ask "Do you want to merge jobs?" - what does merging do? We now ask it on a multi-job issue: Yes keeps the jobs together (each keeps its own weights and stones; ticking one on the next voucher ticks the rest; Unmerge takes one out). Is that the legacy meaning, or are the jobs combined into one job / one weight? *(12 Oct video)*
 116. After the Puwai receipt the Order Remark was rewritten with the stones used ("daank/167/12.02, DIA./412/5.55, …"). We do the same for one-job orders. Should it happen for orders with several lines too? *(12 Oct video)*
+117. Order > Shipping Details has "Fetch Dept" and "Fetch Last Dtls". We read Fetch Last Dtls as "copy the customer's last order" and Fetch Dept as "fill Buyer's / Consignee details from the account master". Is Fetch Dept that, or does it fetch something else (a department)? *(12 Oct video)*
 
 Thank you!

@@ -1503,6 +1503,7 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
         order = session.get(Order, job.order_id) if job.order_id else None
         rows.append({
             "_job_id": job.id, "_step_id": step.id, "job_no": job.job_no,
+            "merge_group": job.merge_group,
             "sku": job.product_sku.sku_code if job.product_sku else "",
             "client": client.name if client else "stock",
             "process": proc.name if proc else "", "process_id": step.process_id,
@@ -1585,6 +1586,50 @@ def post_multi_voucher(session: Session, kind: str, worker_id: int | None,
                         vr_time=vr_time, allow_loss_pct=allow_loss_pct, user_id=user_id,
                         remark=ln.get("remark") or "")
     return vr_no
+
+
+MERGE_SETTING = "pp.ask_merge_jobs"
+
+
+def merge_jobs(session: Session, job_ids: list[int], vr_no: int) -> str:
+    """Merge the jobs of one issue voucher (12 Oct video, question 115): they
+    share the group "M<vr no>" and are picked together from then on. A job
+    already in a group brings that group's other jobs along."""
+    jobs = [session.get(Job, j) for j in dict.fromkeys(job_ids)]
+    jobs = [j for j in jobs if j is not None]
+    if len(jobs) < 2:
+        raise ProductionError("Merging needs two or more jobs.")
+    old = {j.merge_group for j in jobs if j.merge_group}
+    if old:
+        jobs += [j for j in session.scalars(select(Job).where(Job.merge_group.in_(old)))
+                 if j not in jobs]
+    group = f"M{vr_no}"
+    for j in jobs:
+        j.merge_group = group
+    session.flush()
+    return group
+
+
+def unmerge_job(session: Session, job_id: int) -> None:
+    """Take one job out of its merge group; a group left with one job ends."""
+    job = session.get(Job, job_id)
+    if job is None or not job.merge_group:
+        return
+    group, job.merge_group = job.merge_group, ""
+    session.flush()
+    rest = list(session.scalars(select(Job).where(Job.merge_group == group,
+                                                  Job.id != job.id)))
+    if len(rest) == 1:
+        rest[0].merge_group = ""
+    session.flush()
+
+
+def merged_with(session: Session, job: Job) -> list[int]:
+    """Job numbers merged with this one (not itself)."""
+    if not job.merge_group:
+        return []
+    return list(session.scalars(select(Job.job_no).where(
+        Job.merge_group == job.merge_group, Job.id != job.id).order_by(Job.job_no)))
 
 
 def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict[str, Any],

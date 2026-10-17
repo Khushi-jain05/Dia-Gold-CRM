@@ -50,6 +50,11 @@ class Order(Base, PKMixin, TimestampMixin):
     # Repair order (2 Oct §4.11, T-10): its lines are existing pieces picked
     # with Repair List, not new SKUs.
     is_repair: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Header Tracking No and the Shipping Details dialog of the legacy order
+    # (12 Oct video, order 1680): despatch, order, buyer / consignee and
+    # export details, kept as JSON - see services/order_shipping.FIELDS.
+    tracking_no: Mapped[str] = mapped_column(String(60), default="")
+    shipping: Mapped[str] = mapped_column(Text, default="")
 
     ORDER_TYPES = ("Customer", "Stock")
 
@@ -144,6 +149,11 @@ class Job(Base, PKMixin, TimestampMixin):
     old_fine_wt: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
     # The old piece's stone lines, each marked status OLD (9 Oct §4.22).
     old_stones_json: Mapped[str] = mapped_column(Text, default="[]")
+    # Jobs merged on an issue (12 Oct video: "Do you want to merge jobs?").
+    # Our reading, to confirm (question 115): merged jobs keep their own
+    # weights and stones but travel together - "M<vr no>" of the issue that
+    # merged them; ticking one on a later voucher ticks the rest.
+    merge_group: Mapped[str] = mapped_column(String(16), default="", index=True)
 
     # complete = last route step received = Pending for MFG Transfer;
     # transferred = priced into ready stock by an MFG transfer (28 Sept R2).

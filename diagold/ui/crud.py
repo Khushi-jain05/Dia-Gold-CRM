@@ -208,6 +208,9 @@ class CrudSpec:
     # A soft rule: return a sentence and the user is asked whether to save
     # anyway (a location going below zero, 28 Sept Q6), or None.
     warn: Callable[[dict, dict[str, list[dict]], Any], str | None] | None = None
+    # Runs on the list after a form is saved and closed, as (widget, saved id)
+    # - for a follow-up question ("Print Order Sheet?").
+    after_accept: Callable[["CrudWidget", int], None] | None = None
 
 
 class ImageSlot(QWidget):
@@ -573,6 +576,7 @@ class FormDialog(QDialog):
         self.editors: dict[str, QWidget] = {}
         self.child_editors: dict[str, ChildTableEditor] = {}
         self._fk_cache: dict[str, list[tuple[Any, str]]] = {}
+        self.saved_id: int | None = None
 
         self.setWindowTitle(
             f"{'View' if readonly else 'Edit' if instance else 'New'} "
@@ -1023,6 +1027,7 @@ class FormDialog(QDialog):
                 self.session.refresh(obj)
                 self.spec.after_save(obj, children, self.session)
             self.session.commit()
+            self.saved_id = obj.id
         except IntegrityError as exc:
             self.session.rollback()
             QMessageBox.warning(self, "Could not save",
@@ -1380,6 +1385,7 @@ class CrudWidget(QWidget):
             dlg = FormDialog(self.spec, None, session, self, rights=self.rights)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.reload()
+                self._after_accept(dlg)
 
     def new_with(self, initial: dict[str, Any]) -> None:
         """Open a new record already filled in with ``initial``."""
@@ -1390,6 +1396,7 @@ class CrudWidget(QWidget):
                              initial=initial)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.reload()
+                self._after_accept(dlg)
 
     def _edit(self) -> None:
         current = self._selected()
@@ -1412,6 +1419,11 @@ class CrudWidget(QWidget):
                 return
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.reload()
+                self._after_accept(dlg)
+
+    def _after_accept(self, dlg: "FormDialog") -> None:
+        if self.spec.after_accept is not None and dlg.saved_id is not None:
+            self.spec.after_accept(self, dlg.saved_id)
 
     def _refresh_details(self) -> None:
         """Show the selected record in the panels beneath the list."""

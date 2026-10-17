@@ -1482,12 +1482,17 @@ def _order_print(widget, order) -> None:
     descriptions when "Add SKU Description", prices when "Show/Hide Price in
     PrintOut", and the Order declaration at the foot."""
     from PySide6.QtWidgets import QMessageBox
-    from diagold.services import admin as ADM, documents
     if order is None:
         QMessageBox.information(widget, "Print", "Select an order first.")
         return
+    path = _order_sheet_pdf(order.id)
+    QMessageBox.information(widget, "Print", f"Saved {path}")
+
+
+def _order_sheet_pdf(order_id: int):
+    from diagold.services import admin as ADM, documents, order_shipping
     with SessionLocal() as s:
-        o = s.get(Order, order.id)
+        o = s.get(Order, order_id)
         a = s.get(Account, o.account_id) if o.account_id else None
         cref = settings.opt_on("opt.cref_applicable", s)
         desc = settings.opt_on("opt.add_sku_description", s)
@@ -1513,10 +1518,34 @@ def _order_print(widget, order) -> None:
                 f"{a.name if a else ''}" + (f" · Ref {o.ref}" if o.ref else "")
                 + (f" · Terms {o.terms}" if o.terms else "") + "</p>"
                 "<table border=1 cellspacing=0 cellpadding=3 width=100%>" + head
-                + "".join(rows) + "</table>" + ADM.declaration_html(s, "order"))
+                + "".join(rows) + "</table>" + order_shipping.print_html(o)
+                + ADM.declaration_html(s, "order"))
         path = documents.PRINT_DIR / f"order_{o.order_no}.pdf"
     documents.to_pdf(html, path)
-    QMessageBox.information(widget, "Print", f"Saved {path}")
+    return path
+
+
+def _order_after_save(widget, order_id: int) -> None:
+    """Save -> "Print Order Sheet? Yes / No", as the legacy order asks (12 Oct)."""
+    from PySide6.QtWidgets import QMessageBox
+    with SessionLocal() as s:
+        o = s.get(Order, order_id)
+        no = o.order_no if o else ""
+    yes = QMessageBox.question(widget, "Order", f"Order {no} saved.\n\nPrint Order Sheet?")
+    if yes == QMessageBox.StandardButton.Yes:
+        QMessageBox.information(widget, "Print", f"Saved {_order_sheet_pdf(order_id)}")
+
+
+def _order_shipping(widget, order) -> None:
+    """Shipping Details (12 Oct video): despatch, order, buyer / consignee and
+    export details of the selected order."""
+    from PySide6.QtWidgets import QMessageBox
+    from diagold.ui.order_shipping import open_for
+    if order is None:
+        QMessageBox.information(widget, "Shipping Details", "Select an order first.")
+        return
+    if open_for(widget, order.id):
+        widget.reload()
 
 
 def _order_requirement_sheet(widget, order) -> None:
@@ -1558,8 +1587,10 @@ _register(CrudSpec(
     before_save=_prepare_order,
     after_save=_order_saved,
     before_delete=_order_delete,
+    after_accept=_order_after_save,
     form_width=1180,
-    extra_buttons=[("Print", _order_print), ("Requirement Sheet", _order_requirement_sheet),
+    extra_buttons=[("Print", _order_print), ("Shipping Details", _order_shipping),
+                   ("Requirement Sheet", _order_requirement_sheet),
                    ("Day Book", _order_day_book), ("Repair List", _order_repair_list)],
     fields=[
         Field("order_no", "Ord No", type="int", readonly=True,
@@ -1576,6 +1607,9 @@ _register(CrudSpec(
               help_text="Heard as an order-time field; values and effect not yet "
                         "explained (Q9). Free text until then."),
         Field("remark", "Remark"),
+        Field("tracking_no", "Tracking No", in_list=False,
+              help_text="The courier / despatch tracking number (12 Oct video). The rest "
+                        "of the despatch and export details are under Shipping Details."),
         Field("is_repair", "Repair", type="bool", default=False,
               help_text="A repair order: its lines are existing pieces, picked with Repair "
                         "List on the order list. Each becomes a repair job that keeps the "

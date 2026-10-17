@@ -44,6 +44,7 @@ Order **1680**, 12-10-2026, Account **stock**, SKU **NS-1430** (bridal necklace)
 6. **Stone issue warns "Stock Negative … Do you want to continue"** listing every location line that would go negative (our `inventory.negative_stock` = warn).
 7. **MFG transfer**: Metal = N × rate; Labour = 1,200 × N; Stone = Σ ct × price; Price = Total × (1 + margin 50 %); Tag = price ÷ 1,000.
 8. Order has a **Shipping Details** dialog and a **Tracking No** — the fields 9 Oct T-07 / T-08 need.
-9. Issue screens ask **"Do you want to merge jobs?"**.
+9. Issue screens ask **"Do you want to merge jobs?"** - asked on our multi-job issue too; Yes keeps the jobs together (question 115).
+10. Order Shipping Details, Tracking No, Fetch Dept / Fetch Last Dtls and "Print Order Sheet?" after save - built (Order list > Shipping Details).
 
 The full chain is reproduced on our app by `tests/ns1430_flow.py`.
