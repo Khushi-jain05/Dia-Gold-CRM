@@ -27,6 +27,16 @@ def _open_job(widget, row) -> None:
     widget.open_job(row)
 
 
+def _open_ledger(widget, row) -> None:
+    """Drill from Ledger Bal into that account's ledger."""
+    from diagold.ui import accounts as ACC
+    from diagold.ui.production import show_in_dialog
+    from diagold.ui.reports import ReportWidget
+    w = ReportWidget(ACC.specs()["party_ledger"], widget.user)
+    w.set_picker("account", row.get("_account_id"))
+    show_in_dialog(widget, w, f"Ledger — {row.get('account', '')}")
+
+
 def _purity_cols() -> list[Col]:
     return [Col("vrno", "VRNO"), Col("date", "DATE"), Col("client", "CLIENT"),
             Col("stockno", "STOCKNO"), Col("sku", "SKU"), Col("metal", "METAL"),
@@ -102,6 +112,35 @@ def specs() -> dict[str, ReportSpec]:
             date_default="month", group_by="client", negative_key="_negative",
             on_activate=_open_job,
             note="The same as Sales Profit [Metal] for pieces returned on a sale return."),
+        # -- ledger / M.R.P. (T-14) -----------------------------------------
+        "ledger_bal": ReportSpec(
+            key="ledger_bal", title="Ledger Bal",
+            columns=static([Col("account", "ACCOUNT"), Col("code", "CODE"),
+                            Col("group", "GROUP"), Col("type", "TYPE"),
+                            _m("opening", "OPENING"), _m("debit", "DEBIT"),
+                            _m("credit", "CREDIT"), _m("dr_bal", "DR BALANCE"),
+                            _m("cr_bal", "CR BALANCE")]),
+            query=lambda s, a, b, **k: MIS.ledger_bal(s, a, b, **k),
+            group_by="group", filter_column="type",
+            options={"with_zero": ("Show nil balances", False)},
+            on_activate=lambda w, r: _open_ledger(w, r),
+            note="Party / vendor ledger balances from our own ledger (the legacy report "
+                 "crashes: Invalid object name 'Com1'). Opening before From, the period's "
+                 "debit and credit, closing Dr / Cr. Double-click opens the account ledger."),
+        "mrp_stone": ReportSpec(
+            key="mrp_stone", title="M.R.P.(Stone)",
+            columns=static([Col("ssku", "SSKU"), Col("size", "Size"), Col("unit", "Unit"),
+                            _p("req_pcs", "Req. Pcs"), _w("req_qty", "Req. Qty"),
+                            _p("in_hand_pcs", "In Hand Pcs"), _w("in_hand", "In Hand"),
+                            _p("short_pcs", "Short Pcs"), _w("short", "Short"),
+                            Col("min_ord", "Min Ord", "measure", 3),
+                            _w("order_qty", "To Order")]),
+            query=lambda s, a, b, **_k: MIS.mrp_stone(s, a, b), date_mode="none",
+            negative_key="_negative",
+            note="What the open jobs still need (bag requirement not yet received) against "
+                 "what is in hand; red = short. To Order = the shortfall, at least the "
+                 "stone's Min Wt. Metal / Findings and Mould / Parts M.R.P. and the Purchase "
+                 "Order step wait for the client to explain M.R.P. (9 Oct T-14)."),
         # -- shipping (T-07) ------------------------------------------------
         "shipping_analysis": ReportSpec(
             key="shipping_analysis", title="Shiping Analysis",
@@ -402,7 +441,7 @@ MIS_LIST: tuple[tuple[str, str | None], ...] = (
     ("Sales Profit[Metal]", "sales_profit_metal"),
     ("Stone Summery", "stone_sku_balance"),
     ("Sales [Voucher Wise]", "sales_voucher_wise"),
-    ("Ledger Bal", None),
+    ("Ledger Bal", "ledger_bal"),
     ("In-Approval Status", "in_approval_status"),
     ("Sales Return Profit[Metal]", "sales_return_profit_metal"),
 )

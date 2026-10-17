@@ -52,6 +52,7 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
         "diagold.ui.admin", fromlist=["audit_spec"]).audit_spec(), user),
     "quotation.day_book": lambda user: ReportWidget(__import__(
         "diagold.ui.quotation", fromlist=["day_book_spec"]).day_book_spec(), user),
+    "mrp.mrp": lambda user: ReportWidget(build_specs()["mrp_stone"], user),
     "tools.whatsapp_log": lambda user: ReportWidget(__import__(
         "diagold.ui.mis_reports", fromlist=["whatsapp_log_spec"]).whatsapp_log_spec(), user),
     # Stock tools (5 Oct T-09)

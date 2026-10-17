@@ -534,6 +534,14 @@ with SessionLocal() as s:
     check("Excel has Summary + a sheet per finding", load_workbook(OUT + "/checks.xlsx").sheetnames[0], "Summary")
     s.rollback()
 
+    print("\n== N8. Ledger Bal / M.R.P. (9 Oct T-14)")
+    from diagold.services import accounts as ACC
+    lb = MIS.ledger_bal(s, *FY)
+    kk_row = [r for r in lb if r["account"] == kk.name]
+    check("Ledger Bal closing = the account's balance", kk_row[0]["closing"] if kk_row else None, ACC.drcr(ACC.balance(s, kk.id, upto=FY[1]))[0])
+    check("opening + debit - credit = closing (signed)", all(r["opening"] + r["debit"] - r["credit"] == (r["closing"] if r["drcr"] == "Dr" else -r["closing"]) for r in lb), True)
+    check("M.R.P. stone runs", isinstance(MIS.mrp_stone(s, *FY), list), True)
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

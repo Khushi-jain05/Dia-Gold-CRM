@@ -812,3 +812,77 @@ def shipping_pending(session: Session, date_from: date, date_to: date) -> list[d
                      "_negative": bool((ol.delivery_date or o.delivery_date)
                                        and (ol.delivery_date or o.delivery_date) < date_to)})
     return rows
+
+
+# --------------------------------------------------------------------------
+# Ledger Bal, M.R.P. (T-14)
+# --------------------------------------------------------------------------
+def ledger_bal(session: Session, date_from: date, date_to: date,
+               with_zero: bool = False, **_k: Any) -> list[dict[str, Any]]:
+    """Ledger Bal (§4.28): every party / vendor ledger's balance on the To
+    date from our own ledger (the legacy report crashes: "Invalid object name
+    'Com1'") - OPENING (before From), DEBIT and CREDIT in the period, CLOSING
+    with Dr / Cr. Karigars and nominal ledgers are left out."""
+    from diagold.db.models import AccountEntry
+    from diagold.services import accounts
+    nominal = accounts.nominal_ids(session)
+    rows = []
+    for a in session.scalars(select(Account).where(
+            Account.account_type.not_in(("Worker", "Designer"))).order_by(Account.name)):
+        if a.id in nominal:
+            continue
+        opening = accounts.balance(session, a.id, before=date_from)
+        dr, cr = session.execute(select(
+            func.coalesce(func.sum(AccountEntry.debit), 0),
+            func.coalesce(func.sum(AccountEntry.credit), 0)).where(
+            AccountEntry.account_id == a.id, AccountEntry.entry_date >= date_from,
+            AccountEntry.entry_date <= date_to)).one()
+        dr, cr = _dec(dr), _dec(cr)
+        close = opening + dr - cr
+        if not with_zero and not close and not dr and not cr:
+            continue
+        amt, side = accounts.drcr(close)
+        rows.append({"account": a.name, "code": a.code, "group": a.group_name,
+                     "type": a.account_type, "opening": opening.quantize(D2),
+                     "debit": dr.quantize(D2), "credit": cr.quantize(D2), "closing": amt,
+                     "drcr": side, "dr_bal": amt if side == "Dr" else None,
+                     "cr_bal": amt if side == "Cr" else None, "_account_id": a.id})
+    return rows
+
+
+def mrp_stone(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """M.R.P. (Stone) (§4.28): per stone SKU and size, what the open jobs
+    still need (bag requirement not yet received - Pnd), what is in hand at
+    the locations, the shortfall and the minimum order. Req. Qty and Min Ord
+    are the legacy columns; how the client runs M.R.P. was not explained, so
+    this is the requirement view only - the Purchase Order step waits (T-14)."""
+    need: dict[tuple, list] = defaultdict(lambda: [0, ZERO])
+    for bl, job in session.execute(select(JobBagLine, Job).join(Job, JobBagLine.job_id == Job.id)
+                                   .where(Job.status.in_(("pending", "mapped", "in_progress")))):
+        row = production.bag_row(bl)
+        p, w = row["pnd"]
+        if p <= 0 and w <= 0:
+            continue
+        key = (bl.stone_sku_id, bl.particulars if not bl.stone_sku_id else "", bl.size or "")
+        need[key][0] += p
+        need[key][1] += w
+    rows = []
+    for (sku_id, text, size), (p, w) in need.items():
+        sku = session.get(StoneSku, sku_id) if sku_id else None
+        have = session.execute(select(func.coalesce(func.sum(StockMovement.pcs), 0),
+                                      func.coalesce(func.sum(StockMovement.weight), 0)).where(
+            StockMovement.material_class == "stone", StockMovement.kind != "breakage",
+            StockMovement.ref_id == sku_id if sku_id else StockMovement.ref_text == text,
+            StockMovement.size == size)).one()
+        h_pcs, h_wt = int(have[0] or 0), _dec(have[1])
+        short = max(w - h_wt, ZERO)
+        rows.append({"ssku": (sku.sku_code if sku else text) or "", "size": size,
+                     "unit": (sku.per if sku else "") or "Cts", "req_pcs": p,
+                     "req_qty": w.quantize(D3), "in_hand_pcs": h_pcs,
+                     "in_hand": h_wt.quantize(D3), "short_pcs": max(p - h_pcs, 0),
+                     "short": short.quantize(D3),
+                     "min_ord": _dec(sku.min_wt) if sku and sku.min_wt else None,
+                     "order_qty": max(short, _dec(sku.min_wt) if sku and short else ZERO)
+                     .quantize(D3) if short else None, "_negative": short > 0})
+    rows.sort(key=lambda r: (-r["short"], r["ssku"].lower()))
+    return rows
