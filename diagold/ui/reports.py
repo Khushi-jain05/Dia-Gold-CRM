@@ -83,6 +83,9 @@ class Col:
     group: str = ""              # column group label, e.g. "OPENING"
     total: bool = False          # summed in subtotal / total rows
     red: bool = False            # always shown in red - old values on repair (9 Oct UX3)
+    # A % worked on subtotal / total rows from two summed columns, e.g. LOSS %
+    # = LOSS FINE / NET FINE x 100 per process (9 Oct §4.12).
+    ratio: tuple[str, str] | None = None
 
 
 @dataclass
@@ -988,6 +991,12 @@ class ReportWidget(QWidget):
                 vals = [r.get(c.key) for r in rows if _is_num(r.get(c.key))]
                 if vals:
                     out[c.key] = sum(vals)
+        for c in self._cols:
+            if c.ratio:
+                num = sum((r.get(c.ratio[0]) for r in rows if _is_num(r.get(c.ratio[0]))), 0)
+                den = sum((r.get(c.ratio[1]) for r in rows if _is_num(r.get(c.ratio[1]))), 0)
+                out[c.key] = (Decimal(str(num)) / Decimal(str(den)) * 100).quantize(
+                    Decimal("0.01")) if den else None
         if label_key:
             out[label_key] = label
         return out

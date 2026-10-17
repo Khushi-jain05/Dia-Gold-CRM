@@ -445,6 +445,17 @@ with SessionLocal() as s:
     refused("sale with no salesperson when required", lambda: S.post_ready(s, "rs_sale", {"vr_date": T, "account_id": kk.id}, [line(piece)]))
     s.rollback()
 
+    print("\n== N2. M.I.S. production (9 Oct T-04)")
+    sa2 = MIS.setting_analysis(s, *FY)
+    check("setting analysis lists the setting steps", len(sa2) >= 1, True)
+    check("LOSSWT = ISS N - RTN N; WAST REC = LOSSWT - ALWLOSS",
+          all(r["losswt"] == (r["iss_nwt"] - r["rtn_nwt"]) and r["wast_rec"] == r["losswt"] - r["alwloss"]
+              for r in sa2 if r["losswt"] is not None), True)
+    ra = MIS.refining_analysis(s, *FY)
+    check("refining loss % = loss fine / net fine", all(r["loss_pct"] is None or r["loss_pct"] == (r["loss_fine"] / r["net_fine"] * 100).quantize(D("0.01")) for r in ra), True)
+    check("no %% when net fine is 0", all(r["loss_pct"] is None for r in ra if not r["net_fine"]), True)
+    check("rejection register runs", isinstance(MIS.rejection_register(s, *FY), list), True)
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

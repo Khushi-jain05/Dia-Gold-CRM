@@ -22,9 +22,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from diagold.db.models import (Account, Metal, ProductSku, ReadyVoucher, ReadyVoucherLine,
-                               StockItem)
-from diagold.services import mfg_pricing, rates, sales
+from diagold.db.models import (Account, Job, JobBagMovement, JobStep, JobVoucher,
+                               ManufacturingProcess, Metal, Order, OrderLine, ProductSku,
+                               ReadyVoucher, ReadyVoucherLine, StockItem)
+from diagold.db.models.sku import Item
+from diagold.services import costing, mfg_pricing, production, rates
 from diagold.services.sales_reports import _C, _base, _lines
 
 ZERO = Decimal("0")
@@ -189,3 +191,165 @@ def sales_return_profit_metal(session: Session, date_from: date,
                               date_to: date) -> list[dict[str, Any]]:
     """Sales Return Profit [Metal]: the same columns for pieces returned."""
     return _purity_rows(session, "rs_sale_return", date_from, date_to)
+
+
+# --------------------------------------------------------------------------
+# Production (T-04)
+# --------------------------------------------------------------------------
+def _job_names(session: Session, c: _C, job: Job) -> tuple[str, str, str]:
+    sku = c.get(ProductSku, job.product_sku_id)
+    item = c.get(Item, sku.item_id) if sku and sku.item_id else None
+    metal = c.get(Metal, job.metal_id)
+    return (sku.sku_code if sku else ""), (item.name if item else ""), \
+        (metal.name if metal else "")
+
+
+def _worker_label(a: Account | None) -> str:
+    """Worker by name with the code (legacy shows codes like B1202 alone)."""
+    if a is None:
+        return ""
+    return f"{a.name} ({a.code})" if a.code and a.code != a.name else a.name
+
+
+def _bag_wt(session: Session, voucher_id: int, kind: str) -> tuple[int, Decimal]:
+    pcs, wt = 0, ZERO
+    for m in session.scalars(select(JobBagMovement).where(JobBagMovement.voucher_id == voucher_id,
+                                                          JobBagMovement.kind == kind)):
+        pcs += int(m.pcs or 0)
+        wt += _dec(m.weight)
+    return pcs, wt
+
+
+def setting_analysis(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Stone Setting Analysis - "Setting Analysis" (§4.7): one row per issue
+    to a setter (any process named Setting) with its return. USE ST = the
+    stones sent (F3) less those handed back; LOSSWT = ISS N-WT - RTN N-WT
+    (negative = gain); ALWLOSS from the allowed %; WAST REC = LOSSWT -
+    ALWLOSS (1,821.337 - 508.448 = 1,312.889); LABOUR = setting labour."""
+    c = _C(session)
+    rows = []
+    q = (select(JobVoucher).where(JobVoucher.kind == "issue", JobVoucher.vr_date >= date_from,
+                                  JobVoucher.vr_date <= date_to)
+         .order_by(JobVoucher.vr_date, JobVoucher.vr_no, JobVoucher.id))
+    for iss in session.scalars(q):
+        step = c.get(JobStep, iss.step_id)
+        proc = c.get(ManufacturingProcess, step.process_id) if step else None
+        if proc is None or "setting" not in (proc.name or "").lower():
+            continue
+        rtn = session.scalar(select(JobVoucher).where(JobVoucher.issue_id == iss.id,
+                                                      JobVoucher.kind == "receive"))
+        job = c.get(Job, iss.job_id)
+        sku, item, metal = _job_names(session, c, job)
+        sent_pcs, sent_wt = _bag_wt(session, iss.id, "iss")
+        back_pcs, back_wt = _bag_wt(session, rtn.id, "back") if rtn else (0, ZERO)
+        d = production.loss_detail(proc, iss, rtn) if rtn else None
+        loss = (_dec(iss.net_wt) - _dec(rtn.net_wt)).quantize(D3) \
+            if rtn is not None and iss.net_wt is not None and rtn.net_wt is not None else None
+        alw = d.allowed if d else None
+        rows.append({
+            "iss_dt": iss.vr_date, "worker": _worker_label(c.get(Account, iss.worker_id)),
+            "sku": sku, "jobno": job.job_no, "_job_id": job.id, "metal": metal, "item": item,
+            "pcs": _dec(iss.share) if iss.share else Decimal(iss.pcs or job.pcs or 0),
+            "iss_gwt": _dec(iss.gross_wt) if iss.gross_wt is not None else None,
+            "iss_nwt": _dec(iss.net_wt) if iss.net_wt is not None else None,
+            "iss_stwt": _dec(iss.stone_wt) or sent_wt or None,
+            "rtn_dt": rtn.vr_date if rtn else None,
+            "rtn_gwt": _dec(rtn.gross_wt) if rtn and rtn.gross_wt is not None else None,
+            "rtn_nwt": _dec(rtn.net_wt) if rtn and rtn.net_wt is not None else None,
+            "use_stwt": (sent_wt - back_wt).quantize(D3) if rtn else None,
+            "use_pcs": sent_pcs - back_pcs if rtn else None,
+            "alwloss": alw, "losswt": loss, "labour": _dec(rtn.labour) if rtn else None,
+            "wast_rec": (loss - alw).quantize(D3) if loss is not None and alw is not None
+            else None})
+    return rows
+
+
+def refining_analysis(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Refining Analysis (§4.12): per PROCESS and WORKER, over the receipts
+    in the period - NET FINE (fine of the net issued), SCRAP FINE, LOSS FINE,
+    DUST and LOSS % = LOSS FINE / NET FINE x 100. A row with no net fine
+    shows no % (the legacy divides by zero: 1,226.64 %)."""
+    c = _C(session)
+    acc: dict[tuple[str, str], list] = defaultdict(lambda: [ZERO, ZERO, ZERO, ZERO])
+    q = (select(JobVoucher).where(JobVoucher.kind == "receive", JobVoucher.vr_date >= date_from,
+                                  JobVoucher.vr_date <= date_to))
+    for rcv in session.scalars(q):
+        step = c.get(JobStep, rcv.step_id)
+        if step is None or not step.weight_bearing:
+            continue
+        proc = c.get(ManufacturingProcess, step.process_id)
+        iss = c.get(JobVoucher, rcv.issue_id)
+        job = c.get(Job, rcv.job_id)
+        metal = c.get(Metal, job.metal_id)
+        frac = costing.purity_fraction(metal) if metal else ZERO
+        net_iss = _dec(iss.net_wt) if iss is not None and iss.net_wt is not None else ZERO
+        loss = (net_iss - _dec(rcv.net_wt) - _dec(rcv.scrap) - _dec(rcv.dust)) \
+            if net_iss else ZERO
+        a = acc[(proc.name if proc else "", _worker_label(c.get(Account, rcv.worker_id)))]
+        a[0] += (net_iss * frac).quantize(D3)
+        a[1] += (_dec(rcv.scrap) * frac).quantize(D3)
+        a[2] += (loss * frac).quantize(D3)
+        a[3] += (_dec(rcv.dust) * frac).quantize(D3)
+    rows = []
+    for (proc, worker), (net, scrap, loss, dust) in sorted(
+            acc.items(), key=lambda kv: (kv[0][0].lower(), kv[0][1].lower())):
+        rows.append({"process": proc, "worker": worker or "(blank)", "net_fine": net,
+                     "scrap_fine": scrap, "loss_fine": loss, "dust": dust,
+                     "loss_pct": (loss / net * 100).quantize(D2) if net else None,
+                     "_negative": loss < 0})
+    return rows
+
+
+def rejection_register(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Rejection Register (§4.10): every receipt with rejected pieces or
+    weight (Rej Pcs / Rej Wt on the Mfg receive, 2 Oct B6), with its order."""
+    c = _C(session)
+    rows = []
+    q = (select(JobVoucher).where(JobVoucher.kind == "receive", JobVoucher.vr_date >= date_from,
+                                  JobVoucher.vr_date <= date_to,
+                                  (JobVoucher.rej_pcs > 0) | (JobVoucher.rej_wt > 0))
+         .order_by(JobVoucher.vr_date, JobVoucher.vr_no))
+    for rcv in session.scalars(q):
+        job = c.get(Job, rcv.job_id)
+        order = c.get(Order, job.order_id)
+        line = session.scalar(select(OrderLine).where(OrderLine.order_id == job.order_id,
+                                                      OrderLine.sno == job.line_sno)) \
+            if job.order_id else None
+        step = c.get(JobStep, rcv.step_id)
+        proc = c.get(ManufacturingProcess, step.process_id) if step else None
+        sku, _item, _metal = _job_names(session, c, job)
+        rows.append({"date": rcv.vr_date, "vrno": rcv.vr_no,
+                     "ord_no": order.order_no if order else "",
+                     "ord_pcs": int(line.pcs or 0) if line else job.pcs, "del_dt": rcv.del_date,
+                     "worker": _worker_label(c.get(Account, rcv.worker_id)),
+                     "process": proc.name if proc else "", "jobno": job.job_no,
+                     "_job_id": job.id, "sku": sku, "explod_pcs": job.pcs,
+                     "rej_wt": _dec(rcv.rej_wt), "rej_pcs": int(rcv.rej_pcs or 0),
+                     "ord_ref": order.ref if order else "", "line_po": job.c_ref,
+                     "type": rcv.rej_type, "remark": rcv.remark})
+    return rows
+
+
+def kundan_register(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """KM Register - "Kundan Register" (§4.16), behind a switch until the
+    client says kundan work is done (Q1): receipts on a process named Kundan,
+    with gross and net. GHAT, the wastage %s and KUNDAN weight wait for the
+    client to explain how kundan is weighed - empty in legacy too."""
+    c = _C(session)
+    rows = []
+    q = (select(JobVoucher).where(JobVoucher.kind == "receive", JobVoucher.vr_date >= date_from,
+                                  JobVoucher.vr_date <= date_to)
+         .order_by(JobVoucher.vr_date, JobVoucher.vr_no))
+    for rcv in session.scalars(q):
+        step = c.get(JobStep, rcv.step_id)
+        proc = c.get(ManufacturingProcess, step.process_id) if step else None
+        if proc is None or "kundan" not in (proc.name or "").lower():
+            continue
+        job = c.get(Job, rcv.job_id)
+        sku, _item, metal = _job_names(session, c, job)
+        acct = c.get(Account, job.account_id)
+        rows.append({"date": rcv.vr_date, "vrno": rcv.vr_no, "jobno": job.job_no,
+                     "_job_id": job.id, "account": acct.name if acct else "", "sku": sku,
+                     "metal": metal, "gross": _dec(rcv.gross_wt), "netwt": _dec(rcv.net_wt),
+                     "net_lab": _dec(rcv.labour) or None})
+    return rows

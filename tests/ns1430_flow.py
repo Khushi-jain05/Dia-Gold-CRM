@@ -263,5 +263,15 @@ with SessionLocal() as s:
                                        sum(D(str(x["weight"])) for x in st)),
           (808, D("162.980")))
 
+    print("\n== 10. Stone Setting Analysis / Refining Analysis (9 Oct T-04)")
+    from diagold.services import mis as MIS
+    fs = [r for r in MIS.setting_analysis(s, ON, ON) if r["jobno"] == job.job_no
+          and r["iss_stwt"]]
+    check("final setting: ISS N / RTN N / LOSSWT / USE ST / USE PCS",
+          [(r["iss_nwt"], r["rtn_nwt"], r["losswt"], r["use_stwt"], r["use_pcs"]) for r in fs],
+          [(D("49.100"), D("47.784"), D("1.316"), D("51.580"), 808)])
+    pp = [r for r in MIS.refining_analysis(s, ON, ON) if r["process"] == "PrePolish"]
+    check("refining PrePolish loss % 3.00", [r["loss_pct"] for r in pp], [D("3.00")])
+
 print(f"\nPASSED {passes}  FAILED {len(fails)}: {', '.join(fails) or 'none'}")
 sys.exit(1 if fails else 0)

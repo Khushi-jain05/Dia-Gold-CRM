@@ -184,6 +184,10 @@ class MainWindow(QMainWindow):
                 target.setObjectName("TopMenuPopup")
             for k in keys:
                 key = report_key(k)
+                # A report kept off until the client confirms it is used
+                # (9 Oct C-06) - switched on in Tools ▸ Option.
+                if not settings.menu_visible(key):
+                    continue
                 label = EXTRA_SCREENS.get(key, k)
                 act = target.addAction(label)
                 act.triggered.connect(lambda _c=False, kk=key: self._open_by_key(kk))

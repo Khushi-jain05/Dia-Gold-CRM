@@ -102,6 +102,65 @@ def specs() -> dict[str, ReportSpec]:
             date_default="month", group_by="client", negative_key="_negative",
             on_activate=_open_job,
             note="The same as Sales Profit [Metal] for pieces returned on a sale return."),
+        # -- production (T-04) ----------------------------------------------
+        "setting_analysis": ReportSpec(
+            key="setting_analysis", title="Stone Setting Analysis",
+            columns=static([Col("iss_dt", "ISS DT"), Col("worker", "WORKER"), Col("sku", "SKU"),
+                            Col("jobno", "JOBNO"), Col("metal", "METAL"), Col("item", "Item"),
+                            Col("pcs", "PCS", "measure", 1, total=True),
+                            _w("iss_gwt", "ISS G-WT"), _w("iss_nwt", "ISS N-WT"),
+                            _w("iss_stwt", "ISS ST-WT"), Col("rtn_dt", "RTN DT"),
+                            _w("rtn_gwt", "RTN G-WT"), _w("rtn_nwt", "RTN-N-WT"),
+                            _w("use_stwt", "USE ST WT"), _p("use_pcs", "USE PCS"),
+                            _w("alwloss", "ALWLOSS"), _w("losswt", "LOSSWT"),
+                            _m("labour", "LABOUR"), _w("wast_rec", "WAST REC")]),
+            query=lambda s, a, b, **_k: MIS.setting_analysis(s, a, b),
+            group_by="worker", filter_column="worker", on_activate=_open_job,
+            note="Legacy window: Setting Analysis. Every issue to a setter with its return: "
+                 "USE ST = stones sent less those handed back; LOSSWT = ISS N-WT - RTN N-WT "
+                 "(negative = gain); ALWLOSS = allowed % of the weight; WAST REC = LOSSWT - "
+                 "ALWLOSS. What USE PCS / WAST REC mean to the owner is asked (9 Oct Q9)."),
+        "refining_analysis": ReportSpec(
+            key="refining_analysis", title="Refining Analysis",
+            columns=static([Col("process", "PROCESS"), Col("worker", "WORKER"),
+                            _w("net_fine", "NET FINE"), _w("scrap_fine", "SCRAP FINE"),
+                            _w("loss_fine", "LOSS FINE"), _w("dust", "DUST"),
+                            Col("loss_pct", "LOSS %", "measure", 2,
+                                ratio=("loss_fine", "net_fine"))]),
+            query=lambda s, a, b, **_k: MIS.refining_analysis(s, a, b),
+            group_by="process", filter_column="process", date_default="month",
+            note="Fine of the net issued, scrap, loss and dust per process and worker over "
+                 "the receipts of the period. LOSS % = LOSS FINE / NET FINE x 100 (PrePolish "
+                 "POLISH 356.685 / 9,639.689 = 3.70 %), worked again on each process total; "
+                 "blank where nothing weighed was issued."),
+        "rejection_register": ReportSpec(
+            key="rejection_register", title="Rejection Register",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("ord_no", "ORD NO"),
+                            _p("ord_pcs", "ORD PCS"), Col("del_dt", "DEL DT"),
+                            Col("worker", "WORKER"), Col("process", "PROCESS"),
+                            Col("jobno", "JOBNO"), Col("sku", "SKU"),
+                            _p("explod_pcs", "EXPLOD PCS"), _w("rej_wt", "REJ WT"),
+                            _p("rej_pcs", "REJ PCS"), Col("ord_ref", "ORD REF"),
+                            Col("line_po", "LINE PO"), Col("type", "TYPE"),
+                            Col("remark", "REMARK")]),
+            query=lambda s, a, b, **_k: MIS.rejection_register(s, a, b),
+            date_default="today", on_activate=_open_job,
+            note="Pieces / weight rejected on manufacturing receipts, with the order. Off in "
+                 "the menu until the client says it is used (Tools ▸ Option, 9 Oct Q1)."),
+        "kundan_register": ReportSpec(
+            key="kundan_register", title="KM Register",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("jobno", "JOBNO"),
+                            Col("account", "ACCOUNT"), Col("sku", "SKU"), Col("metal", "METAL"),
+                            _w("gross", "GROSS"), _w("ghat", "GHAT"),
+                            Col("ghat_wast", "GHAT-WAST%"), _w("kundan", "KUNDAN"),
+                            _w("otherwt", "OTHERWT"), Col("oth_wast", "OTH-WAST%"),
+                            Col("fine_pct", "FINE%"), _w("total_fine", "TOTAL FINE"),
+                            _m("net_lab", "NET LAB"), _w("netwt", "NETWT")]),
+            query=lambda s, a, b, **_k: MIS.kundan_register(s, a, b),
+            on_activate=_open_job,
+            note="Legacy window: Kundan Register (empty in legacy). Receipts on a Kundan "
+                 "process; GHAT / KUNDAN weights and wastage % wait for the client to explain "
+                 "kundan work. Off in the menu until confirmed (9 Oct Q1)."),
         # -- repair traceability (T-06) -------------------------------------
         "wip_repair_items": ReportSpec(
             key="wip_repair_items", title="WIP Repair Items",
@@ -153,19 +212,19 @@ MIS_LIST: tuple[tuple[str, str | None], ...] = (
     ("Sales Analysis", "sales_analysis"),
     ("Stone Wise Inventory", None),
     ("Ready Stock Inward List", None),
-    ("Stone Setting Analysis", None),
+    ("Stone Setting Analysis", "setting_analysis"),
     ("Stone Daily Touch Report", None),
     ("WIP Repair Items", "wip_repair_items"),
     ("Repair Register", "repair_register"),
-    ("Rejection Register", None),
+    ("Rejection Register", "rejection_register"),
     ("Designer Analysis", None),
     ("Sales Analysis[Item Wise]", "sales_mis"),
     ("Closing Stock As SET", None),
-    ("Refining Analysis", None),
+    ("Refining Analysis", "refining_analysis"),
     ("Metal Summary", "metal_summary"),
     ("Stone in Sales Register", None),
     ("Labour in Sales Register", None),
-    ("KM Register", None),
+    ("KM Register", "kundan_register"),
     ("Shiping Analysis", None),
     ("Shiping Pending", None),
     ("Day Wise Sales [MetalValue]", "day_wise_sales"),

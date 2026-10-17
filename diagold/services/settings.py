@@ -62,6 +62,14 @@ MENU_DEFAULT_HIDDEN: dict[str, str] = {
     "inventory.parts_mould": "Inventory ▸ Parts / Mould - not discussed (2 Oct)",
     "inventory.physical_stock": "Inventory ▸ Physical Stock - to be re-explained (2 Oct C-05)",
     "inventory.ready_item_receipt": "Inventory ▸ Ready Item Receipt - to be re-explained (2 Oct C-05)",
+    # M.I.S. reports that were empty in legacy (9 Oct §4.10, §4.16, §4.23,
+    # §4.29) - built, but off until the client ranks them (C-06 / Q1).
+    "report.rejection_register": "M.I.S. ▸ Rejection Register - empty in legacy (9 Oct Q1)",
+    "report.kundan_register": "M.I.S. ▸ KM Register - only if kundan work is done (9 Oct Q1)",
+    "report.goods_not_delivered": "M.I.S. ▸ Goods Sold But Not Delivered - empty in legacy "
+                                  "(9 Oct Q1)",
+    "report.in_approval_status": "M.I.S. ▸ In-Approval Status - empty in legacy; same as "
+                                 "Ready Stock Approval Balance (9 Oct Q1)",
     # Screens open as tabs here, so the legacy window arrangement has nothing to do.
     "window.cascade": "Window ▸ Cascade - screens open as tabs, nothing to arrange",
     "window.tile": "Window ▸ Tile - screens open as tabs, nothing to arrange",
