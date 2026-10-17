@@ -542,6 +542,14 @@ with SessionLocal() as s:
     check("opening + debit - credit = closing (signed)", all(r["opening"] + r["debit"] - r["credit"] == (r["closing"] if r["drcr"] == "Dr" else -r["closing"]) for r in lb), True)
     check("M.R.P. stone runs", isinstance(MIS.mrp_stone(s, *FY), list), True)
 
+    print("\n== N9. M.I.S. index + parallel-run export (9 Oct §4.3 / T-11)")
+    from diagold.ui import mis_reports as UMIS
+    idx = UMIS.mis_index(s, None, None)
+    check("34 legacy M.I.S. reports listed", len(idx), 34)
+    check("built ones open a real report", all(r["_key"] in __import__("diagold.ui.reports", fromlist=["build_specs"]).build_specs() for r in idx if r["_key"]), True)
+    UMIS.parallel_export(s, T, OUT + "/parallel.xlsx")
+    check("parallel-run export has 4 sheets", load_workbook(OUT + "/parallel.xlsx").sheetnames, ["Sales Analysis", "Stone Daily Touch", "Metal Summary", "Refining Analysis"])
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

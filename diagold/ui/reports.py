@@ -2046,5 +2046,5 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 # 9 Oct §4.3: the legacy M.I.S. Reports list, in its order - the reports
 # built so far (the rest wait for the client's ranking, C-06).
-from diagold.ui.mis_reports import mis_keys as _mis_keys  # noqa: E402
+from diagold.ui.mis_list import mis_keys as _mis_keys  # noqa: E402
 SECTIONS = SECTIONS + (("M.I.S. Reports", _mis_keys()),)

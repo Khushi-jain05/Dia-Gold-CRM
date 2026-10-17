@@ -7,6 +7,7 @@ legacy window title as a subtitle in the note (UX2), so users recognise it.
 from __future__ import annotations
 
 from diagold.services import mis as MIS
+from diagold.ui.mis_list import MIS_LIST, mis_keys  # noqa: F401
 from diagold.services import repair as REP
 from diagold.ui.reports import Col, ReportSpec, static
 
@@ -47,6 +48,17 @@ def _purity_cols() -> list[Col]:
 
 def specs() -> dict[str, ReportSpec]:
     return {
+        "mis_index": ReportSpec(
+            key="mis_index", title="M.I.S. Reports",
+            columns=static([Col("sno", "#", "measure", 0), Col("name", "MENU NAME"),
+                            Col("window", "LEGACY WINDOW"), Col("status", "STATUS")]),
+            query=mis_index, date_mode="none", show_total=False, filter_column="status",
+            on_activate=_open_from_index,
+            actions=[("Parallel-run export", "", _parallel_export)],
+            note="The 34 legacy M.I.S. reports in their order. Double-click a built one to open "
+                 "it. Parallel-run export: one Excel of the day (Sales Analysis, Stone Daily "
+                 "Touch, Metal Summary, Refining Analysis) to compare with the legacy reports "
+                 "during the 10-15 day parallel run (9 Oct T-11)."),
         # -- sales (T-02) ---------------------------------------------------
         "sales_analysis": ReportSpec(
             key="sales_analysis", title="Sales Analysis",
@@ -407,48 +419,96 @@ def specs() -> dict[str, ReportSpec]:
     }
 
 
-# The legacy M.I.S. Reports list in its order (9 Oct §4.3): (menu name, spec
-# key or None while not built / awaiting the client's ranking C-06).
-MIS_LIST: tuple[tuple[str, str | None], ...] = (
-    ("Sales Analysis", "sales_analysis"),
-    ("Stone Wise Inventory", "stone_wise_inventory"),
-    ("Ready Stock Inward List", "ready_stock_inward"),
-    ("Stone Setting Analysis", "setting_analysis"),
-    ("Stone Daily Touch Report", "stone_daily_touch"),
-    ("WIP Repair Items", "wip_repair_items"),
-    ("Repair Register", "repair_register"),
-    ("Rejection Register", "rejection_register"),
-    ("Designer Analysis", None),
-    ("Sales Analysis[Item Wise]", "sales_mis"),
-    ("Closing Stock As SET", None),
-    ("Refining Analysis", "refining_analysis"),
-    ("Metal Summary", "metal_summary"),
-    ("Stone in Sales Register", "sold_stone"),
-    ("Labour in Sales Register", "sold_labour"),
-    ("KM Register", "kundan_register"),
-    ("Shiping Analysis", "shipping_analysis"),
-    ("Shiping Pending", "shipping_pending"),
-    ("Day Wise Sales [MetalValue]", "day_wise_sales"),
-    ("Approval Out Counts", "approval_out_counts"),
-    ("Stock for Merchandising", None),
-    ("Range Wise Closing Stock", "range_wise_closing"),
-    ("Range Wise Approval Stock", "range_wise_approval"),
-    ("DAK Return Register", None),
-    ("MFG TR [only Repair]", "mfg_tr_repair"),
-    ("MFG TR Stone[only Repair]", "mfg_tr_repair_stones"),
-    ("Goods Sold But Not Delivered", "goods_not_delivered"),
-    ("FOB Custom Invoice", None),
-    ("Sales Profit[Metal]", "sales_profit_metal"),
-    ("Stone Summery", "stone_sku_balance"),
-    ("Sales [Voucher Wise]", "sales_voucher_wise"),
-    ("Ledger Bal", "ledger_bal"),
-    ("In-Approval Status", "in_approval_status"),
-    ("Sales Return Profit[Metal]", "sales_return_profit_metal"),
-)
+# Legacy window titles (UX2: the menu name is the title, the legacy window
+# title a subtitle) and the reports kept off until the client confirms them.
+WINDOW = {"Stone Wise Inventory": "Stone Wise Balance", "Ready Stock Inward List":
+          "Ready Stock Inward", "Stone Setting Analysis": "Setting Analysis",
+          "Stone Daily Touch Report": "Daily Touch Report", "WIP Repair Items": "WIP Repair",
+          "Sales Analysis[Item Wise]": "Sales MIS", "Stone in Sales Register": "Sold Stone",
+          "Labour in Sales Register": "Sold Labour", "KM Register": "Kundan Register",
+          "Day Wise Sales [MetalValue]": "Bullion Sales", "Range Wise Closing Stock":
+          "Closing Stock", "MFG TR [only Repair]": "MFG Tr. Register[Only Repair]",
+          "MFG TR Stone[only Repair]": "MFG Tr. Register Stone[Only Repair]",
+          "Sales Profit[Metal]": "Sales Metal Profit", "Stone Summery": "Stone SKU Balance",
+          "Sales [Voucher Wise]": "Sales Summery"}
+NOT_SHOWN = ("Designer Analysis", "Closing Stock As SET", "Stock for Merchandising",
+             "DAK Return Register", "FOB Custom Invoice")
 
 
-def mis_keys() -> tuple[str, ...]:
-    return tuple(k for _n, k in MIS_LIST if k)
+def mis_index(session, _a, _b, **_k) -> list[dict]:
+    """The 34 legacy M.I.S. reports with where each stands (9 Oct §4.3)."""
+    from diagold.services import settings
+    rows = []
+    for n, (name, key) in enumerate(MIS_LIST, start=1):
+        if key is None:
+            status = ("Not built - highlighted but never opened, columns unknown "
+                      "(screenshot / export asked, C-06)") if name in NOT_SHOWN else "Not built"
+        elif not settings.menu_visible("report." + key, session):
+            status = "Built - off in the menu until the client confirms (Tools ▸ Option)"
+        else:
+            status = "Built"
+        rows.append({"sno": n, "name": name, "window": WINDOW.get(name, name),
+                     "status": status, "_key": key})
+    return rows
+
+
+def _open_from_index(widget, row) -> None:
+    if row.get("_key"):
+        widget.open_requested.emit("report." + row["_key"])
+
+
+def _parallel_export(widget) -> None:
+    """Parallel run (9 Oct T-11 / TR9): one Excel of the day - Sales
+    Analysis, Stone Daily Touch, Metal Summary, Refining Analysis - to put
+    beside the same legacy reports each evening."""
+    from datetime import date
+
+    from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+
+    from diagold.db.session import SessionLocal
+    day_text, ok = QInputDialog.getText(widget, "Parallel-run export", "Day (dd-mm-yyyy):",
+                                        text=date.today().strftime("%d-%m-%Y"))
+    if not ok:
+        return
+    try:
+        from datetime import datetime
+        day = datetime.strptime(day_text.strip(), "%d-%m-%Y").date()
+    except ValueError:
+        QMessageBox.warning(widget, "Parallel-run export", "Type the day as dd-mm-yyyy.")
+        return
+    path, _ = QFileDialog.getSaveFileName(widget, "Parallel-run export",
+                                          f"DiaGold-parallel-{day:%Y%m%d}.xlsx",
+                                          "Excel (*.xlsx)")
+    if not path:
+        return
+    with SessionLocal() as s:
+        parallel_export(s, day, path)
+    QMessageBox.information(widget, "Parallel-run export", f"Saved {path}")
+
+
+def parallel_export(session, day, path: str) -> None:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    from diagold.services import stone_reports as SR
+    sheets = [("Sales Analysis", MIS.sales_analysis(session, day, day)),
+              ("Stone Daily Touch", MIS.stone_daily_touch(session, day, day)),
+              ("Metal Summary", SR.metal_summary(session, day)),
+              ("Refining Analysis", MIS.refining_analysis(session, day, day))]
+    wb = Workbook()
+    wb.remove(wb.active)
+    for title, rows in sheets:
+        ws = wb.create_sheet(title)
+        ws.append([f"{title} - {day:%d-%m-%Y}"])
+        keys = [k for k in (rows[0] if rows else {}) if not k.startswith("_")]
+        ws.append([k.upper() for k in keys])
+        for c in ws[2]:
+            c.font = Font(bold=True)
+        for r in rows:
+            ws.append([float(r[k]) if hasattr(r[k], "quantize") else r[k] for k in keys])
+    wb.save(path)
+
+
 
 
 def whatsapp_log_spec() -> ReportSpec:
