@@ -556,6 +556,78 @@ appear. Type in the green cells.</p>
      "Karigars (All Department Worker sheet): Master ▸ Account → <b>ABHIJEET DAS</b> is a Worker, Department "
      "<b>Setting</b>, In-house ticked; <b>AJAY BABU</b> is HandMade, In-house <b>not</b> ticked (outside); "
      "Manufacturing ▸ Issue's Account list has all the karigars."],
+) + part("Z. 9 Oct session — M.I.S. reports, repair, dispatch, quotation") + step(
+    "M.I.S. Reports list", [
+        ("Reports ▸ M.I.S. Reports ▸ M.I.S. Reports", "look at the list; double-click <b>Sales Analysis</b>")],
+    ["All <b>34</b> legacy names in the legacy order, each with a STATUS (Built / off until confirmed / not built).",
+     "Sales Analysis opens: S rows fill the S_ columns, SR rows the SR_ columns; Auto Filter on TYPE shows S and SR."],
+) + step(
+    "Sales MIS and the sales reports", [
+        ("M.I.S. Reports ▸ Sales Analysis[Item Wise]", "look at the five blocks"),
+        ("M.I.S. Reports ▸ Sales Profit[Metal]", "pick a row"),
+        ("M.I.S. Reports ▸ Day Wise Sales [MetalValue]", "tick <b>Party wise</b>")],
+    ["Item / Metal / Party / Sales Person / SKU Wise, each with its own total; every block totals the same pcs and "
+     "amount as Sales Analysis S. A blank salesperson shows <b>(none)</b>.",
+     "SOLD FINE = NET × SOLD PURITY ÷ 1000 (e.g. 8.228 × 590 ÷ 1000 = 4.855); RETURN = Yes if the piece came back.",
+     "Days are in date order; with Party wise, one row per day and party."],
+) + step(
+    "Stone reports and negatives", [
+        ("M.I.S. Reports ▸ Stone Wise Inventory", "tick <b>Only negatives</b>, then untick"),
+        ("M.I.S. Reports ▸ Stone Daily Touch Report", "As on = today"),
+        ("M.I.S. Reports ▸ Stone Summery", "same dates as Stone in Sales Register")],
+    ["CL = OP + IN − OUT on every row; a negative closing is red with ⚠.",
+     "Daily Touch balance on a day = Stone Wise Inventory closing on that day.",
+     "Stone Summery SOLD = Stone in Sales Register CTS total for the same dates."],
+) + step(
+    "Production reports", [
+        ("M.I.S. Reports ▸ Stone Setting Analysis", "look at a returned setting step"),
+        ("M.I.S. Reports ▸ Refining Analysis", "this month")],
+    ["LOSSWT = ISS N-WT − RTN N-WT (negative = gain); WAST REC = LOSSWT − ALWLOSS; USE ST = stones sent less returned.",
+     "LOSS % = LOSS FINE ÷ NET FINE × 100, worked again on each process total; blank where NET FINE is 0."],
+) + step(
+    "Setting receipt with Return / Break, and N-Wt from the stones", [
+        ("Manufacturing ▸ Issue (a setting step)", "Show Pending → your job → <b>F3</b> → <b>All</b> → Save"),
+        ("Manufacturing ▸ Received (same step)", "Show Pending → your job → <b>F3</b>: type Return Pcs / Cts and "
+         "Break Pcs / Cts on one stone → OK; type G-Wt only, leave N-Wt blank → Save")],
+    ["Issue St Wt = the carats sent.",
+     "N-Wt is filled as G-Wt − (stones left in the piece × 0.2) — on the 12 Oct job: 58.100 − 51.580 × 0.2 = <b>47.784</b>.",
+     "For a one-job order, the Order Remark becomes the stones used, e.g. 'daank/167/12.02, DIA./412/5.55, …'."],
+) + step(
+    "Repair: sales return → repair job → new Stock No", [
+        ("Sale ▸ Ready Stock ▸ Sale Return", "return a sold piece → Save"),
+        ("Production Planning ▸ Order", "Add → tick <b>Repair</b> → Save → <b>Repair List</b> → pick the piece"),
+        ("Job History", "map, issue and receive the repair job, then MFG Transfer it"),
+        ("Item Search", "search the old and the new Stock No"),
+        ("M.I.S. Reports ▸ WIP Repair Items / MFG TR [only Repair] / MFG TR Stone[only Repair]", "")],
+    ["While in repair the old piece is 'Repair Job' and cannot be sold; WIP Repair Items shows the job with the OLD STOCK NO.",
+     "After the transfer: a <b>new</b> Stock No; MFG TR [only Repair] shows new weights with the old in red and the difference; "
+     "the stones show status <b>OLD</b>.",
+     "Item Search shows 'Repair chain: old → repair job → new'."],
+) + step(
+    "Dispatch and WhatsApp (sandbox)", [
+        ("Master ▸ Account ▸ the customer", "WhatsApp No = a 10-digit mobile · tick <b>WhatsApp dispatch messages</b>"),
+        ("Tools ▸ Option ▸ Others", "<b>WhatsApp: message the customer on dispatch</b> = on (provider stays Sandbox)"),
+        ("Sale ▸ Ready Stock ▸ Sale", "open a saved sale → <b>Dispatch / Tracking</b> → Courier, tracking BD123, dates → OK"),
+        ("Tools ▸ WhatsApp Log", ""),
+        ("M.I.S. Reports ▸ Shiping Analysis", "")],
+    ["The message is shown with status <b>sandbox</b> (not sent) and the number with 91 in front.",
+     "WhatsApp Log lists it. Shiping Analysis shows the tracking number and Days = ship date − order date "
+     "(only for a sale made From Order)."],
+) + step(
+    "Quotation", [
+        ("Quotation ▸ Quotation", "Add → Account → line: SKU, Pcs, N-Wt/Pcs 9.176, Metal Rate 8670.64 → Save"),
+        ("Same screen", "<b>Convert to Order</b>; then <b>Day Book</b>"),
+        ("Account ▸ Ledger of that account", "")],
+    ["Mt Amt = <b>79,561.79</b> (9.176 × 8,670.64); Total = metal + stones + labour.",
+     "Convert to Order makes an order with a job per line; Status becomes Converted.",
+     "Nothing about the quotation in the ledger — a quotation never posts."],
+) + step(
+    "Data checks and parallel-run export", [
+        ("Reports ▸ Other ▸ Data Quality", "<b>Excel for the client</b>"),
+        ("Reports ▸ M.I.S. Reports ▸ M.I.S. Reports", "<b>Parallel-run export</b> → today")],
+    ["An Excel with a Summary sheet (count per check: negatives, TAG 0, blank item / family / salesperson, junk or "
+     "duplicate stone SKUs, sold twice, token sales, repair chains) and a sheet per check.",
+     "An Excel with four sheets: Sales Analysis, Stone Daily Touch, Metal Summary, Refining Analysis."],
 ) + ("<p class='muted'>If anything is wrong, send: the step number, what you did, what you expected, what you saw, "
      "and a screenshot. To start again from zero: <b>Reset DEMO and open.bat</b>.</p>")
 
