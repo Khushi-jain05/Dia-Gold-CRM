@@ -347,7 +347,8 @@ def pieces_for_orders(session: Session, takes: dict[int, int],
 _HEAD_FIELDS = ("vr_date", "vr_time", "account_id", "ref_no", "currency_code", "credit_days",
                 "mode", "client_chart",
                 "salesperson", "bank_name", "margin_type", "bill_date", "bill_no",
-                "bill_account_id", "bill_amount", "remark")
+                "bill_account_id", "bill_amount", "remark", "ship_by", "ship_no", "ship_date",
+                "expected_date")
 _LINE_FIELDS = ("location_id", "job_id", "product_sku_id", "c_ref", "metal_id", "title",
                 "loss_pct", "colour", "size", "pcs", "old_wt", "gross_wt", "net_wt", "fine_wt",
                 "metal_rate", "metal_amount", "st_wt", "stone_amount", "setting_amount",
@@ -405,6 +406,10 @@ def post_ready(session: Session, vr_type: str, head: dict[str, Any],
     if t.party != "none" and not head.get("account_id"):
         raise ProductionError("Choose the " + ("customer." if t.party == "customer"
                                                else "supplier."))
+    if vr_type == "rs_sale" and not (head.get("salesperson") or "").strip():
+        from diagold.services import settings
+        if settings.opt("sale.salesperson_required", session) == "1":
+            raise ProductionError("Enter the Sales Person (Tools ▸ Option ▸ Sales).")
     v = ReadyVoucher(vr_type=vr_type, vr_no=next_vr_no(session, vr_type), user_id=user_id,
                      **{k: head[k] for k in _HEAD_FIELDS if k in head and head[k] is not None})
     v.vr_date = head.get("vr_date") or date.today()

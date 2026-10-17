@@ -122,6 +122,12 @@ class ReportSpec:
     # Columns hidden until their shortcut shows them: (keys, label, columns),
     # e.g. ("F9", "A/c Ids", ("acc_code",)) on the Sales Register.
     toggle_cols: list[tuple[str, str, tuple[str, ...]]] = field(default_factory=list)
+    # The grand total row - off where the rows are several blocks of the same
+    # sales (Sales MIS: five blocks, each with its own total).
+    show_total: bool = True
+    # Groups in the order the rows come (Item, Metal, Party ... blocks), not
+    # alphabetical.
+    keep_group_order: bool = False
 
 
 def static(cols: list[Col]) -> Callable[[date, date], list[Col]]:
@@ -541,7 +547,7 @@ class ReportWidget(QWidget):
         # their thread ends, because a running QThread must never be deleted.
         self._orphans: list[tuple[QThread, _Worker]] = []
         self._started = datetime.now()
-        self.show_total = True
+        self.show_total = spec.show_total
         self.row_numbers = False
         self.summary_only = False
 
@@ -1000,7 +1006,12 @@ class ReportWidget(QWidget):
         display: list[tuple[str, dict]] = []
         rows = list(self._filtered)
         first_key = next((c.key for c in cols if c.key != "_photo"), None)
-        if gkeys:
+        if gkeys and self.spec.keep_group_order:
+            first: dict[tuple, int] = {}
+            for i, r in enumerate(rows):
+                first.setdefault(tuple(fmt(r.get(k)) for k in gkeys[:1]), i)
+            rows.sort(key=lambda r: first[tuple(fmt(r.get(k)) for k in gkeys[:1])])
+        elif gkeys:
             rows.sort(key=lambda r: tuple(fmt(r.get(k)).lower() for k in gkeys)
                       + (r.get("_n", 0),))
 

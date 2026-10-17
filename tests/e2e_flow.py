@@ -422,6 +422,29 @@ with SessionLocal() as s:
     check("TEST SUPPLIER closing (stone 14,960 + metal 4,34,033.50 + ready 79,045.36 - return)",
           (test_sup[-1]["balance"], test_sup[-1]["drcr"]), (D("448993.50"), "Cr"))
 
+    print("\n== N1. M.I.S. sales (9 Oct T-02)")
+    from diagold.services import mis as MIS
+    sa = MIS.sales_analysis(s, *FY)
+    check("Sales Analysis has S and SR", sorted({r["type"] for r in sa}), ["S", "SR"])
+    s_pcs = sum(r["s_pcs"] or 0 for r in sa)
+    s_amt = sum(r["s_amt"] or 0 for r in sa)
+    sm = MIS.sales_mis(s, *FY)
+    blocks = {b: (sum(r["pcs"] for r in sm if r["block"] == b),
+                  sum(r["total"] for r in sm if r["block"] == b)) for b in MIS.SALES_MIS_BLOCKS}
+    check("every Sales MIS block totals the Sales Analysis S", set(blocks.values()), {(s_pcs, s_amt)})
+    check("blank salesperson shows (none)", [r["particulars"] for r in sm if r["block"] == "Sales Person Wise"], ["(none)"])
+    pm = MIS.sales_profit_metal(s, *FY)
+    check("sold fine = net x sold purity / 1000", all(r["sold_fine"] == (r["net_wt"] * r["sold_purity"] / 1000).quantize(D("0.001")) for r in pm), True)
+    check("returned piece flagged RETURN Yes", "Yes" in [r["ret"] for r in pm], True)
+    vw = MIS.sales_voucher_wise(s, *FY)
+    check("voucher wise: total value = invoice value", all(r["total_value"] == r["inv_value"] for r in vw), True)
+    dw = MIS.day_wise_sales(s, *FY)
+    check("day wise sorted by date", [r["date"] for r in dw] == sorted(r["date"] for r in dw), True)
+    from diagold.services import settings as SET
+    SET.set_setting(s, "sale.salesperson_required", "1")
+    refused("sale with no salesperson when required", lambda: S.post_ready(s, "rs_sale", {"vr_date": T, "account_id": kk.id}, [line(piece)]))
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

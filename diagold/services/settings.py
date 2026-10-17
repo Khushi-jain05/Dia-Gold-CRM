@@ -160,6 +160,9 @@ SETTINGS_TREE: tuple[Setting, ...] = (
             (("thousands", "In thousands (305)"), ("full", "Full price"))),
     Setting("Others", "opt.subcontract_costing", "Sub-Contract Costing Enable", "bool", "0",
             "Sub-contract costing (not used yet - to confirm)"),
+    Setting("Sales", "sale.salesperson_required", "Sales Person required on a sale", "bool",
+            "0", "Refuse a Ready Stock Sale with no Sales Person - the legacy field was always "
+            "blank, so Sales MIS 'Sales Person Wise' showed one line (to confirm, 9 Oct Q3)"),
     Setting("Inventory", "inventory.negative_stock", "When a location would go below zero",
             "choice", "warn", "Warn then allow / block the save / allow silently",
             (("warn", "Warn, then allow"), ("block", "Block the save"),
