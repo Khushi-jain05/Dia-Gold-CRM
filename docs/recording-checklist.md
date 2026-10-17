@@ -1,4 +1,19 @@
-# Recording the next call (11 Sept T-11 · 18 Sept T-13 · 2 Oct T-17 · 5 Oct T-18)
+# Recording the next call (11 Sept T-11 · 18 Sept T-13 · 2 Oct T-17 · 5 Oct T-18 · 9 Oct T-15)
+
+**9 Oct (T-15):** the fourth call in a row where Rohit ji's narration is
+unintelligible - he joined from two devices plus a presentation tile, and his
+voice reached the recording through our speakers. Pradeep (host) must:
+
+1. **Turn on Meet ▸ Activities ▸ Transcripts the moment the call starts**,
+   before the screen share. This is not optional any more.
+2. Ask Rohit ji to **join from one device, with a headset**, and share from
+   that same device.
+3. Say "transcript is on" out loud at the start, so it is on the recording.
+4. Ask him to **read out the report name and what he looks at** on each
+   screen (the M.I.S. walk had 22 reports and no usable narration).
+5. Also note: the 12 Oct WhatsApp videos had **no audio at all** - when he
+   records a flow on his own, ask for the voice-over (or a two-line note per
+   screen).
 
 **5 Oct (T-18):** the client's voice was lost in the screen recording again -
 three sessions running. **Before the next call, turn on Meet ▸ Activities ▸

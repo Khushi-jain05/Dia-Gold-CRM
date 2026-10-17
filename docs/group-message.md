@@ -1,12 +1,12 @@
-# Message for the shared group — all open questions (6 Oct)
+# Message for the shared group — all open questions (17 Oct)
 
 Ready to paste. Every question still open from the sessions of 3, 8, 11,
-18, 28 Sept, 2 Oct and 5 Oct, merged and numbered once, by topic. The session code
+18, 28 Sept, 2 Oct, 5 Oct and 9 Oct (plus the 12 Oct walkthrough video), merged and numbered once, by topic. The session code
 in brackets is where each came from, for our own tracking.
 
 ---
 
-**Dia Gold CRM — questions for you (as of 6 Oct)**
+**Dia Gold CRM — questions for you (as of 17 Oct)**
 
 Namaste Rohit ji. Everything we still need from you, in one list. Please reply with the number and one line, for example: "1 — yes", "10 — per karigar". Where we have already built something on an assumption, it says so, so a "yes" is enough.
 
@@ -156,5 +156,35 @@ Namaste Rohit ji. Everything we still need from you, in one list. Please reply w
 94. Master sheet (9 Oct) is loaded: 345 clients, 27 vendors, 315 stones, metals, items, colours, family, and the 18 locations. Please check: (a) purity of the new metals - we read 22KT GOLD 91.6, 22KT GOLD 92.25, 9KT 37.5; 22KT SILVER, AEROLITE and KUNDAN MEENA have none - what are they? (b) stones were grouped by name (DIA… / Diamond → Diamond, POLKI → Polki, the rest Colour Stone) - correct any wrong ones; (c) the karigar sheet is loaded too (98 karigars with department; OUTSIDE HANDMADE / OUTSIDE SETTING marked out-house) - are "BUDDHA POL", "JAGDISH PRA", "akshay j", "TUHIN BHANI" from your screens the same as BUDDHA POLISH, JAGDISH PRASAD SONI, akshay ji office, TUHIN BHANDARI?; (d) "DIAMONDS JEWELLERY" and "Gold CZ" were added as families beside our "Diamond Jewellery" - same thing? *(9 Oct)*
 
 95. Thank you for the Tools ▸ Option screenshots - every value is now in our Tools ▸ Option. Two things: (a) "Mfg Loss % Calculation Method" is 2 (On Return Wt), but your ABHIJEET DAS ledger rows of 5 Oct work the 3% allowance on the ISSUED weight (3% × 11.240 = 0.337). Which is right for the allowance? (b) The Accounts tab was not in the screenshots - please send it. *(9 Oct)*
+
+**From the 9 Oct session - M.I.S. reports, repair, WhatsApp (9 Oct)**
+
+Before the questions, the follow-up from 9 Oct (T-01):
+- **Data for setup (most important):** legacy database access (read-only, Diagold26 on SERVER2\ERP) *or* the Masters Excel exports - one of the two - plus the price charts. Section 1 of "DiaGold-Data-Request.pdf" (sent 7 Oct).
+- **Negative balances** (Data-Request 3e): clean up, or start from fresh opening balances? Our "Excel for the client" check list shows every one.
+- **Go-live work in progress** (4a-4f): open job cards, job bags, karigar balances, ready stock, on approval, pending bills - closer to go-live.
+- **Additional requirements in writing:** the WhatsApp dispatch message (who gets it, when, the exact text), the checklist / task sheet to be closed from the ERP (which sheet, which tasks, who closes), and anything else.
+
+96. Which of the 34 M.I.S. reports do you use? All are listed in Reports ▸ M.I.S. Reports. Four were empty on your screen (Rejection Register, KM Register, Goods Sold But Not Delivered, In-Approval Status) - built but switched off until you say yes. Five were never opened - Designer Analysis, Closing Stock As SET, Stock for Merchandising, DAK Return Register, FOB Custom Invoice - please send a screenshot or export of each one you use. *(9 Oct Q1, C-06)*
+97. Range Wise Closing Stock: the RANGE column was 0 everywhere. What price bands do you want (e.g. tag 0-50, 50-100, 100-200 thousand)? They go in the Item master ("Set Sales Price Range For M.I.S. Report"). *(9 Oct Q2)*
+98. Sales Person on the sale was always blank, so Sales MIS "Sales Person Wise" showed one line. Should it be compulsory? (A switch is ready in Tools ▸ Option ▸ Sales.) *(9 Oct Q3)*
+99. SKU "PUSH" - 730 pcs for ₹1,093.90, sold with no item to shubham pareek. What is it - earring pushes / backs? Should it have an item? *(9 Oct Q4)*
+100. Repair: your MFG TR Stone [only Repair] shows the old piece's stones carried into the repaired piece (status OLD). On 2 Oct we noted "stone detail is not carried forward". We now carry them (switchable in Tools ▸ Option ▸ Manufacturing). Correct? *(9 Oct Q5)*
+101. Quotation 161 showed Cr Sales A/c / Dr K J SE. Should a quotation ever go to the accounts? We do not post it (only the sale does). The 12 Oct video showed the same on Order 1680 (Cr Sales / Dr stock) - we do not post orders either. *(9 Oct Q6)*
+102. Day Wise Sales [MetalValue] shows party "Other" on every row. Do you want it party-wise? (Tick "Party wise" on the report.) *(9 Oct Q7)*
+103. Sales Profit [Metal]: when is the invoice purity different from the actual purity? (Every row this month shows 0 difference.) *(9 Oct Q8)*
+104. Stone Setting Analysis: what do USE PCS and WAST REC mean to you? We work WAST REC = loss − allowed loss. *(9 Oct Q9)*
+105. "Some graphs are not opening" - which graphs, in which system? Every graph in the new app opens in our test (Sales Dashboard, Business Dashboard, ledger Ctrl+G). *(9 Oct Q10, C-07)*
+106. Checklist / task sheet: which sheet and mobile app is it today, which tasks, and who closes them? We start this only after your written note. *(9 Oct Q11, C-05)*
+107. WhatsApp on dispatch: it is built and runs in "sandbox" (it shows the message but does not send). To switch it on we need: the WhatsApp Business number to send from (Meta Cloud API or your provider), the exact message text (ours: "Dear {party}, your goods (Invoice …, … pcs) have been dispatched from Dia Gold on … via …, tracking …. Expected delivery: …"), and when it should go - on dispatch, on gate pass, or on the sale? *(9 Oct Q12)*
+108. Delivery / go-live date: five sessions, no dates yet. "1-1.5 months" was heard on 9 Oct - is that the plan? *(9 Oct Q14)*
+109. Bullion Sales: is GOLD VALUE the fine weight × the day's 24K rate? Why is it more than the sale amount on some days (29-09)? Should returns be in it? *(9 Oct Q15)*
+110. Ready Stock Inward List FOT codes: AR = approval return, RO = opening stock, MF = MFG transfer, SR = sales return - right? Is "AR … IGI" something else? *(9 Oct Q16)*
+111. Opening-stock pieces all carry MFG date 01-04-2026, so their age in Approval Out Counts is wrong. Can you give the real manufacture dates? *(9 Oct Q17)*
+112. Quotation 161 used metal rate 8,670.64; the same day's sale used 8,798. Do quotations have their own rate, or the client's chart? (We take the day's rate; it can be typed over.) *(9 Oct Q18)*
+113. A piece coming into stock with TAG 0 (BELGEE NS-2958) - we now refuse that, except a repair line ticked "Repair (tag 0)". OK? *(9 Oct §4.6)*
+114. Stone Issue on Job-Card warned "Stock Negative ... Do You Want To Continue" and went ahead (12 Oct). We do the same (warn). Should it block instead? *(12 Oct video)*
+115. The issue screens ask "Do you want to merge jobs?" - what does merging do? *(12 Oct video)*
+116. After the Puwai receipt the Order Remark was rewritten with the stones used ("daank/167/12.02, DIA./412/5.55, …"). We do the same for one-job orders. Should it happen for orders with several lines too? *(12 Oct video)*
 
 Thank you!

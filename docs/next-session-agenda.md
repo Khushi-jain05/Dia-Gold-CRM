@@ -1,4 +1,37 @@
-# Next session — after the 2 October walkthrough (2 Oct T-14)
+# Next session — after the 9 October M.I.S. walkthrough (9 Oct T-17)
+
+Before the call: send the group message (questions 96-116 of
+`group-message.md`) with the data reminder at its head, and the
+`usage-map-parallel-run.md` draft. **Transcript on from the first minute**
+(`recording-checklist.md`, T-15).
+
+Goal: data in hand (or a date for it), the M.I.S. reports ranked, the
+WhatsApp / checklist / graphs requirement in writing, and a start date for the
+parallel run.
+
+1. **Data (C-01 - C-04) - 10 min.** DB access or masters export? Price charts?
+   Decision on negative balances (show "Excel for the client" from Data
+   Quality). WIP on the cut-over date - when?
+2. **M.I.S. ranking (C-06) - 10 min.** Open Reports ▸ M.I.S. Reports (all 34
+   listed). For each: used daily / weekly / never. Ask for screenshots of the
+   five never opened. Switch on the four kept off if he uses them.
+3. **Additional requirements (C-05) - 10 min.** WhatsApp: show Sale ▸
+   Dispatch / Tracking in sandbox, agree the text, the trigger and the number
+   (question 107). Checklist sheet: which sheet / app / tasks / users
+   (question 106). Graphs: which ones fail (question 105).
+4. **Usage map + parallel run (T-11) - 10 min.** Fill the table together;
+   agree the daily export check and the bug log.
+5. **Repair (Q5) - 5 min.** Show a sales return -> repair job -> new stock
+   no in Item Search and MFG TR [only Repair]; confirm OLD stones carried.
+6. **12 Oct walkthrough - 5 min.** Show job 29456's replay (order 1680 -> tag
+   1218) on our app; questions 114-116 (negative warning, merge jobs, order
+   remark).
+7. **Open items from 2 Oct and 5 Oct** - anything not answered in the group.
+8. **Dates (Q14).** Delivery of the build for testing; parallel-run start.
+
+---
+
+# (Earlier) Next session — after the 2 October walkthrough (2 Oct T-14)
 
 Send the change file (`python docs/build-change-file.py` → *DiaGold-Change-File-2Oct.pdf*)
 and the group message ("2 Oct" block of `group-message.md`) before the call.
