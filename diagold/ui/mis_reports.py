@@ -102,6 +102,31 @@ def specs() -> dict[str, ReportSpec]:
             date_default="month", group_by="client", negative_key="_negative",
             on_activate=_open_job,
             note="The same as Sales Profit [Metal] for pieces returned on a sale return."),
+        # -- shipping (T-07) ------------------------------------------------
+        "shipping_analysis": ReportSpec(
+            key="shipping_analysis", title="Shiping Analysis",
+            columns=static([Col("orddt", "OrdDt"), Col("ordno", "OrdNo"), Col("refno", "Refno"),
+                            Col("account", "Account"), Col("jobno", "JobNo"), Col("sku", "SKU"),
+                            _p("pcs", "Pcs"), Col("shipdt", "ShipDt"),
+                            Col("days", "Days", "measure", 0), Col("ship_by", "Ship By"),
+                            Col("tracking", "Tracking"), Col("vrno", "Sale Vr")]),
+            query=lambda s, a, b, **_k: MIS.shipping_analysis(s, a, b),
+            group_by="account", on_activate=_open_job,
+            note="Every order line shipped: Days = ShipDt - OrdDt (order 29-08 shipped 05-09 "
+                 "= 7). Ship date and tracking come from the sale's Dispatch / Tracking; a "
+                 "part shipment is one row each."),
+        "shipping_pending": ReportSpec(
+            key="shipping_pending", title="Shiping Pending",
+            columns=static([Col("orddt", "OrdDt"), Col("ordno", "OrdNo"), Col("refno", "Refno"),
+                            Col("account", "Account"), Col("jobno", "JobNo"), Col("sku", "SKU"),
+                            _p("ord_pcs", "Ord Pcs"), _p("bal_pcs", "Bal Pcs"),
+                            Col("deldt", "Del Dt"), Col("days", "Days", "measure", 0),
+                            Col("status", "Job Status")]),
+            query=lambda s, a, b, **_k: MIS.shipping_pending(s, a, b),
+            group_by="account", negative_key="_negative", on_activate=_open_job,
+            note="Order lines with pieces still to ship and the days since the order; red = "
+                 "past its delivery date. (Columns assumed - the legacy screen was not "
+                 "opened, 9 Oct C-06.)"),
         # -- stock (T-05) ---------------------------------------------------
         "ready_stock_inward": ReportSpec(
             key="ready_stock_inward", title="Ready Stock Inward List",
@@ -362,8 +387,8 @@ MIS_LIST: tuple[tuple[str, str | None], ...] = (
     ("Stone in Sales Register", "sold_stone"),
     ("Labour in Sales Register", "sold_labour"),
     ("KM Register", "kundan_register"),
-    ("Shiping Analysis", None),
-    ("Shiping Pending", None),
+    ("Shiping Analysis", "shipping_analysis"),
+    ("Shiping Pending", "shipping_pending"),
     ("Day Wise Sales [MetalValue]", "day_wise_sales"),
     ("Approval Out Counts", "approval_out_counts"),
     ("Stock for Merchandising", None),
@@ -385,3 +410,29 @@ MIS_LIST: tuple[tuple[str, str | None], ...] = (
 
 def mis_keys() -> tuple[str, ...]:
     return tuple(k for _n, k in MIS_LIST if k)
+
+
+def whatsapp_log_spec() -> ReportSpec:
+    """Tools ▸ WhatsApp Log (9 Oct T-08): every dispatch message - number,
+    status, attempts, error - with Retry Failed."""
+    from diagold.db.session import SessionLocal
+    from diagold.services import whatsapp as WA
+
+    def retry(widget) -> None:
+        with SessionLocal() as s:
+            n = WA.retry_failed(s)
+            s.commit()
+        widget.status.setText(f"Retried {n} failed message(s).")
+        widget.run()
+    return ReportSpec(
+        key="whatsapp_log", title="WhatsApp Log",
+        columns=static([Col("time", "TIME"), Col("party", "PARTY"), Col("voucher", "VOUCHER"),
+                        Col("number", "NUMBER"), Col("status", "STATUS"),
+                        Col("attempts", "TRIES", "measure", 0), Col("provider", "PROVIDER"),
+                        Col("error", "ERROR"), Col("body", "MESSAGE")]),
+        query=lambda s, a, b, **_k: WA.message_log(s, a, b), date_default="month",
+        filter_column="status", negative_key="_negative",
+        actions=[("Retry Failed", "", retry)],
+        note="Dispatch messages to customers. Sandbox = logged, not sent (Tools ▸ Option ▸ "
+             "Others ▸ WhatsApp). Delivered / read receipts need the Cloud API webhook on a "
+             "server - until then a message shows as sent.")

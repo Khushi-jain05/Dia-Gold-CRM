@@ -78,6 +78,10 @@ class Account(Base, PKMixin, TimestampMixin):
     # A karigar's department / process (All Department Worker sheet, 9 Oct):
     # HandMade, Setting, CASTING, PrePolish …
     department: Mapped[str] = mapped_column(String(40), default="")
+    # WhatsApp dispatch message (9 Oct A4 / T-08): the customer's WhatsApp
+    # number and their consent to receive it.
+    whatsapp_no: Mapped[str] = mapped_column(String(20), default="")
+    whatsapp_opt_in: Mapped[bool] = mapped_column(Boolean, default=False)
     invoice_layout: Mapped[str] = mapped_column(String(8), default="DEFAULT")
     packing_layout: Mapped[str] = mapped_column(String(8), default="DEFAULT")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

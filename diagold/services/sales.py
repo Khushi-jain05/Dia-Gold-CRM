@@ -915,6 +915,28 @@ def piece_history(session: Session, item: StockItem) -> list[dict[str, Any]]:
     return rows
 
 
+def dispatch(session: Session, v: ReadyVoucher, *, ship_by: str, ship_no: str = "",
+             ship_date: date | None = None, expected_date: date | None = None,
+             user_id: int | None = None, notify: bool = True):
+    """Mark a sale dispatched (9 Oct T-07): how it went, the tracking number,
+    when it left and when it should arrive - then the WhatsApp message (T-08),
+    which never blocks the dispatch. Returns the message log row (or None)."""
+    if v.vr_type != "rs_sale":
+        raise ProductionError("Only a sale is dispatched.")
+    if not (ship_by or "").strip():
+        raise ProductionError("Enter Ship By (courier / hand / transport).")
+    ship_date = ship_date or date.today()
+    if expected_date and expected_date < ship_date:
+        raise ProductionError("The expected date is before the ship date.")
+    v.ship_by, v.ship_no = ship_by.strip()[:40], (ship_no or "").strip()[:60]
+    v.ship_date, v.expected_date = ship_date, expected_date
+    session.flush()
+    if not notify:
+        return None
+    from diagold.services import whatsapp
+    return whatsapp.notify_dispatch(session, v, user_id=user_id)
+
+
 def closing_balance(session: Session, account_id: int | None) -> tuple[Decimal, str]:
     """Cl Bal on the sale header: the party's closing balance - master opening
     plus everything posted (Dr positive)."""

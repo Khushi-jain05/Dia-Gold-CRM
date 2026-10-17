@@ -159,6 +159,7 @@ MENU: list[MenuGroup] = [
         ("gatepass", "Gatepass"),
         ("advance_options", "Advance Options"),
         ("audit_log", "Audit Log"),
+        ("whatsapp_log", "WhatsApp Log"),
         ("change_password", "Change Password"),
     ]),
     _g("reports", "Reports", [

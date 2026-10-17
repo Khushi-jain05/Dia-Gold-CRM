@@ -183,6 +183,29 @@ SETTINGS_TREE: tuple[Setting, ...] = (
             "Currency choice on the sale voucher"),
     Setting("Others", "flag.ui.confirm_save", "Ask \"Save? Yes / No\" before every save",
             "bool", "1", "Legacy asks before every save"),
+    Setting("Others", "whatsapp.enabled", "WhatsApp: message the customer on dispatch", "bool",
+            "0", "When a sale is dispatched (Ship Date + Ship By), message the customer if "
+            "they opted in on the Account master (9 Oct A4 - text and trigger to confirm, Q12)"),
+    Setting("Others", "whatsapp.provider", "WhatsApp: provider", "choice", "sandbox",
+            "Sandbox logs the message without sending; Meta = WhatsApp Cloud API",
+            (("sandbox", "Sandbox (log only)"), ("meta", "Meta WhatsApp Cloud API"))),
+    Setting("Others", "whatsapp.phone_number_id", "WhatsApp: phone number id", "text", "",
+            "Cloud API phone number id of Dia Gold's business number"),
+    Setting("Others", "whatsapp.token", "WhatsApp: access token", "text", "",
+            "Cloud API permanent access token"),
+    Setting("Others", "whatsapp.template_name", "WhatsApp: template name", "text", "",
+            "Approved template for dispatch (body variables: party, invoice no, pcs, ship "
+            "date, ship by, tracking no, expected date). Blank = plain text"),
+    Setting("Others", "whatsapp.language", "WhatsApp: template language", "text", "en",
+            "Template language code, e.g. en or hi"),
+    Setting("Others", "whatsapp.dispatch_text", "WhatsApp: message text", "text",
+            "Dear {party}, your goods (Invoice {vrno}, {pcs} pcs) have been dispatched from "
+            "Dia Gold on {ship_date} via {ship_by}{tracking}. Expected delivery: "
+            "{expected_date}.",
+            "The message; {party} {vrno} {pcs} {ship_date} {ship_by} {tracking} "
+            "{tracking_no} {expected_date} are filled in"),
+    Setting("Others", "whatsapp.test_number", "WhatsApp: test number", "text", "",
+            "While testing, every message goes to this number instead of the customer"),
     Setting("Others", "opt.backup_path", "Backup Path", "text", "",
             "Folder Tools > Backup writes to (empty = DiaGoldBackups in your home folder)"),
     Setting("Others", "opt.prompt_metal_prices", "Prompt Daily Metal Prices", "bool", "0",

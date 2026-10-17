@@ -613,6 +613,9 @@ class ReadyVoucherWidget(_Screen):
         self.button("Print", self.print_voucher, secondary=True)
         if vr_type == "rs_sale":
             self.button("Excel Invoice", self.excel_invoice, secondary=True)
+            # 9 Oct T-07 / T-08: dispatch with tracking, WhatsApp to the customer.
+            self.button("Dispatch / Tracking", self.dispatch, secondary=True)
+            self.button("Resend WhatsApp", self.resend_whatsapp, secondary=True)
         if vr_type in ("rp_purchase", "rp_opening", "rp_return"):
             # The legacy Ready Stock Purchase actions (2 Oct §4.5).
             self.button("BreakUp Sheet", self.breakup_sheet, secondary=True)
@@ -1236,6 +1239,49 @@ class ReadyVoucherWidget(_Screen):
             S.excel_invoice(s, v, path)
         _info(self, "Excel Invoice", f"Saved {path}")
 
+    def dispatch(self) -> None:
+        """Ship By / Tracking No / Ship Date / Expected Date on the sale, and
+        the WhatsApp message to the customer (9 Oct T-07 / T-08)."""
+        vid = self._voucher_for_print()
+        if vid is None:
+            return
+        with SessionLocal() as s:
+            v = s.get(ReadyVoucher, vid)
+            dlg = DispatchDialog(v, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        with SessionLocal() as s:
+            v = s.get(ReadyVoucher, vid)
+            try:
+                msg = S.dispatch(s, v, **dlg.values(), user_id=getattr(self.user, "id", None))
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Dispatch", str(exc))
+                return
+            text = f"Sale Vr {v.vr_no} dispatched on {v.ship_date:%d-%m-%Y} via {v.ship_by}."
+            if msg is not None:
+                text += f"\n\nWhatsApp: {msg.status}" + (f" - {msg.error}" if msg.error else "")
+                if msg.status == "sandbox":
+                    text += f"\n(sandbox - not sent)\n\n{msg.body}"
+        _info(self, "Dispatch", text)
+
+    def resend_whatsapp(self) -> None:
+        vid = self._voucher_for_print()
+        if vid is None:
+            return
+        from diagold.services import whatsapp
+        with SessionLocal() as s:
+            v = s.get(ReadyVoucher, vid)
+            if not v.ship_date:
+                _info(self, "Resend WhatsApp", "Dispatch the sale first (Dispatch / Tracking).")
+                return
+            msg = whatsapp.notify_dispatch(s, v, user_id=getattr(self.user, "id", None),
+                                           force=True)
+            s.commit()
+            _info(self, "Resend WhatsApp", f"{msg.status}" + (f" - {msg.error}" if msg.error
+                                                              else "") + f"\n\n{msg.body}")
+
     # -- purchase actions (2 Oct §4.5) ------------------------------------
     def sku_search(self) -> None:
         """SKU Search: find the SKU by code / description, then Add Piece on it."""
@@ -1418,3 +1464,46 @@ class ReadyVoucherWidget(_Screen):
             dlg._add_items(s, items)
         dlg._fill()
         dlg.exec()
+
+
+class DispatchDialog(QDialog):
+    """Dispatch of a sale (9 Oct §4.17 / A4): Ship By, Tracking No, Ship
+    Date, Expected Date - and whether the customer gets a WhatsApp."""
+
+    SHIP_BY = ("Courier", "By Hand", "Transport", "Angadia", "Post")
+
+    def __init__(self, v: ReadyVoucher, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Dispatch — Sale Vr {v.vr_no}")
+        form = QFormLayout(self)
+        self.ship_by = QComboBox()
+        self.ship_by.setEditable(True)
+        self.ship_by.addItems(self.SHIP_BY)
+        if v.ship_by:
+            self.ship_by.setCurrentText(v.ship_by)
+        self.ship_no = QLineEdit(v.ship_no or "")
+        self.ship_no.setPlaceholderText("AWB / docket / tracking number")
+        self.ship_date = QDateEdit(_qdate(v.ship_date or date.today()))
+        self.expected = QDateEdit(_qdate(v.expected_date or (date.today() + timedelta(days=3))))
+        for d in (self.ship_date, self.expected):
+            d.setCalendarPopup(True)
+            d.setDisplayFormat("dd-MM-yyyy")
+        form.addRow("Ship By", self.ship_by)
+        form.addRow("Tracking No", self.ship_no)
+        form.addRow("Ship Date", self.ship_date)
+        form.addRow("Expected Delivery", self.expected)
+        note = QLabel("Saving sends the dispatch message on WhatsApp when it is switched on in "
+                      "Tools ▸ Option and the customer has opted in.")
+        note.setWordWrap(True)
+        note.setObjectName("Muted")
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                   | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def values(self) -> dict[str, Any]:
+        return {"ship_by": self.ship_by.currentText().strip(),
+                "ship_no": self.ship_no.text().strip(),
+                "ship_date": _pydate(self.ship_date), "expected_date": _pydate(self.expected)}

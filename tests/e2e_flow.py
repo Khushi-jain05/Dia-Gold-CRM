@@ -484,6 +484,26 @@ with SessionLocal() as s:
     check("in-approval balance = approval - return - sold", all(r["balance"] == r["approval"] - r["ret"] - r["sold"] for r in MIS.in_approval_status(s, *FY)), True)
     check("goods not delivered = sales with no ship date", len(MIS.goods_not_delivered(s, *FY)) >= 1, True)
 
+    print("\n== N5. Dispatch + WhatsApp (9 Oct T-07 / T-08)")
+    from diagold.db.models import ReadyVoucher as RV
+    from diagold.services import whatsapp as WA
+    kk.whatsapp_no, kk.whatsapp_opt_in = "98765 43210", True; s.flush()
+    SET.set_setting(s, "whatsapp.enabled", "1")
+    sale2 = s.scalar(select(RV).where(RV.vr_type == "rs_sale"))
+    refused("dispatch without Ship By", lambda: S.dispatch(s, sale2, ship_by=""))
+    msg = S.dispatch(s, sale2, ship_by="Courier", ship_no="BD123", ship_date=T, expected_date=date(2026, 10, 3)); s.commit()
+    check("sandbox message logged to 91 + number", (msg.status, msg.to_number), ("sandbox", "919876543210"))
+    check("message text", msg.body, f"Dear {kk.name}, your goods (Invoice {sale2.vr_no}, 1 pcs) have been dispatched from Dia Gold on 30-09-2026 via Courier, tracking BD123. Expected delivery: 03-10-2026.")
+    check("shipping analysis days = ship - order", [(r["tracking"], r["days"]) for r in MIS.shipping_analysis(s, *FY) if r["vrno"] == sale2.vr_no], [("BD123", (T - o.order_date).days)])
+    check("goods not delivered drops a dispatched sale", sale2.vr_no in [r["vrno"] for r in MIS.goods_not_delivered(s, *FY)], False)
+    SET.set_setting(s, "whatsapp.provider", "meta")
+    m2 = WA.notify_dispatch(s, sale2); s.commit()
+    check("meta without token fails, logged, never raises", (m2.status, "token" in m2.error), ("failed", True))
+    kk.whatsapp_opt_in = False; SET.set_setting(s, "whatsapp.provider", "sandbox")
+    check("no opt-in -> skipped", WA.notify_dispatch(s, sale2).status, "skipped")
+    check("log lists them", len(WA.message_log(s, T, date.today())) >= 3, True)
+    s.commit()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

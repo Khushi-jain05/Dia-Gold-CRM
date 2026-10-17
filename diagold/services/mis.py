@@ -754,3 +754,61 @@ def goods_not_delivered(session: Session, date_from: date, date_to: date) -> lis
                      "total": _dec(l.total), "party": acct.name if acct else "",
                      "_job_id": l.job_id})
     return rows
+
+
+# --------------------------------------------------------------------------
+# Shipping (T-07)
+# --------------------------------------------------------------------------
+def shipping_analysis(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Shiping Analysis (§4.17): every order line shipped - OrdDt, Refno,
+    Account, JobNo, SKU, ShipDt, DAYS = ShipDt - OrdDt, Tracking. One row per
+    shipment, so a part-shipped line shows several rows. Ship date = the
+    sale's dispatch date, else its voucher date."""
+    c = _C(session)
+    rows = []
+    for l, v in _lines(session, ("rs_sale",), date_from, date_to):
+        if not l.order_line_id:
+            continue
+        ol = c.get(OrderLine, l.order_line_id)
+        order = c.get(Order, ol.order_id) if ol else None
+        if order is None:
+            continue
+        acct = c.get(Account, order.account_id or v.account_id)
+        sku = c.get(ProductSku, l.product_sku_id)
+        job = c.get(Job, l.job_id)
+        ship = v.ship_date or v.vr_date
+        rows.append({"orddt": order.order_date, "ordno": order.order_no, "refno": order.ref,
+                     "account": acct.name if acct else "", "jobno": job.job_no if job else "",
+                     "sku": sku.sku_code if sku else "", "pcs": int(l.pcs or 0),
+                     "shipdt": ship, "days": (ship - order.order_date).days,
+                     "ship_by": v.ship_by, "tracking": v.ship_no, "vrno": v.vr_no,
+                     "_job_id": l.job_id})
+    return rows
+
+
+def shipping_pending(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Shiping Pending: order lines (ordered in the period) with pieces still
+    to ship, and the days since the order on the To date."""
+    rows = []
+    q = (select(OrderLine, Order).join(Order)
+         .where(Order.is_repair.is_(False), Order.order_date >= date_from,
+                Order.order_date <= date_to)
+         .order_by(Order.order_date, Order.order_no, OrderLine.sno))
+    for ol, o in session.execute(q):
+        bal = int(ol.pcs or 0) - sales.shipped_pcs(session, ol.id)
+        if bal <= 0:
+            continue
+        acct = session.get(Account, o.account_id) if o.account_id else None
+        sku = session.get(ProductSku, ol.product_sku_id) if ol.product_sku_id else None
+        job = session.scalar(select(Job).where(Job.order_id == o.id, Job.line_sno == ol.sno,
+                                               Job.status != "cancelled"))
+        rows.append({"orddt": o.order_date, "ordno": o.order_no, "refno": o.ref,
+                     "account": acct.name if acct else "stock",
+                     "jobno": job.job_no if job else "", "sku": sku.sku_code if sku else ol.sku_desc,
+                     "ord_pcs": int(ol.pcs or 0), "bal_pcs": bal,
+                     "deldt": ol.delivery_date or o.delivery_date,
+                     "days": (date_to - o.order_date).days,
+                     "status": job.status if job else "", "_job_id": job.id if job else None,
+                     "_negative": bool((ol.delivery_date or o.delivery_date)
+                                       and (ol.delivery_date or o.delivery_date) < date_to)})
+    return rows
