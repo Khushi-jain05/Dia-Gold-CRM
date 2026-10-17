@@ -106,6 +106,7 @@ REPORT_PREFIX = "report."
 _SECTIONS = dict(SECTIONS)
 REPORT_MENUS: dict[str, list[tuple[str | None, tuple[str, ...]]]] = {
     "reports.all_reports": list(SECTIONS),
+    "reports.mis_reports": [(None, _SECTIONS["M.I.S. Reports"])],
     "production_planning.reports": [(t, _SECTIONS[t]) for t in (
         "Day Books", "Outstanding", "Analysis", "Other")],
     "manufacturing.reports": [(t, _SECTIONS[t]) for t in ("Manufacturing", "Registers",

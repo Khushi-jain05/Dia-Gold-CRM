@@ -182,8 +182,9 @@ def post_transfer(session: Session, lines: list[dict[str, Any]], *,
         _store_price(session, line, job, p, spec)
         session.add(line)
         session.flush()
+        made: list[StockItem] = []
         for piece in _pieces(line, p.total, p.price_per_pcs, split_jobs):
-            session.add(StockItem(
+            made.append(StockItem(
                 stock_no=next_number(session, StockItem.stock_no), job_id=job.id,
                 line_id=line.id, product_sku_id=job.product_sku_id,
                 location_id=location.id if location else None, pcs=piece["pcs"],
@@ -192,7 +193,11 @@ def post_transfer(session: Session, lines: list[dict[str, Any]], *,
                 tag_text=p.tag_text if piece["pcs"] == line.pcs else mfg_pricing.tag_display(
                     piece["price"], _tag_rule(session)),
             ))
+            session.add(made[-1])
             session.flush()
+        # A repair job: the new piece points at the old Stock No (9 Oct T-06).
+        from diagold.services import repair
+        repair.on_transfer(session, job, line, made)
         job.status = "transferred"
         session.flush()
     session.refresh(transfer)
@@ -411,6 +416,8 @@ def delete_stock_item(session: Session, item: StockItem, *, user_id: int | None 
             session.delete(transfer)
     if job is not None and job.status == "transferred":
         job.status = "complete"
+    from diagold.services import repair
+    repair.on_transfer_undone(session, job)
     session.flush()
     return job
 

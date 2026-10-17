@@ -98,6 +98,10 @@ class StoneCost:
     unit: str                # "ct" or "pcs" - what the price is per
     price: Decimal
     s_type: str = ""
+    # OLD = carried from the piece a repair job was made from; NEW = issued
+    # in this job (9 Oct §4.22). Blank on an ordinary job.
+    status: str = ""
+    size: str = ""
 
     @property
     def amount(self) -> Decimal:
@@ -259,6 +263,15 @@ def job_stones(session: Session, job: Job) -> list[StoneCost]:
     did not come back. Price is the Stone SKU's sale price per its unit; a
     line with no SKU is priced 0 and must be typed on the transfer."""
     out: list[StoneCost] = []
+    from diagold.services import repair
+    repair_job = bool(job.repair_item_id)
+    for st in repair.old_stones(session, job):
+        unit = (st.get("unit") or "ct").lower()
+        out.append(StoneCost(label=st.get("label") or "", pcs=int(st.get("pcs") or 0),
+                             weight=_dec(st.get("weight")),
+                             unit="pcs" if unit.startswith("pc") else "ct",
+                             price=_dec(st.get("price")), s_type=st.get("s_type") or "",
+                             status="OLD", size=st.get("size") or ""))
     for row in production.bag_ledger(session, job):
         iss_pcs, iss_wt = row["iss"]
         back_pcs, back_wt = row["back"]
@@ -277,6 +290,7 @@ def job_stones(session: Session, job: Job) -> list[StoneCost]:
             # the tag detail can still sum by kind.
             price=price, s_type=row.line.s_type or production.stone_group_label(
                 session, row.line.stone_sku_id, row.line.particulars),
+            status="NEW" if repair_job else "", size=row.line.size or "",
         ))
     return out
 

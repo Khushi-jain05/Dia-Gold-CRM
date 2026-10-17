@@ -1056,6 +1056,9 @@ class ItemSearchWidget(_Screen):
             made, left = STK.sku_made_left(s, it.product_sku_id)
             status = STK.STATUS_TEXT.get(it.status, it.status)
             holder = s.get(Account, it.holder_account_id) if it.holder_account_id else None
+            # Old stock -> repair job -> new stock (9 Oct §4.2 / TR4).
+            from diagold.services import repair as _rep
+            chain = _rep.chain_text(s, it)
             self._photo_path = (d["sku"].image_finished or d["sku"].image_design) \
                 if d["sku"] else ""
             pix = QPixmap(self._photo_path) if self._photo_path else QPixmap()
@@ -1076,7 +1079,8 @@ class ItemSearchWidget(_Screen):
                 f"This SKU Stock: made <b>{made}</b>, left <b>{left}</b>"
                 f"<br>G-Wt {it.gross_wt} g · N-Wt {it.net_wt} g · "
                 f"Cost {Decimal(str(it.cost)):,.2f} · Net <b>{Decimal(str(it.price)):,.2f}</b>"
-                f" · TAG <b style='color:#A9861B'>{it.tag_text}</b>")
+                f" · TAG <b style='color:#A9861B'>{it.tag_text}</b>"
+                + (f"<br><b style='color:#B3261E'>Repair chain:</b> {chain}" if chain else ""))
             from diagold.services import sales
             self.moves.setRowCount(0)
             # Every voucher the barcode has been on - made, bought, sold,
@@ -1199,6 +1203,15 @@ class ItemSearchWidget(_Screen):
         iid = self._current()
         if iid is None:
             _info(self, "Delete", "Select a piece first.")
+            return
+        # 9 Oct change 51: never a free delete - admin only, and every
+        # reversal is kept whole in the deletion / audit log.
+        u = self.user
+        if u is not None and not (getattr(u, "is_superuser", False)
+                                  or (getattr(u, "role_name", "") or "").lower() == "admin"):
+            _info(self, "Delete History & Purchase",
+                  "Only an administrator can reverse a piece out of stock. Ask the admin - "
+                  "the reversal is kept in the audit log.")
             return
         with SessionLocal() as s:
             it = s.get(StockItem, iid)

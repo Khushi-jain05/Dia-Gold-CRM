@@ -146,6 +146,10 @@ SETTINGS_TREE: tuple[Setting, ...] = (
             (("issued", "Weight issued"), ("received", "Weight received back"))),
     Setting("Manufacturing", "flag.loss.charge_all", "Charge the karigar for all loss", "bool",
             "0", "On = every gram lost is owed, not only the excess over the allowed %"),
+    Setting("Manufacturing", "repair.carry_stones", "Repair: carry the old stones forward",
+            "bool", "1", "A repair job keeps the old piece's stones (status OLD) and adds the "
+            "stones issued in repair (NEW), as the legacy MFG TR Stone [only Repair] shows - "
+            "UNCONFIRMED: the 2 Oct notes said stone detail is not carried (9 Oct Q5)"),
     Setting("Costing", "pricing.tag_display", "Tag price on the tag", "choice", "thousands",
             "How the tag prints the price (3,05,330.12 -> 305)",
             (("thousands", "In thousands (305)"), ("full", "Full price"))),

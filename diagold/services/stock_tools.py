@@ -33,7 +33,8 @@ from diagold.services import costing, production
 ZERO = Decimal("0")
 D3 = Decimal("0.001")
 STATUS_TEXT = {"in_stock": "In-Stock", "sold": "Sold", "on_approval": "Approval",
-               "in_repair": "Repair", "returned": "Returned", "melted": "Melted"}
+               "in_repair": "Repair", "returned": "Returned", "melted": "Melted",
+               "repair_job": "Repair Job", "repaired": "Repaired"}
 VIEW_STATUSES = {"In Stock": ("in_stock",), "Approval": ("on_approval",), "Sold": ("sold",),
                  "All Stock": tuple(STATUS_TEXT)}
 

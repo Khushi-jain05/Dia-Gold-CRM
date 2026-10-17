@@ -95,7 +95,8 @@ READY_TYPES: dict[str, ReadyType] = {t.key: t for t in (
 NEW_PIECES = ("rp_purchase", "rp_opening")
 STATE_LABEL = {"in_stock": "in stock", "sold": "sold", "on_approval": "out on approval",
                "in_repair": "issued to repair", "returned": "returned to the supplier",
-               "melted": "melted (Stock Transfer)"}
+               "melted": "melted (Stock Transfer)", "repair_job": "in a repair job",
+               "repaired": "repaired (back in stock under a new Stock No)"}
 
 
 def next_vr_no(session: Session, vr_type: str) -> int:
@@ -897,6 +898,8 @@ def piece_history(session: Session, item: StockItem) -> list[dict[str, Any]]:
                      "vrno": t.vr_no, "party": t.contact_person, "location": loc.name if loc else "",
                      "loss_pct": None, "pcs": item.pcs, "price": _dec(l.price),
                      "amount": _dec(l.amount), "_order": (t.vr_date, 2, l.id)})
+    from diagold.services import repair
+    rows += repair.history_rows(session, item)
     rows.sort(key=lambda r: r["_order"])
     return rows
 

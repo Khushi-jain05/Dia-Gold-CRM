@@ -163,6 +163,7 @@ MENU: list[MenuGroup] = [
     ]),
     _g("reports", "Reports", [
         ("all_reports", "All Reports"),
+        ("mis_reports", "M.I.S. Reports"),
         ("sales_dashboard", "Sales Dashboard"),
         ("business_dashboard", "Business Dashboard"),
     ]),

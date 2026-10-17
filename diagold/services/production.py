@@ -218,6 +218,14 @@ def sync_jobs_for_order(session: Session, order: Order) -> list[Job]:
             select(JobBagLine.id).where(JobBagLine.job_id == job.id).limit(1)
         ).first():
             seed_bag_requirements(session, job)
+        # A repair order's line names a stock piece: its job is that piece's
+        # repair job, keeping the old Stock No (9 Oct T-06).
+        if order.is_repair and line.stock_item_id and job.status != "transferred":
+            from diagold.db.models import StockItem
+            from diagold.services import repair
+            item = session.get(StockItem, line.stock_item_id)
+            if item is not None:
+                repair.link(session, job, item)
         jobs.append(job)
 
     for sno, job in existing.items():
@@ -229,6 +237,9 @@ def sync_jobs_for_order(session: Session, order: Order) -> list[Job]:
                 "material issued against it. Cancel the job's vouchers first."
             )
         job.status = "cancelled"
+        if job.repair_item_id:
+            from diagold.services import repair
+            repair.release(session, job)
     session.flush()
     return jobs
 
@@ -255,6 +266,9 @@ def delete_order(session: Session, order: Order) -> None:
                 "job's history."
             )
     for job in jobs:
+        if job.repair_item_id:
+            from diagold.services import repair
+            repair.release(session, job)
         for line in session.scalars(select(JobBagLine).where(JobBagLine.job_id == job.id)):
             session.delete(line)
         for log in session.scalars(select(PrintLog).where(PrintLog.job_id == job.id)):

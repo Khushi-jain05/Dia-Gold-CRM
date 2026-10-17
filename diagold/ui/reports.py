@@ -82,6 +82,7 @@ class Col:
     decimals: int | None = None  # None -> 3 for weights, 2 for values
     group: str = ""              # column group label, e.g. "OPENING"
     total: bool = False          # summed in subtotal / total rows
+    red: bool = False            # always shown in red - old values on repair (9 Oct UX3)
 
 
 @dataclass
@@ -241,6 +242,8 @@ class ReportModel(QAbstractTableModel):
             if self.negative_key and row.get(self.negative_key):
                 return RED
             if col is not None:
+                if col.red:
+                    return RED
                 v = row.get(col.key)
                 if _is_num(v) and v < 0:
                     return RED
@@ -1570,9 +1573,10 @@ def build_specs() -> dict[str, ReportSpec]:
 
     from diagold.ui.job_costing import job_costing_spec
 
+    from diagold.ui import mis_reports as _mis
     from diagold.ui import sales_reports as _sales
     from diagold.ui import stock_tools as _stock
-    return {**_stock.specs(), **_sales.specs(),
+    return {**_stock.specs(), **_sales.specs(), **_mis.specs(),
         "job_costing": job_costing_spec(),
         **_register_specs(money, wt, pcs),
         **_sale_specs(money, wt, pcs),
@@ -2002,3 +2006,7 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Client", ("client_metal_os", "worker_metal_balance")),
     ("Other", ("job_os_pct", "data_quality")),
 )
+# 9 Oct §4.3: the legacy M.I.S. Reports list, in its order - the reports
+# built so far (the rest wait for the client's ranking, C-06).
+from diagold.ui.mis_reports import mis_keys as _mis_keys  # noqa: E402
+SECTIONS = SECTIONS + (("M.I.S. Reports", _mis_keys()),)

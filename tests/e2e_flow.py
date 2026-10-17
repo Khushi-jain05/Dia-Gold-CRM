@@ -242,15 +242,47 @@ with SessionLocal() as s:
     check("order pending again after return", [r["bal_pcs"] for r in S.pending_orders(s, kk.id) if r["ord_no"] == o.order_no], [1])
 
     print("\n== H. Repair")
-    ro = Order(order_no=P.next_number(s, Order.order_no), order_date=T, account_id=mb.id, order_type="Customer", is_repair=True)
-    s.add(ro); s.flush()
-    S.attach_repair_pieces(s, ro, [piece.id], T); s.commit()
-    rj = s.scalar(select(Job).where(Job.order_id == ro.id))
-    check("repair job made, no stones carried", (rj is not None, s.scalars(select(JobBagLine).where(JobBagLine.job_id == rj.id)).all()), (True, []))
     rv = S.post_ready(s, "rs_repair_issue", {"vr_date": T, "account_id": mb.id}, [line(piece)]); s.commit()
     check("repair register: out", [r["status"] for r in S.repair_register(s, *FY)], ["Out for repair"])
     S.delete_ready(s, rv); s.commit()
     check("repair issue deleted -> in stock", piece.status, "in_stock")
+
+    print("\n== H2. Repair traceability: sales return -> repair job -> new stock no (9 Oct T-06)")
+    from diagold.services import repair as REP
+    from diagold.db.models import ManufacturingProcess, MfgTransferLine
+    old_stones = len(S.describe(s, piece)["stones"])
+    ro = Order(order_no=P.next_number(s, Order.order_no), order_date=T, account_id=mb.id, order_type="Customer", is_repair=True)
+    s.add(ro); s.flush()
+    S.attach_repair_pieces(s, ro, [piece.id], T); s.commit()
+    rj = s.scalar(select(Job).where(Job.order_id == ro.id))
+    check("repair job made, bag empty (old stones on the job, not in the bag)", (rj is not None, s.scalars(select(JobBagLine).where(JobBagLine.job_id == rj.id)).all()), (True, []))
+    s.refresh(piece)
+    check("repair job keeps old stock no; old piece out of stock", (rj.old_stock_no, piece.status), (piece.stock_no, "repair_job"))
+    check("old weights kept", (D(str(rj.old_gross_wt)), D(str(rj.old_net_wt))), (D(str(piece.gross_wt)), D(str(piece.net_wt))))
+    refused("sell a piece that is in a repair job", lambda: S.post_ready(s, "rs_sale", {"vr_date": T, "account_id": kk.id}, [line(piece)]))
+    s.rollback()
+    check("WIP Repair Items lists it", [(r["job_no"], r["old_stock_no"]) for r in REP.wip_repair_items(s, *FY)], [(rj.job_no, piece.stock_no)])
+    rhm = s.scalar(select(ManufacturingProcess).where(ManufacturingProcess.name == "Repair HM"))
+    P.set_job_steps(s, rj, [{"process_id": rhm.id, "due_date": T}]); s.commit()
+    r_iss = [r for r in P.pending_steps(s, "issue") if r["_job_id"] == rj.id][0]
+    P.post_multi_voucher(s, "issue", chand.id, [{"job_id": rj.id, "step_id": r_iss["_step_id"], "pcs": 1, "gross": D("12.930"), "net": D("12.700"), "allow": D("0"), "stones": {}, "metal": []}], vr_date=T, vr_time="11:00"); s.commit()
+    r_rcv = [r for r in P.pending_steps(s, "receive") if r["_job_id"] == rj.id][0]
+    P.post_multi_voucher(s, "receive", chand.id, [{"job_id": rj.id, "step_id": r_rcv["_step_id"], "pcs": 1, "gross": D("13.430"), "net": D("13.200"), "stones": {}, "metal": []}], vr_date=T, vr_time="12:00"); s.commit()
+    s.refresh(rj); check("repair job complete", rj.status, "complete")
+    rt = MF.post_transfer(s, [{"job_id": rj.id}], vr_date=T); s.commit()
+    newp = MF.stock_for_transfer(s, rt)[0]; s.refresh(piece)
+    check("new stock no; old piece replaced", (newp.stock_no != piece.stock_no, newp.repair_of_id, piece.status, piece.replaced_by_id), (True, piece.id, "repaired", newp.id))
+    mtr = REP.mfg_tr_repair(s, *FY)
+    check("MFG TR [only Repair]: new vs old net, diff", [(r["n_wt"], r["old_n"], r["diff_n"]) for r in mtr], [(D("13.200"), D(str(piece.net_wt)), D("13.200") - D(str(piece.net_wt)))])
+    stn = REP.mfg_tr_repair_stones(s, *FY)
+    check("MFG TR Stone: old stones carried, status OLD", (len(stn), {r["status"] for r in stn}), (old_stones, {"OLD"} if old_stones else set()))
+    check("item search chain old -> job -> new", REP.chain_text(s, newp), f"{piece.stock_no} → repair job {rj.job_no} → {newp.stock_no}")
+    check("history of new piece shows REP from old", "REP" in [h["vrtype"] for h in S.piece_history(s, newp)], True)
+    check("WIP Repair Items empty once back", REP.wip_repair_items(s, *FY), [])
+    MF.delete_transfer(s, rt); s.commit(); s.refresh(piece)
+    check("transfer deleted -> old piece back in repair job", piece.status, "repair_job")
+    rt = MF.post_transfer(s, [{"job_id": rj.id}], vr_date=T); s.commit()
+    piece = MF.stock_for_transfer(s, rt)[0]
 
     print("\n== I. Purchase ready items, return, opening")
     rp = S.post_ready(s, "rp_purchase", {"vr_date": T, "account_id": sup.id, "bill_no": "B-56", "bill_date": T},

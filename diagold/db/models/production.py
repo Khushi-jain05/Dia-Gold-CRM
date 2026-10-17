@@ -131,6 +131,18 @@ class Job(Base, PKMixin, TimestampMixin):
     mapped_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     completed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     remark: Mapped[str] = mapped_column(String(200), default="")
+    # A repair job (9 Oct §4.9, T-06): the stock piece it was made from (a
+    # sales return or a piece in stock), and that piece as it was - its
+    # weights and its stones - so the repaired piece shows old next to new.
+    repair_item_id: Mapped[int | None] = mapped_column(ForeignKey("stock_items.id"),
+                                                       nullable=True)
+    repair_prev_status: Mapped[str] = mapped_column(String(16), default="")
+    old_stock_no: Mapped[int | None] = mapped_column(nullable=True)
+    old_gross_wt: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
+    old_net_wt: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
+    old_fine_wt: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
+    # The old piece's stone lines, each marked status OLD (9 Oct §4.22).
+    old_stones_json: Mapped[str] = mapped_column(Text, default="[]")
 
     # complete = last route step received = Pending for MFG Transfer;
     # transferred = priced into ready stock by an MFG transfer (28 Sept R2).

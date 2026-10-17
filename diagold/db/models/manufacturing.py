@@ -78,6 +78,12 @@ class MfgTransferLine(Base, PKMixin):
     tag_price: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     tag_text: Mapped[str] = mapped_column(String(24), default="")
     is_repair: Mapped[bool] = mapped_column(Boolean, default=False)
+    # A repair job coming back to stock (9 Oct §4.21, T-06): the old Stock No
+    # and its weights, kept next to the new ones (MFG TR [only Repair]).
+    old_stock_no: Mapped[int | None] = mapped_column(nullable=True)
+    old_gross_wt: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
+    old_net_wt: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
+    old_fine_wt: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
     stamp: Mapped[str] = mapped_column(String(32), default="")
     # The stone lines of the cost break-up as priced, JSON.
     stones_json: Mapped[str] = mapped_column(Text, default="[]")
@@ -121,11 +127,18 @@ class StockItem(Base, PKMixin, TimestampMixin):
     # The party holding it while it is out on approval or for repair.
     holder_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"),
                                                           nullable=True)
+    # The repair chain (9 Oct TR4): the piece this one was repaired from, and
+    # the piece that replaced this one after its repair job came back.
+    repair_of_id: Mapped[int | None] = mapped_column(nullable=True)
+    replaced_by_id: Mapped[int | None] = mapped_column(nullable=True)
 
     # in_stock · sold · on_approval (with a party) · in_repair (issued to
     # repair for a party) · returned (sent back to the supplier) · melted
-    # (broken back into metal and stones on a Stock Transfer).
-    STATUSES = ("in_stock", "sold", "on_approval", "in_repair", "returned", "melted")
+    # (broken back into metal and stones on a Stock Transfer) · repair_job
+    # (in a repair job on the floor) · repaired (back in stock under a new
+    # Stock No - 9 Oct §4.9 / §4.21).
+    STATUSES = ("in_stock", "sold", "on_approval", "in_repair", "returned", "melted",
+                "repair_job", "repaired")
 
 
 class DeletionLog(Base, PKMixin):
