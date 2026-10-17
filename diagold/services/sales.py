@@ -429,6 +429,12 @@ def post_ready(session: Session, vr_type: str, head: dict[str, Any],
                 raise ProductionError(f"Line {sno}: choose the SKU.")
             if _dec(ln.get("gross_wt")) <= 0:
                 raise ProductionError(f"Line {sno}: enter the gross weight.")
+            if _dec(ln.get("price") or ln.get("total")) <= 0:
+                from diagold.services import settings
+                if settings.opt("stock.refuse_tag_zero", session) == "1":
+                    raise ProductionError(f"Line {sno}: the piece has no price, so its TAG "
+                                          "would be 0 - enter the price (Tools ▸ Option ▸ "
+                                          "Inventory).")
             session.add(row)
             session.flush()
             item = StockItem(

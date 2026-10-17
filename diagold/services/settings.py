@@ -171,6 +171,10 @@ SETTINGS_TREE: tuple[Setting, ...] = (
     Setting("Sales", "sale.salesperson_required", "Sales Person required on a sale", "bool",
             "0", "Refuse a Ready Stock Sale with no Sales Person - the legacy field was always "
             "blank, so Sales MIS 'Sales Person Wise' showed one line (to confirm, 9 Oct Q3)"),
+    Setting("Inventory", "stock.refuse_tag_zero", "Refuse a piece into stock with TAG 0", "bool",
+            "1", "Ready Items purchase / opening and MFG transfer need a tag price (9 Oct: SR 172 "
+            "BELGEE NS-2958 came in at TAG 0). A transfer line ticked Repair (tag 0) is let "
+            "through"),
     Setting("Inventory", "inventory.negative_stock", "When a location would go below zero",
             "choice", "warn", "Warn then allow / block the save / allow silently",
             (("warn", "Warn, then allow"), ("block", "Block the save"),

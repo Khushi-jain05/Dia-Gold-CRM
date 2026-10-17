@@ -20,10 +20,10 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from diagold.db.models import (Account, InvVoucher, InvVoucherLine, Job, JobBagLine,
+from diagold.db.models import (Account, FamilyCategory, InvVoucher, InvVoucherLine, Job, JobBagLine,
                                JobBagMovement, JobStep, JobVoucher, Location,
                                ManufacturingProcess, Metal, Order, OrderLine, ProductSku,
                                ReadyVoucher, ReadyVoucherLine, StockItem, StockMovement,
@@ -554,4 +554,203 @@ def stone_sku_balance(session: Session, date_from: date, date_to: date) -> list[
         rows.append({"ssku": k, **{kk: (v.quantize(D3) if isinstance(v, Decimal) else v)
                                    for kk, v in a.items()},
                      "_negative": a["bal_in_hand"] < 0})
+    return rows
+
+
+# --------------------------------------------------------------------------
+# Stock (T-05)
+# --------------------------------------------------------------------------
+# FOT - how a piece came into ready stock (9 Oct §4.6). AR / RO / MF / SR are
+# the legacy codes seen on screen (meanings read as below - to confirm, Q16);
+# RP is ours for a Ready Items purchase.
+FOT = {"rs_approval_return": "AR", "rp_opening": "RO", "mfg": "MF", "rs_sale_return": "SR",
+       "rp_purchase": "RP"}
+
+
+def _piece_names(c: _C, item: StockItem) -> dict[str, Any]:
+    sku = c.get(ProductSku, item.product_sku_id)
+    itm = c.get(Item, sku.item_id) if sku and sku.item_id else None
+    fam_id = (sku.family_id if sku else None) or (itm.family_id if itm else None)
+    fam = c.get(FamilyCategory, fam_id)
+    job = c.get(Job, item.job_id)
+    metal = c.get(Metal, item.metal_id or (job.metal_id if job else None))
+    return {"sku": sku.sku_code if sku else "", "item": itm.name if itm else "",
+            "family": fam.name if fam else "", "metal": metal.name if metal else "",
+            "_metal": metal, "_item_id": itm.id if itm else None}
+
+
+def ready_stock_inward(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Ready Stock Inward List (§4.6): every piece that came into ready stock
+    - FOT MF (MFG transfer), RO (opening), RP (bought in), SR (sales return),
+    AR (back from approval) - with cost, net and tag (= net / 1,000). A piece
+    in with TAG 0 is red (BELGEE NS-2958 came in at 0 in legacy)."""
+    c = _C(session)
+    rows = []
+
+    def add(item: StockItem, on: date, vrno: Any, fot: str, frm: str, loc_id: int | None,
+            line: Any = None) -> None:
+        n = _piece_names(c, item)
+        loc = c.get(Location, loc_id or item.location_id)
+        tag = _dec(item.tag_price)
+        rows.append({"location": loc.name if loc else "", "date": on, "vrno": vrno, "fot": fot,
+                     "from": frm, "sku": n["sku"], "metal": n["metal"], "size": item.size or "",
+                     "pcs": int(item.pcs or 1),
+                     "g_wt": _dec(line.gross_wt) if line is not None else _dec(item.gross_wt),
+                     "n_wt": _dec(line.net_wt) if line is not None else _dec(item.net_wt),
+                     "cost": _dec(item.cost) or None, "net": _dec(item.price),
+                     "tag": (tag / 1000).quantize(Decimal("1")) if tag else ZERO,
+                     "stockid": item.stock_no, "_job_id": item.job_id, "_negative": not tag})
+    from diagold.db.models import MfgTransfer, MfgTransferLine
+    for item, line, t in session.execute(
+            select(StockItem, MfgTransferLine, MfgTransfer)
+            .join(MfgTransferLine, StockItem.line_id == MfgTransferLine.id)
+            .join(MfgTransfer, MfgTransferLine.transfer_id == MfgTransfer.id)
+            .where(MfgTransfer.vr_date >= date_from, MfgTransfer.vr_date <= date_to)):
+        add(item, t.vr_date, t.vr_no, "MF", "", line.location_id)
+    for l, v in _lines(session, ("rp_opening", "rp_purchase", "rs_sale_return",
+                                 "rs_approval_return"), date_from, date_to):
+        item = c.get(StockItem, l.stock_item_id)
+        if item is None:
+            continue
+        acct = c.get(Account, v.account_id)
+        add(item, v.vr_date, v.vr_no, FOT[v.vr_type],
+            acct.name if acct else ("Opening Stock" if v.vr_type == "rp_opening" else ""),
+            l.location_id, l)
+    rows.sort(key=lambda r: (r["date"], r["fot"], str(r["vrno"]), r["stockid"]))
+    return rows
+
+
+def _band(c: _C, item_id: int | None, value: Decimal) -> str:
+    """The item's sales price range (Item master ▸ "Set Sales Price Range For
+    M.I.S. Report") the value falls in; blank when the item has none (Q2)."""
+    itm = c.get(Item, item_id)
+    for r in sorted(itm.price_ranges if itm else [], key=lambda r: r.srno):
+        lo, hi = _dec(r.price_from), _dec(r.price_to)
+        if value >= lo and (not hi or value <= hi):
+            return f"{lo:,.0f} - {hi:,.0f}" if hi else f"{lo:,.0f}+"
+    return ""
+
+
+def range_wise_stock(session: Session, date_from: date, date_to: date,
+                     status: str = "in_stock", **_k: Any) -> list[dict[str, Any]]:
+    """Range Wise Closing Stock (§4.20) / Range Wise Approval Stock: pieces in
+    stock (or out on approval) by Family, Item and the item's price RANGE -
+    PCS, FINE, TAG (in thousands). The legacy RANGE is 0 everywhere because
+    no ranges were set; the bands come from the Item master (Q2)."""
+    c = _C(session)
+    acc: dict[tuple, list] = defaultdict(lambda: [0, ZERO, ZERO])
+    for item in session.scalars(select(StockItem).where(StockItem.status == status)):
+        n = _piece_names(c, item)
+        fine = (_dec(item.net_wt) * mfg_pricing.title_of(n["_metal"]) / 1000).quantize(D3)
+        key = (n["family"] or "-", n["item"] or "-", _band(c, n["_item_id"], _dec(item.price)))
+        a = acc[key]
+        a[0] += int(item.pcs or 1)
+        a[1] += fine
+        a[2] += (_dec(item.tag_price) / 1000).quantize(Decimal("1"))
+    return [{"family": f, "item": i, "range": r, "pcs": a[0], "fine": a[1], "tag": a[2],
+             "_negative": f == "-"}
+            for (f, i, r), a in sorted(acc.items(), key=lambda kv: tuple(x.lower()
+                                                                          for x in kv[0]))]
+
+
+def _in_date(session: Session, c: _C, item: StockItem) -> date | None:
+    from diagold.db.models import MfgTransfer, MfgTransferLine
+    if item.line_id:
+        line = c.get(MfgTransferLine, item.line_id)
+        t = c.get(MfgTransfer, line.transfer_id) if line else None
+        return t.vr_date if t else None
+    if item.in_line_id:
+        src = c.get(ReadyVoucherLine, item.in_line_id)
+        return src.voucher.vr_date if src else None
+    return None
+
+
+def approval_out_counts(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Approval Out Counts (§4.19): the pieces in stock or out on approval as
+    on the To date, with how many approvals each went on and its AGE = To date
+    - MFG DATE (01-04 -> 09-10 = 191). Opening pieces carry the opening date,
+    so their true age is unknown (Q17)."""
+    c = _C(session)
+    rows = []
+    for item in session.scalars(select(StockItem).where(
+            StockItem.status.in_(("in_stock", "on_approval"))).order_by(StockItem.stock_no)):
+        made = _in_date(session, c, item)
+        if made is None or made > date_to:
+            continue
+        n = _piece_names(c, item)
+        apps = session.scalar(select(func.count(ReadyVoucherLine.id)).join(ReadyVoucher).where(
+            ReadyVoucherLine.stock_item_id == item.id,
+            ReadyVoucher.vr_type == "rs_approval")) or 0
+        rows.append({"stock_no": item.stock_no, "sku": n["sku"], "item": n["item"],
+                     "family": n["family"], "app_nos": apps or None, "mfg_date": made,
+                     "age": (date_to - made).days,
+                     "tag": (_dec(item.tag_price) / 1000).quantize(Decimal("1")),
+                     "status": "Approval" if item.status == "on_approval" else "In Stock",
+                     "_job_id": item.job_id})
+    rows.sort(key=lambda r: -r["age"])
+    return rows
+
+
+def sold_labour(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Labour in Sales Register - "Sold Labour" (§4.15): the labour charged on
+    every piece sold - code, PRICE, UNIT (NetWt / Pcs), AMOUNT = PRICE x net
+    weight (1,200 x 15.303 = 18,363.60), jewellery id and job. A jewellery id
+    sold twice with no return between is flagged (40243 on Vr 2 and Vr 11)."""
+    c = _C(session)
+    rows = []
+    last_sale: dict[int, int] = {}
+    for l, v in _lines(session, ("rs_sale", "rs_sale_return"), date(2000, 1, 1), date_to):
+        if v.vr_type == "rs_sale_return":
+            last_sale.pop(l.stock_item_id, None)
+            continue
+        dup = l.stock_item_id in last_sale
+        last_sale[l.stock_item_id] = v.vr_no
+        if v.vr_date < date_from:
+            continue
+        acct = c.get(Account, v.account_id)
+        sku = c.get(ProductSku, l.product_sku_id)
+        item = c.get(StockItem, l.stock_item_id)
+        job = c.get(Job, l.job_id)
+        rows.append({"date": v.vr_date, "vrno": v.vr_no, "refno": v.ref_no,
+                     "account": acct.name if acct else "", "sku": sku.sku_code if sku else "",
+                     "labour": "STD", "price": _dec(l.labour_rate),
+                     "unit": "Pcs" if (l.labour_per or "").lower().startswith("p") else "NetWt",
+                     "amount": _dec(l.labour), "jewelleryid": item.stock_no if item else "",
+                     "jobno": job.job_no if job else 0, "_job_id": l.job_id,
+                     "dup": "Sold twice" if dup else "", "_negative": dup})
+    return rows
+
+
+def in_approval_status(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """In-Approval Status (§4.29): every approval line with what became of
+    it - BALANCE = APPROVAL - RETURN - SOLD. The same logic as Ready Stock
+    Approval Analysis (not a second copy)."""
+    rows = []
+    for r in sales.approval_analysis(session, date_from, date_to):
+        ret = int(r["pcs"]) if r["status"] == "Returned" else 0
+        sold = int(r["pcs"]) if r["status"] == "Sold" else 0
+        rows.append({"date": r["date"], "vrno": r["vrno"], "refno": r["ref_no"],
+                     "account": r["particulars"], "stockno": r["barcode"], "sku": r["sku"],
+                     "metal": r["metal"], "pcs": r["pcs"], "ret": ret, "sold": sold,
+                     "approval": r["pcs"], "balance": int(r["pcs"]) - ret - sold,
+                     "_job_id": r["_job_id"]})
+    return rows
+
+
+def goods_not_delivered(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Goods Sold But Not Delivered (§4.23): pieces on sales with no dispatch
+    yet (no Ship Date on the voucher, T-07)."""
+    c = _C(session)
+    rows = []
+    for l, v in _lines(session, ("rs_sale",), date_from, date_to):
+        if v.ship_date:
+            continue
+        acct = c.get(Account, v.account_id)
+        sku = c.get(ProductSku, l.product_sku_id)
+        item = c.get(StockItem, l.stock_item_id)
+        rows.append({"vrno": v.vr_no, "date": v.vr_date, "sku": sku.sku_code if sku else "",
+                     "stockno": item.stock_no if item else "", "pcs": int(l.pcs or 0),
+                     "grosswt": _dec(l.gross_wt), "netwt": _dec(l.net_wt),
+                     "total": _dec(l.total), "party": acct.name if acct else "",
+                     "_job_id": l.job_id})
     return rows

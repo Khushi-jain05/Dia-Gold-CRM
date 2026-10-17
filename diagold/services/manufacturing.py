@@ -177,6 +177,12 @@ def post_transfer(session: Session, lines: list[dict[str, Any]], *,
                       is_repair=bool(spec.get("is_repair")))
         if p.net_wt <= 0:
             raise ProductionError(f"Job {job.job_no} has no received net weight to price.")
+        if not spec.get("is_repair") and not p.tag_price:
+            from diagold.services import settings
+            if settings.opt("stock.refuse_tag_zero", session) == "1":
+                raise ProductionError(f"Job {job.job_no}: the price comes to 0, so the TAG "
+                                      "would be 0 - check the rates / margin, or tick Repair "
+                                      "(tag 0).")
         line = MfgTransferLine(transfer_id=transfer.id, sno=sno, job_id=job.id,
                                location_id=location.id if location else None)
         _store_price(session, line, job, p, spec)

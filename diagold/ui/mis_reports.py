@@ -102,6 +102,87 @@ def specs() -> dict[str, ReportSpec]:
             date_default="month", group_by="client", negative_key="_negative",
             on_activate=_open_job,
             note="The same as Sales Profit [Metal] for pieces returned on a sale return."),
+        # -- stock (T-05) ---------------------------------------------------
+        "ready_stock_inward": ReportSpec(
+            key="ready_stock_inward", title="Ready Stock Inward List",
+            columns=static([Col("location", "LOCATION"), Col("date", "DATE"), Col("vrno", "VRNO"),
+                            Col("fot", "FOT"), Col("from", "FROM"), Col("sku", "SKU"),
+                            Col("metal", "METAL"), Col("size", "SIZE"), _p("pcs", "PCS"),
+                            _w("g_wt", "G-WT"), _w("n_wt", "N-WT"), _m("cost", "COST"),
+                            _m("net", "NET"), Col("tag", "TAG", "measure", 0, total=True),
+                            Col("stockid", "STOCKID")]),
+            query=lambda s, a, b, **_k: MIS.ready_stock_inward(s, a, b),
+            filter_column="fot", negative_key="_negative", on_activate=_open_job,
+            note="Legacy window: Ready Stock Inward. Every piece into ready stock - FOT MF "
+                 "(MFG transfer), RO (opening), RP (bought in), SR (sales return), AR (back "
+                 "from approval); meanings to confirm (9 Oct Q16). TAG = NET / 1,000. A piece "
+                 "at TAG 0 is red; new pieces are refused at 0 (Tools ▸ Option ▸ Inventory)."),
+        "range_wise_closing": ReportSpec(
+            key="range_wise_closing", title="Range Wise Closing Stock",
+            columns=static([Col("family", "Family"), Col("item", "Item"), Col("range", "RANGE"),
+                            _p("pcs", "PCS"), _w("fine", "FINE"),
+                            Col("tag", "TAG", "measure", 0, total=True)]),
+            query=lambda s, a, b, **_k: MIS.range_wise_stock(s, a, b), date_mode="to",
+            group_by="family", filter_column="family", negative_key="_negative",
+            note="Legacy window: Closing Stock. Pieces in stock by family, item and price "
+                 "RANGE - the bands are the Item master's 'Set Sales Price Range For M.I.S. "
+                 "Report' (empty in legacy, so RANGE was 0 - 9 Oct Q2). Family '-' (red) = "
+                 "an item with no family."),
+        "range_wise_approval": ReportSpec(
+            key="range_wise_approval", title="Range Wise Approval Stock",
+            columns=static([Col("family", "Family"), Col("item", "Item"), Col("range", "RANGE"),
+                            _p("pcs", "PCS"), _w("fine", "FINE"),
+                            Col("tag", "TAG", "measure", 0, total=True)]),
+            query=lambda s, a, b, **_k: MIS.range_wise_stock(s, a, b, status="on_approval"),
+            date_mode="to", group_by="family", filter_column="family",
+            note="The same as Range Wise Closing Stock for pieces out on approval (the legacy "
+                 "menu item was not opened - columns assumed, 9 Oct C-06)."),
+        "approval_out_counts": ReportSpec(
+            key="approval_out_counts", title="Approval Out Counts",
+            columns=static([Col("stock_no", "STOCK NO"), Col("sku", "SKU"), Col("item", "Item"),
+                            Col("family", "Family"), _p("app_nos", "APP NOS"),
+                            Col("mfg_date", "MFG DATE"), Col("age", "AGE", "measure", 0),
+                            Col("tag", "TAG", "measure", 0, total=True),
+                            Col("status", "STATUS")]),
+            query=lambda s, a, b, **_k: MIS.approval_out_counts(s, a, b), date_mode="to",
+            filter_column="status", on_activate=_open_job,
+            note="Ageing of the pieces in stock or on approval: AGE = report date - MFG DATE "
+                 "(01-04-2026 -> 09-10-2026 = 191); APP NOS = how many approvals the piece "
+                 "went on. Opening pieces carry the opening date (true age unknown, Q17)."),
+        "sold_labour": ReportSpec(
+            key="sold_labour", title="Labour in Sales Register",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("refno", "REFNO"),
+                            Col("account", "ACCOUNT"), Col("sku", "SKU"),
+                            Col("labour", "LABOUR"), Col("price", "PRICE", "measure", 2),
+                            Col("unit", "UNIT"), _m("amount", "AMOUNT"),
+                            Col("jewelleryid", "JEWELLERYID"), Col("jobno", "JOBNO"),
+                            Col("dup", "CHECK")]),
+            query=lambda s, a, b, **_k: MIS.sold_labour(s, a, b), negative_key="_negative",
+            group_by="account", on_activate=_open_job,
+            note="Legacy window: Sold Labour. Labour on every piece sold: AMOUNT = PRICE x "
+                 "net weight (1,200 x 15.303 = 18,363.60). A jewellery id sold twice with no "
+                 "return between is red ('Sold twice' - 40243 on Vr 2 and Vr 11 in legacy)."),
+        "in_approval_status": ReportSpec(
+            key="in_approval_status", title="In-Approval Status",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("refno", "REFNO"),
+                            Col("account", "ACCOUNT"), Col("stockno", "STOCKNO"),
+                            Col("sku", "SKU"), Col("metal", "METAL"), _p("pcs", "PCS"),
+                            _p("ret", "RETURN"), _p("sold", "SOLD"), _p("approval", "APPROVAL"),
+                            _p("balance", "BALANCE")]),
+            query=lambda s, a, b, **_k: MIS.in_approval_status(s, a, b),
+            group_by="account", on_activate=_open_job,
+            note="BALANCE = APPROVAL - RETURN - SOLD, from the same logic as Ready Stock "
+                 "Approval Analysis. Off in the menu until the client says it is used (Q1)."),
+        "goods_not_delivered": ReportSpec(
+            key="goods_not_delivered", title="Goods Sold But Not Delivered",
+            columns=static([Col("vrno", "VRNO"), Col("date", "DATE"), Col("sku", "SKU"),
+                            Col("stockno", "STOCKNO"), _p("pcs", "PCS"),
+                            _w("grosswt", "GROSSWT"), _w("netwt", "NETWT"), _m("total", "TOTAL"),
+                            Col("party", "PARTY")]),
+            query=lambda s, a, b, **_k: MIS.goods_not_delivered(s, a, b),
+            group_by="party", on_activate=_open_job,
+            note="Pieces sold whose sale has no Ship Date yet. Off in the menu until the client "
+                 "says it is used (Q1)."),
         # -- stone (T-03) ---------------------------------------------------
         "stone_wise_inventory": ReportSpec(
             key="stone_wise_inventory", title="Stone Wise Inventory",
@@ -267,7 +348,7 @@ def specs() -> dict[str, ReportSpec]:
 MIS_LIST: tuple[tuple[str, str | None], ...] = (
     ("Sales Analysis", "sales_analysis"),
     ("Stone Wise Inventory", "stone_wise_inventory"),
-    ("Ready Stock Inward List", None),
+    ("Ready Stock Inward List", "ready_stock_inward"),
     ("Stone Setting Analysis", "setting_analysis"),
     ("Stone Daily Touch Report", "stone_daily_touch"),
     ("WIP Repair Items", "wip_repair_items"),
@@ -279,25 +360,25 @@ MIS_LIST: tuple[tuple[str, str | None], ...] = (
     ("Refining Analysis", "refining_analysis"),
     ("Metal Summary", "metal_summary"),
     ("Stone in Sales Register", "sold_stone"),
-    ("Labour in Sales Register", None),
+    ("Labour in Sales Register", "sold_labour"),
     ("KM Register", "kundan_register"),
     ("Shiping Analysis", None),
     ("Shiping Pending", None),
     ("Day Wise Sales [MetalValue]", "day_wise_sales"),
-    ("Approval Out Counts", None),
+    ("Approval Out Counts", "approval_out_counts"),
     ("Stock for Merchandising", None),
-    ("Range Wise Closing Stock", None),
-    ("Range Wise Approval Stock", None),
+    ("Range Wise Closing Stock", "range_wise_closing"),
+    ("Range Wise Approval Stock", "range_wise_approval"),
     ("DAK Return Register", None),
     ("MFG TR [only Repair]", "mfg_tr_repair"),
     ("MFG TR Stone[only Repair]", "mfg_tr_repair_stones"),
-    ("Goods Sold But Not Delivered", None),
+    ("Goods Sold But Not Delivered", "goods_not_delivered"),
     ("FOB Custom Invoice", None),
     ("Sales Profit[Metal]", "sales_profit_metal"),
     ("Stone Summery", "stone_sku_balance"),
     ("Sales [Voucher Wise]", "sales_voucher_wise"),
     ("Ledger Bal", None),
-    ("In-Approval Status", None),
+    ("In-Approval Status", "in_approval_status"),
     ("Sales Return Profit[Metal]", "sales_return_profit_metal"),
 )
 
