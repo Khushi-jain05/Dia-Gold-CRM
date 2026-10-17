@@ -1578,8 +1578,9 @@ _register(CrudSpec(
         Field("remark", "Remark"),
         Field("is_repair", "Repair", type="bool", default=False,
               help_text="A repair order: its lines are existing pieces, picked with Repair "
-                        "List on the order list. The old piece's stone detail is not "
-                        "carried forward (to confirm, 2 Oct Q9)."),
+                        "List on the order list. Each becomes a repair job that keeps the "
+                        "old Stock No; the old stones are carried (status OLD) as Tools ▸ "
+                        "Option says (to confirm, 9 Oct Q5)."),
         Field("lines", "SKU Lines", type="child",
               help_text="One job is allotted per line when the order is saved. "
                         "Field rules were explained on the call but the audio was "
@@ -1925,3 +1926,7 @@ _register(CrudSpec(
         Field("confirmed", "CONFIRMED", type="bool", default=False),
     ],
 ))
+
+
+# Quotation (9 Oct T-12) registers itself on import.
+from diagold.ui import quotation as _quotation  # noqa: E402,F401

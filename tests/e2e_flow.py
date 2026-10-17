@@ -504,6 +504,23 @@ with SessionLocal() as s:
     check("log lists them", len(WA.message_log(s, T, date.today())) >= 3, True)
     s.commit()
 
+    print("\n== N6. Quotation (9 Oct T-12)")
+    from diagold.db.models import Quotation, QuotationLine
+    from diagold.services import quotation as QT
+    n_entries = s.scalar(select(func.count(AccountEntry.id)))
+    q = Quotation(quot_no=QT.next_no(s), quot_date=T, account_id=kk.id); s.add(q); s.flush()
+    s.add(QuotationLine(quotation_id=q.id, sno=1, product_sku_id=sku.id, c_ref="28504", metal_id=m590.id, pcs=1, gwt_pcs=D("18.118"), nwt_pcs=D("9.176"), metal_rate=D("8670.64"))); s.flush(); s.refresh(q)
+    QT.reprice(s, q); s.commit()
+    check("Quot 161: Mt Amt = 9.176 x 8,670.64", D(str(q.lines[0].mt_amt)), D("79561.79"))
+    check("total = metal + stones + labour", D(str(q.total)), D(str(q.lines[0].mt_amt)) + D(str(q.lines[0].stone_amt)) + D(str(q.lines[0].labour)))
+    check("a quotation posts nothing to the ledger", s.scalar(select(func.count(AccountEntry.id))), n_entries)
+    QT.copy_line(s, q, 1); s.commit(); s.refresh(q)
+    check("copy selected row", [l.sno for l in q.lines], [1, 2])
+    qo = QT.convert_to_order(s, q); s.commit()
+    check("convert to order: 2 lines, jobs, status", (len(qo.lines), len(s.scalars(select(Job).where(Job.order_id == qo.id)).all()), q.status), (2, 2, "Converted"))
+    refused("convert twice", lambda: QT.convert_to_order(s, q))
+    check("day book lists it", len([r for r in QT.day_book(s, *FY) if r["quot_no"] == q.quot_no]), 2)
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])
