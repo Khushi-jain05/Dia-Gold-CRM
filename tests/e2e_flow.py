@@ -521,6 +521,19 @@ with SessionLocal() as s:
     refused("convert twice", lambda: QT.convert_to_order(s, q))
     check("day book lists it", len([r for r in QT.day_book(s, *FY) if r["quot_no"] == q.quot_no]), 2)
 
+    print("\n== N7. Migration checks (9 Oct T-13)")
+    from diagold.services import migration_checks as MC
+    s.add(StoneSku(sku_code="1 citrin")); s.add(StoneSku(sku_code="1 citrine")); s.flush()
+    mc = MC.run(s)
+    found = {r["check"] for r in mc}
+    check("junk + duplicate stone SKUs found", {MC.LABEL["junk_ssku"], MC.LABEL["dup_ssku"]} <= found, True)
+    check("sales with no salesperson found", MC.LABEL["no_salesperson"] in found, True)
+    check("repair chain listed", MC.LABEL["repair_chain"] in found, True)
+    MC.to_xlsx(mc, OUT + "/checks.xlsx")
+    from openpyxl import load_workbook
+    check("Excel has Summary + a sheet per finding", load_workbook(OUT + "/checks.xlsx").sheetnames[0], "Summary")
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

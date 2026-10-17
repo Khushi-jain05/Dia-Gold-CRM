@@ -1351,6 +1351,18 @@ def _drill_client_metal(widget: ReportWidget, row: dict) -> None:
     show_in_dialog(widget, ReportWidget(spec, widget.user), spec.title, (1200, 600))
 
 
+def _migration_excel(widget: "ReportWidget") -> None:
+    from diagold.services import migration_checks as MC
+    path, _ = QFileDialog.getSaveFileName(widget, "Migration checks",
+                                          f"DiaGold-data-checks-{date.today():%Y%m%d}.xlsx",
+                                          "Excel (*.xlsx)")
+    if not path:
+        return
+    with SessionLocal() as s:
+        MC.to_xlsx(MC.run(s), path)
+    QMessageBox.information(widget, "Migration checks", f"Saved {path}")
+
+
 def _locations(s) -> list[tuple[Any, str]]:
     from diagold.db.models import Location
     return [(l.id, l.name) for l in s.scalars(select(Location).order_by(Location.name))]
@@ -1991,11 +2003,17 @@ def build_specs() -> dict[str, ReportSpec]:
         "data_quality": ReportSpec(
             key="data_quality", title="Data Quality",
             columns=static([Col("check", "CHECK"), Col("key", "KEY"), Col("detail", "DETAIL")]),
-            query=lambda s, a, b, **_k: R.data_quality(s, a, b),
+            query=lambda s, a, b, **_k: R.data_quality(s, a, b) + __import__(
+                "diagold.services.migration_checks", fromlist=["run"]).run(s, b),
             group_by="check", filter_column="check",
             on_activate=lambda w, r: w.open_job(r),
-            note="The migration exception checks from the 18 Sept notes, run on this database. "
-                 "They run on the legacy data once server access arrives (S1 C-01)."),
+            actions=[("Excel for the client", "", _migration_excel)],
+            note="The migration exception checks of 18 Sept and 9 Oct (T-13: negatives, TAG 0, "
+                 "blank item / family / salesperson, junk and duplicate stone SKUs, a piece "
+                 "sold twice, token sales, repair chains), run on this database. They run on "
+                 "the legacy data once the export / server access arrives (C-01); 'Excel for "
+                 "the client' writes the list for Rohit to correct or approve fresh opening "
+                 "balances (C-02)."),
     }
 
 
