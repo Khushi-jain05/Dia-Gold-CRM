@@ -102,6 +102,62 @@ def specs() -> dict[str, ReportSpec]:
             date_default="month", group_by="client", negative_key="_negative",
             on_activate=_open_job,
             note="The same as Sales Profit [Metal] for pieces returned on a sale return."),
+        # -- stone (T-03) ---------------------------------------------------
+        "stone_wise_inventory": ReportSpec(
+            key="stone_wise_inventory", title="Stone Wise Inventory",
+            columns=static([Col("location", "LOCATION"), Col("type", "TYPE"),
+                            Col("stone", "STONE"), Col("size", "SIZE"), Col("lotno", "LOTNO"),
+                            _p("op_pcs", "OP_PCS"), _w("op_wt", "OP_WT"), _p("in_pcs", "IN_PCS"),
+                            _w("in_wt", "IN_WT"), _p("out_pcs", "OUT_PCS"),
+                            _w("out_wt", "OUT_WT"), _p("cl_pcs", "CL_PCS"), _w("cl_wt", "CL_WT"),
+                            Col("flag", "")]),
+            query=lambda s, a, b, **k: MIS.stone_wise_inventory(s, a, b, **k),
+            group_by="location", filter_column="location", negative_key="_negative",
+            options={"only_negative": ("Only negatives", False)},
+            note="Legacy window: Stone Wise Balance. Per location, type, stone and lot: "
+                 "CL = OP + IN - OUT. A negative closing is red - clean up or start from "
+                 "fresh opening balances (Data-Request 3e, 9 Oct C-02). Tools ▸ Option ▸ "
+                 "Inventory decides whether a voucher may take a location below zero."),
+        "stone_daily_touch": ReportSpec(
+            key="stone_daily_touch", title="Stone Daily Touch Report",
+            columns=static([Col("location", "LOCATION"), Col("type", "TYPE"),
+                            Col("ssku", "SSKU"), Col("size", "SIZE"), Col("group", "GROUP"),
+                            Col("stone", "STONE"), _p("bal_pcs", "BAL PCS"),
+                            _w("bal_wt", "BAL WT"), Col("flag", "")]),
+            query=lambda s, a, b, **k: MIS.stone_daily_touch(s, a, b, **k), date_mode="to",
+            group_by="location", filter_column="location", negative_key="_negative",
+            options={"only_negative": ("Only negatives", False)},
+            note="Legacy window: Daily Touch Report. The stone balance on the day by "
+                 "location; every negative line red (RAJAT JI DIA.(-2) -577,482 pcs in "
+                 "legacy). Equals Stone Wise Inventory's closing on the same date."),
+        "sold_stone": ReportSpec(
+            key="sold_stone", title="Stone in Sales Register",
+            columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("refno", "REFNO"),
+                            Col("account", "ACCOUNT"), Col("sku", "SKU"), Col("metal", "METAL"),
+                            Col("ssku", "SSKU"), Col("barcode", "BARCODE"), Col("stone", "STONE"),
+                            Col("shape", "SHAPE"), Col("quality", "QUALITY"), Col("size", "SIZE"),
+                            Col("lotno", "LOTNO"), _p("pcs", "PCS"),
+                            Col("cts", "CTS", "measure", 2, total=True),
+                            Col("price", "PRICE", "measure", 2), Col("unit", "UNIT"),
+                            _m("amount", "AMOUNT"), Col("location", "LOCATION")]),
+            query=lambda s, a, b, **_k: MIS.sold_stone(s, a, b),
+            group_by="account", filter_column="stone", on_activate=_open_job,
+            note="Legacy window: Sold Stone. Every stone line of every sale (ready-stock "
+                 "pieces and Sale ▸ Stone). AMOUNT = CTS x PRICE (TALLA JEWELLERS NSE-1942 "
+                 "POLKI 16-18 3.09 ct @22,500 = 69,525)."),
+        "stone_sku_balance": ReportSpec(
+            key="stone_sku_balance", title="Stone Summery",
+            columns=static([Col("ssku", "SSKU"), _w("receipt", "RECEIPT"),
+                            _w("rep_rtn", "REP.RTN"), _w("wip", "WIP"), _w("on_job", "ON JOB"),
+                            _w("sold", "SOLD"), _w("ret", "RETURN"),
+                            _w("bal_in_hand", "BAL IN HAND"), _w("client_bal", "CLIENT BAL"),
+                            Col("group", "GROUP")]),
+            query=lambda s, a, b, **_k: MIS.stone_sku_balance(s, a, b),
+            date_default="month", filter_column="group", negative_key="_negative",
+            note="Legacy window: Stone SKU Balance (carats). RECEIPT / REP.RTN in the period; "
+                 "WIP = in job bags, ON JOB = with karigars or set in pieces in work; SOLD = "
+                 "Stone in Sales Register for the same dates (they reconcile); BAL IN HAND = "
+                 "loose at the locations; CLIENT BAL = out on stone approval."),
         # -- production (T-04) ----------------------------------------------
         "setting_analysis": ReportSpec(
             key="setting_analysis", title="Stone Setting Analysis",
@@ -210,10 +266,10 @@ def specs() -> dict[str, ReportSpec]:
 # key or None while not built / awaiting the client's ranking C-06).
 MIS_LIST: tuple[tuple[str, str | None], ...] = (
     ("Sales Analysis", "sales_analysis"),
-    ("Stone Wise Inventory", None),
+    ("Stone Wise Inventory", "stone_wise_inventory"),
     ("Ready Stock Inward List", None),
     ("Stone Setting Analysis", "setting_analysis"),
-    ("Stone Daily Touch Report", None),
+    ("Stone Daily Touch Report", "stone_daily_touch"),
     ("WIP Repair Items", "wip_repair_items"),
     ("Repair Register", "repair_register"),
     ("Rejection Register", "rejection_register"),
@@ -222,7 +278,7 @@ MIS_LIST: tuple[tuple[str, str | None], ...] = (
     ("Closing Stock As SET", None),
     ("Refining Analysis", "refining_analysis"),
     ("Metal Summary", "metal_summary"),
-    ("Stone in Sales Register", None),
+    ("Stone in Sales Register", "sold_stone"),
     ("Labour in Sales Register", None),
     ("KM Register", "kundan_register"),
     ("Shiping Analysis", None),
@@ -238,7 +294,7 @@ MIS_LIST: tuple[tuple[str, str | None], ...] = (
     ("Goods Sold But Not Delivered", None),
     ("FOB Custom Invoice", None),
     ("Sales Profit[Metal]", "sales_profit_metal"),
-    ("Stone Summery", None),
+    ("Stone Summery", "stone_sku_balance"),
     ("Sales [Voucher Wise]", "sales_voucher_wise"),
     ("Ledger Bal", None),
     ("In-Approval Status", None),

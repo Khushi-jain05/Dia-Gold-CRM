@@ -456,6 +456,18 @@ with SessionLocal() as s:
     check("no %% when net fine is 0", all(r["loss_pct"] is None for r in ra if not r["net_fine"]), True)
     check("rejection register runs", isinstance(MIS.rejection_register(s, *FY), list), True)
 
+    print("\n== N3. M.I.S. stone (9 Oct T-03)")
+    inv5 = MIS.stone_wise_inventory(s, *FY)
+    check("CL = OP + IN - OUT", all(r["cl_wt"] == r["op_wt"] + r["in_wt"] - r["out_wt"] for r in inv5), True)
+    dt = MIS.stone_daily_touch(s, FY[0], FY[1])
+    tot_inv = sum(r["cl_wt"] for r in inv5)
+    check("inventory closing = daily touch balance", tot_inv, sum(r["bal_wt"] for r in dt))
+    check("only-negatives filter returns only negatives", all(r["_negative"] for r in MIS.stone_wise_inventory(s, *FY, only_negative=True)), True)
+    ss = MIS.sold_stone(s, *FY)
+    check("sold stone amount = cts x price", all(r["amount"] == (r["cts"] * r["price"]).quantize(D("0.01")) for r in ss if r["unit"] == "Cts"), True)
+    sb = MIS.stone_sku_balance(s, *FY)
+    check("Stone SKU Balance SOLD = Sold Stone CTS", sum(r["sold"] for r in sb), sum(r["cts"] for r in ss))
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

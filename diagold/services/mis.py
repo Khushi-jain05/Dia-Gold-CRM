@@ -14,6 +14,7 @@ acceptance figures in the 9 Oct notes line up. Formulas verified there:
 """
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -22,11 +23,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from diagold.db.models import (Account, Job, JobBagMovement, JobStep, JobVoucher,
+from diagold.db.models import (Account, InvVoucher, InvVoucherLine, Job, JobBagLine,
+                               JobBagMovement, JobStep, JobVoucher, Location,
                                ManufacturingProcess, Metal, Order, OrderLine, ProductSku,
-                               ReadyVoucher, ReadyVoucherLine, StockItem)
+                               ReadyVoucher, ReadyVoucherLine, StockItem, StockMovement,
+                               StoneSku)
 from diagold.db.models.sku import Item
-from diagold.services import costing, mfg_pricing, production, rates
+from diagold.services import costing, mfg_pricing, production, rates, sales
 from diagold.services.sales_reports import _C, _base, _lines
 
 ZERO = Decimal("0")
@@ -352,4 +355,203 @@ def kundan_register(session: Session, date_from: date, date_to: date) -> list[di
                      "_job_id": job.id, "account": acct.name if acct else "", "sku": sku,
                      "metal": metal, "gross": _dec(rcv.gross_wt), "netwt": _dec(rcv.net_wt),
                      "net_lab": _dec(rcv.labour) or None})
+    return rows
+
+
+# --------------------------------------------------------------------------
+# Stone (T-03)
+# --------------------------------------------------------------------------
+def _stone_type(m: StockMovement) -> str:
+    """TYPE on the stone reports: Breakage for broken stones, else Actual
+    (stones lost in a job leave no location stock - Loss shows in the Stone
+    Loss Register)."""
+    return "Breakage" if m.kind == "breakage" else "Actual"
+
+
+class _Lots:
+    """The lot / certificate number a movement came in on (purchase lines)."""
+
+    def __init__(self, session: Session):
+        self.s, self.d = session, {}
+
+    def get(self, m: StockMovement) -> str:
+        if not m.ref_no or not m.ref_kind or not m.ref_id:
+            return ""
+        key = (m.ref_kind, m.ref_no, m.ref_id)
+        if key not in self.d:
+            self.d[key] = self.s.scalar(
+                select(InvVoucherLine.lot_no).join(InvVoucher).where(
+                    InvVoucher.vr_type == m.ref_kind, InvVoucher.vr_no == m.ref_no,
+                    InvVoucherLine.stone_sku_id == m.ref_id)) or ""
+        return self.d[key]
+
+
+def stone_wise_inventory(session: Session, date_from: date, date_to: date,
+                         only_negative: bool = False, **_k: Any) -> list[dict[str, Any]]:
+    """Stone Wise Inventory - "Stone Wise Balance" (§4.5): per LOCATION, TYPE
+    (Actual / Breakage), STONE and LOTNO - opening, in, out, closing in pcs
+    and carats. CL = OP + IN - OUT. A negative closing is flagged red (the
+    legacy has them everywhere - Data-Request 3e, C-02)."""
+    c = _C(session)
+    lots = _Lots(session)
+    acc: dict[tuple, list] = defaultdict(lambda: [0, ZERO, 0, ZERO, 0, ZERO])
+    q = select(StockMovement).where(StockMovement.material_class == "stone",
+                                    StockMovement.mv_date <= date_to)
+    for m in session.scalars(q):
+        loc = c.get(Location, m.location_id)
+        sku = c.get(StoneSku, m.ref_id)
+        stone = (sku.sku_code if sku else m.ref_text) or ""
+        key = (loc.name if loc else "", _stone_type(m), stone, m.size or "", lots.get(m))
+        a = acc[key]
+        pcs, wt = int(m.pcs or 0), _dec(m.weight)
+        if m.mv_date < date_from:
+            a[0] += pcs
+            a[1] += wt
+        elif pcs > 0 or wt > 0:
+            a[2] += pcs
+            a[3] += wt
+        else:
+            a[4] -= pcs
+            a[5] -= wt
+    rows = []
+    for (loc, typ, stone, size, lot), a in sorted(acc.items(), key=lambda kv: tuple(
+            str(x).lower() for x in kv[0])):
+        cl_pcs, cl_wt = a[0] + a[2] - a[4], a[1] + a[3] - a[5]
+        neg = cl_pcs < 0 or cl_wt < 0
+        if only_negative and not neg:
+            continue
+        if not any(a) and not cl_pcs and not cl_wt:
+            continue
+        rows.append({"location": loc, "type": typ, "stone": stone, "size": size, "lotno": lot,
+                     "op_pcs": a[0], "op_wt": a[1].quantize(D3), "in_pcs": a[2],
+                     "in_wt": a[3].quantize(D3), "out_pcs": a[4], "out_wt": a[5].quantize(D3),
+                     "cl_pcs": cl_pcs, "cl_wt": cl_wt.quantize(D3), "_negative": neg,
+                     "flag": "⚠ negative" if neg else ""})
+    return rows
+
+
+def stone_daily_touch(session: Session, date_from: date, date_to: date,
+                      only_negative: bool = False, **_k: Any) -> list[dict[str, Any]]:
+    """Stone Daily Touch Report (§4.8): the stone balance on one day by
+    LOCATION, TYPE, SSKU, SIZE, GROUP, STONE; every negative line in red -
+    the evidence for Data-Request 3e (RAJAT JI DIA.(-2) -577,482 pcs)."""
+    c = _C(session)
+    acc: dict[tuple, list] = defaultdict(lambda: [0, ZERO])
+    for m in session.scalars(select(StockMovement).where(
+            StockMovement.material_class == "stone", StockMovement.mv_date <= date_to)):
+        loc = c.get(Location, m.location_id)
+        sku = c.get(StoneSku, m.ref_id)
+        key = (loc.name if loc else "", _stone_type(m),
+               (sku.sku_code if sku else m.ref_text) or "", m.size or "",
+               (m.stone_group or "").upper() or production.stone_group_label(
+                   session, m.ref_id, m.ref_text), (sku.stone if sku else m.ref_text) or "")
+        acc[key][0] += int(m.pcs or 0)
+        acc[key][1] += _dec(m.weight)
+    rows = []
+    for (loc, typ, ssku, size, group, stone), (p, w) in sorted(
+            acc.items(), key=lambda kv: tuple(str(x).lower() for x in kv[0])):
+        neg = p < 0 or w < 0
+        if (not p and not w) or (only_negative and not neg):
+            continue
+        rows.append({"location": loc, "type": typ, "ssku": ssku, "size": size, "group": group,
+                     "stone": stone, "bal_pcs": p, "bal_wt": w.quantize(D3), "_negative": neg,
+                     "flag": "⚠ negative" if neg else ""})
+    return rows
+
+
+def sold_stone(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Stone in Sales Register - "Sold Stone" (§4.14): every stone line of
+    every ready-stock sale (and Sale ▸ Stone lines). AMOUNT = CTS x PRICE
+    (or pcs x price for a per-piece stone)."""
+    c = _C(session)
+    rows = []
+    for l, v in _lines(session, ("rs_sale",), date_from, date_to):
+        acct = c.get(Account, v.account_id)
+        sku = c.get(ProductSku, l.product_sku_id)
+        metal = c.get(Metal, l.metal_id)
+        item = c.get(StockItem, l.stock_item_id)
+        loc = c.get(Location, l.location_id)
+        for st in json.loads(l.stones_json or "[]"):
+            label = st.get("label") or ""
+            ssku = session.scalar(select(StoneSku).where(StoneSku.sku_code == label))
+            rows.append({"date": v.vr_date, "vrno": v.vr_no, "refno": v.ref_no,
+                         "account": acct.name if acct else "", "sku": sku.sku_code if sku else "",
+                         "metal": metal.name if metal else "", "ssku": label,
+                         "barcode": item.stock_no if item else "",
+                         "stone": (ssku.stone if ssku else "") or sales.stone_block(st),
+                         "shape": ssku.shape if ssku else "",
+                         "quality": ssku.quality if ssku else "", "size": st.get("size") or "",
+                         "lotno": "", "pcs": int(st.get("pcs") or 0),
+                         "cts": _dec(st.get("weight")), "price": _dec(st.get("price")),
+                         "unit": "Pcs" if (st.get("unit") or "ct").lower().startswith("pc")
+                         else "Cts", "amount": sales.stone_amount(st),
+                         "location": loc.name if loc else "", "_job_id": l.job_id})
+    for line, v in session.execute(
+            select(InvVoucherLine, InvVoucher).join(InvVoucher)
+            .where(InvVoucher.vr_type == "stone_sale", InvVoucher.vr_date >= date_from,
+                   InvVoucher.vr_date <= date_to)
+            .order_by(InvVoucher.vr_date, InvVoucher.vr_no)):
+        acct = c.get(Account, v.account_id)
+        ssku = c.get(StoneSku, line.stone_sku_id)
+        loc = c.get(Location, line.location_id)
+        rows.append({"date": v.vr_date, "vrno": v.vr_no, "refno": v.ref_no,
+                     "account": acct.name if acct else "", "sku": "", "metal": "",
+                     "ssku": (ssku.sku_code if ssku else line.particulars) or "", "barcode": "",
+                     "stone": (ssku.stone if ssku else line.particulars) or "",
+                     "shape": ssku.shape if ssku else "", "quality": ssku.quality if ssku else "",
+                     "size": line.size, "lotno": line.lot_no, "pcs": int(line.pcs or 0),
+                     "cts": _dec(line.weight), "price": _dec(line.price),
+                     "unit": line.unit or "Cts", "amount": _dec(line.amount),
+                     "location": loc.name if loc else "", "_job_id": None})
+    rows.sort(key=lambda r: (r["date"], r["vrno"]))
+    return rows
+
+
+def stone_sku_balance(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """Stone Summery - "Stone SKU Balance" (§4.25): per SSKU - RECEIPT (in to
+    stock in the period), REP.RTN (back from jobs), WIP (in job bags of open
+    jobs), ON JOB (with karigars / set in pieces being made), SOLD (Sold
+    Stone carats of the period - the two reconcile), RETURN (on sale
+    returns), BAL IN HAND (loose at the locations on the To date) and CLIENT
+    BAL (out on stone approval with clients). Weights in carats."""
+    c = _C(session)
+    acc: dict[str, dict[str, Any]] = defaultdict(lambda: {
+        "receipt": ZERO, "rep_rtn": ZERO, "wip": ZERO, "on_job": ZERO, "sold": ZERO,
+        "ret": ZERO, "bal_in_hand": ZERO, "client_bal": ZERO, "group": ""})
+    for m in session.scalars(select(StockMovement).where(
+            StockMovement.material_class == "stone", StockMovement.mv_date <= date_to)):
+        sku = c.get(StoneSku, m.ref_id)
+        key = (sku.sku_code if sku else m.ref_text) or "-"
+        a = acc[key]
+        a["group"] = a["group"] or (m.stone_group or "").upper()
+        wt = _dec(m.weight)
+        a["bal_in_hand"] += wt
+        if m.mv_date >= date_from and wt > 0 and m.kind != "opening":
+            if m.kind == "return":
+                a["rep_rtn"] += wt
+            else:
+                a["receipt"] += wt
+    for bl, job in session.execute(select(JobBagLine, Job).join(Job, JobBagLine.job_id == Job.id)
+                                   .where(Job.status.in_(("pending", "mapped", "in_progress",
+                                                          "complete")))):
+        sku = c.get(StoneSku, bl.stone_sku_id)
+        a = acc[(sku.sku_code if sku else bl.particulars) or "-"]
+        row = production.bag_row(bl)
+        a["wip"] += row["bal"][1]
+        a["on_job"] += row["iss"][1] - row["back"][1]
+    for r in sold_stone(session, date_from, date_to):
+        acc[r["ssku"] or "-"]["sold"] += r["cts"]
+    for l, v in _lines(session, ("rs_sale_return",), date_from, date_to):
+        for st in json.loads(l.stones_json or "[]"):
+            acc[st.get("label") or "-"]["ret"] += _dec(st.get("weight"))
+    from diagold.services import inventory as INV
+    for r in INV.stone_approval_analysis(session, date_from, date_to):
+        acc[r["ssku"] or "-"]["client_bal"] += _dec(r["bal_wt"])
+    rows = []
+    for k, a in sorted(acc.items(), key=lambda kv: kv[0].lower()):
+        if not any(v for kk, v in a.items() if kk != "group"):
+            continue
+        rows.append({"ssku": k, **{kk: (v.quantize(D3) if isinstance(v, Decimal) else v)
+                                   for kk, v in a.items()},
+                     "_negative": a["bal_in_hand"] < 0})
     return rows
