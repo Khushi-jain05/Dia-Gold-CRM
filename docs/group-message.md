@@ -189,5 +189,10 @@ Before the questions, the follow-up from 9 Oct (T-01):
 117. Order > Shipping Details has "Fetch Dept" and "Fetch Last Dtls". We read Fetch Last Dtls as "copy the customer's last order" and Fetch Dept as "fill Buyer's / Consignee details from the account master". Is Fetch Dept that, or does it fetch something else (a department)? *(12 Oct video)*
 118. Order > Status has a submenu in the legacy (12 Oct video) - what is in it? We show orders as Pending (no job moved), In Production, Ready (all in stock) and Cancelled. *(12 Oct video)*
 119. We now make jobs the legacy way: an order's lines wait in Production - Planning > Job Card > Show Orders, and the Job Card makes the jobs (Prod Pcs, Job/Pcs - 3 pcs at 2 per job = 2 jobs). Jobs from a Repair List are still made at once. OK? And Job/Pcs 0.5 (seen on other orders) - half a piece per job, e.g. one earring of a pair? *(12 Oct video)*
+120. Ready Items purchase: we now take N-Wt = G-Wt - stone carats x 0.2 g (25.000 with 6.5 ct = 23.700). You mentioned the formula in your Excel sheet - please send it (pearls / sarafa by weight too?). *(19 Oct)*
+121. CASTING can now be received without a weight. Only CASTING, or other processes too (it is a list in Tools > Option)? Does the casting karigar keep the metal against his name until the next weight? *(19 Oct)*
+122. "Job Bag me daala tha, Job History me miss ho gaya" - which entry was missing? *(19 Oct)*
+123. Ready Closing Stock now shows DIA / POL / CS weight (carats). Do you want pieces (pcs) too? *(19 Oct)*
+124. Every inventory voucher (Metal Issue, Purchase, Receipt...) can now be edited. Should editing need a User Right, like Delete? *(19 Oct)*
 
 Thank you!
