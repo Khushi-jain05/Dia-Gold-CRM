@@ -10,12 +10,15 @@ Log in as `admin` / `admin`. Press **F11** at any time — Job History opens.
 
 ---
 
-## 1. Order → jobs  (Production Planning ▸ Order)
+## 1. Order → jobs  (Order ▸ Order)
 
 Open order **1338** (KK JEWELS, 11-Sep). Three lines — NS-1430, NS-2171,
 NS-1930 — and each line already has a job: 28622, 28623, 28624.
 
-> Saving an order allots one job number per line, from one running sequence.
+> The order's lines wait in **Production - Planning ▸ Job Card ▸ Show Orders**
+> (Pending Orders For Explode); the Job Card makes the jobs (Prod Pcs, Job/Pcs),
+> from one running sequence - as the legacy does (12 Oct video). Tools ▸ Option
+> "Allot jobs when the order is saved" brings back one job per line on save.
 > Your live numbers migrate as they are — nothing is renumbered.
 
 Press **+ New**, pick a customer, add two SKU lines (the SKU fills description,
@@ -25,7 +28,7 @@ metal and weights), **Save**. Two more jobs appear in the pending queue.
 Requirement Sheet is used for, when an order is "for stock", what Priority
 means (Q4, Q9).
 
-## 2. Pending queue and route  (Production Planning ▸ Job Mapping)
+## 2. Pending queue and route  (Production - Planning ▸ Job Mapping)
 
 Top: **Pending Jobs For Definition** — a list, not a pop-up, because it is
 where the day starts. Select job **28622**.
@@ -136,7 +139,7 @@ return 1 more: the bag goes down, stock does not.
 
 **Ask Rohit:** breakage — where does it go, how is it valued (Q5).
 
-## 9. Reports  (Production Planning ▸ Reports)
+## 9. Reports  (Production - Planning ▸ Reports)
 
 Every report has the same toolbar as the old one — Print, Search, Set
 Column, Options, Group, Adv. Filter, Export, Auto Filter — plus a Total row

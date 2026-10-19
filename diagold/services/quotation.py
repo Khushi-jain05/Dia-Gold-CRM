@@ -181,7 +181,8 @@ def convert_to_order(session: Session, q: Quotation) -> Order:
                               remark=l.remark))
     session.flush()
     session.refresh(order)
-    production.sync_jobs_for_order(session, order)
+    # Jobs now, or from Production - Planning ▸ Job Card (12 Oct video).
+    production.order_saved(session, order)
     q.order_id, q.status = order.id, "Converted"
     session.flush()
     return order

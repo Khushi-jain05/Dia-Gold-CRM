@@ -5,7 +5,7 @@ from typing import Callable
 
 from PySide6.QtWidgets import QWidget
 
-from diagold.menu import MENU_BY_KEY
+from diagold.menu import GROUP_OF_ITEM, ITEM_BY_KEY, MENU_BY_KEY
 from diagold.services.auth import CurrentUser
 from diagold.ui.crud import CrudWidget
 from diagold.ui import inventory as inventory_ui
@@ -17,6 +17,7 @@ from diagold.ui.placeholder import PlaceholderWidget
 from diagold.ui.production import (
     JobBagWidget,
     JobHistoryWidget,
+    JobCardWidget,
     JobMappingWidget,
     OpeningStockWidget,
     OptionsWidget,
@@ -29,6 +30,7 @@ from diagold.ui.specs import SPECS
 # Menu keys that get a real screen but not via a plain CrudSpec.
 _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "master.user_right": lambda user: PermissionMatrixWidget(user),
+    "production_planning.job_card": lambda user: JobCardWidget(user),
     "production_planning.job_mapping": lambda user: JobMappingWidget(user),
     "production_planning.job_card_bag": lambda user: JobBagWidget(user),
     "production_planning.job_history": lambda user: JobHistoryWidget(user),
@@ -37,6 +39,9 @@ _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "production_planning.opening_stone": lambda user: OpeningStockWidget(user),
     "production_planning.day_book":
         lambda user: ReportWidget(build_specs()["order_day_book"], user),
+    # Order menu (12 Oct video)
+    "order.order_list": lambda user: ReportWidget(build_specs()["order_list"], user),
+    "order.ship_tracking": lambda user: ReportWidget(build_specs()["order_tracking"], user),
     "tools.option": lambda user: OptionsWidget(user),
     "reports.business_dashboard": lambda user: __import__(
         "diagold.ui.business_dashboard",
@@ -112,8 +117,13 @@ _SECTIONS = dict(SECTIONS)
 REPORT_MENUS: dict[str, list[tuple[str | None, tuple[str, ...]]]] = {
     "reports.all_reports": list(SECTIONS),
     "reports.mis_reports": [(None, _SECTIONS["M.I.S. Reports"])],
+    # Day Book ▸ and Reports ▸ as two menus, the legacy way (12 Oct video).
+    "production_planning.pp_day_book": [(None, _SECTIONS["Day Books"])],
     "production_planning.reports": [(t, _SECTIONS[t]) for t in (
-        "Day Books", "Outstanding", "Analysis", "Other")],
+        "Outstanding", "Analysis", "Other")],
+    # Order ▸ Status ▸ - orders by how far their jobs are.
+    "order.status": [(None, ("order_status_pending", "order_status_in_production",
+                             "order_status_ready", "order_status_cancelled"))],
     "manufacturing.reports": [(t, _SECTIONS[t]) for t in ("Manufacturing", "Registers",
                                                          "Karigar")],
     "inventory.reports": [(t, _SECTIONS[t]) for t in ("Inventory", "Registers", "Karigar")],
@@ -145,6 +155,10 @@ EXTRA_SCREENS: dict[str, str] = {**{report_key(k): report_title(k)
                                      for _t, keys in SECTIONS for k in keys},
                                   "manufacturing.item_search": "Item Search",
                                   "manufacturing.worker_statement": "Worker Metal Ledger",
+                                  **{report_key(f"order_status_{k}"): v for k, v in (
+                                      ("pending", "Pending"),
+                                      ("in_production", "In Production"),
+                                      ("ready", "Ready"), ("cancelled", "Cancelled"))},
                                   **inventory_ui.sub_labels(), **sales_ui.sub_labels(),
                                   **accounts_ui.sub_labels()}
 # Menu items that open a submenu rather than a screen (Inventory ▸ Metal ▸ …,
@@ -158,18 +172,14 @@ SUBMENUS.update({parent: [(accounts_ui.sub_key(parent, k), label) for k, label i
 
 
 def _group_label(menu_key: str) -> str:
-    group = MENU_BY_KEY.get(menu_key.split(".", 1)[0])
+    group = GROUP_OF_ITEM.get(menu_key) or MENU_BY_KEY.get(menu_key.split(".", 1)[0])
     return group.label if group else menu_key
 
 def _item_label(menu_key: str) -> str:
     if menu_key in EXTRA_SCREENS:
         return EXTRA_SCREENS[menu_key]
-    group = MENU_BY_KEY.get(menu_key.split(".", 1)[0])
-    if group:
-        for item in group.items:
-            if item.key == menu_key:
-                return item.label
-    return menu_key
+    item = ITEM_BY_KEY.get(menu_key)
+    return item.label if item else menu_key
 
 
 def build_widget(menu_key: str, user: CurrentUser) -> QWidget:

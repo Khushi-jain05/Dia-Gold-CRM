@@ -2097,6 +2097,231 @@ class JobBagWidget(_Screen):
 
 
 # --------------------------------------------------------------------------
+# Job Card (12 Oct video, Vr 930)
+# --------------------------------------------------------------------------
+class ExplodePickDialog(QDialog):
+    """Show Orders: "Pending Orders For Explode" - tick the order lines to
+    make jobs of (a double-click takes one)."""
+
+    COLS = (("ord_no", "Ord No"), ("ord_date", "Ord Date"), ("ref_no", "Ref No"),
+            ("client", "Client"), ("sku", "SKU"), ("c_ref", "C-Ref"), ("metal", "Metal"),
+            ("col", "Col"), ("size", "Size"), ("del_dt", "Del Dt"), ("ord_pcs", "OrdPc"),
+            ("pending", "Pending"), ("repair", "Repair"))
+
+    def __init__(self, rows: list[dict[str, Any]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Pending Orders For Explode")
+        self.setMinimumSize(980, 440)
+        self.rows = rows
+        lay = QVBoxLayout(self)
+        self.find = QLineEdit()
+        self.find.setPlaceholderText("Ord No / client / SKU…")
+        self.find.textChanged.connect(self._filter)
+        lay.addWidget(self.find)
+        self.grid = _table([""] + [l for _k, l in self.COLS])
+        for row in rows:
+            r = self.grid.rowCount()
+            self.grid.insertRow(r)
+            chk = QTableWidgetItem("")
+            chk.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+            chk.setCheckState(Qt.CheckState.Unchecked)
+            self.grid.setItem(r, 0, chk)
+            for c, (k, _l) in enumerate(self.COLS, start=1):
+                self.grid.setItem(r, c, _item(row.get(k), right=k in ("ord_pcs", "pending")))
+        _fit_columns(self.grid, 5)
+        self.grid.cellDoubleClicked.connect(self._take_one)
+        lay.addWidget(self.grid, 1)
+        if not rows:
+            note = QLabel("No order is waiting for its jobs.")
+            note.setObjectName("Muted")
+            lay.addWidget(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                   | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
+
+    def _filter(self, text: str) -> None:
+        t = text.strip().lower()
+        for r, row in enumerate(self.rows):
+            hay = f"{row['ord_no']} {row['client']} {row['sku']} {row['ref_no']}".lower()
+            self.grid.setRowHidden(r, bool(t) and t not in hay)
+
+    def _take_one(self, r: int, _c: int) -> None:
+        self.grid.item(r, 0).setCheckState(Qt.CheckState.Checked)
+        self.accept()
+
+    def picked(self) -> list[dict[str, Any]]:
+        return [row for r, row in enumerate(self.rows)
+                if self.grid.item(r, 0).checkState() == Qt.CheckState.Checked]
+
+
+class JobCardWidget(_Screen):
+    """Production - Planning ▸ Job Card: explode order lines into jobs, as the
+    legacy Job Card Making does (12 Oct video: Vr 930, order 1680 -> job
+    29456). Prod Pcs is how many to make now, Job/Pcs how many pieces go on
+    one job card."""
+
+    COLS = (("ord_no", "Ord No"), ("ord_date", "Date"), ("ref_no", "Ref No"),
+            ("client", "Client"), ("sku", "SKU"), ("c_ref", "C-Ref"), ("metal", "Metal"),
+            ("col", "Col"), ("size", "Size"), ("del_dt", "Del Dt"), ("ord_pcs", "Order Pcs"),
+            ("prod_pcs", "Prod Pcs"), ("job_pcs", "Job/Pcs"), ("due", "Prod Due Date"))
+    EDITABLE = ("prod_pcs", "job_pcs", "due")
+
+    def __init__(self, user=None, parent=None):
+        super().__init__("Job Card", with_picker=False, parent=parent)
+        self.user = user
+        self.outer.removeWidget(self.header)
+        self.header.hide()
+        self.vr = QLabel("")
+        f = self.vr.font()
+        f.setBold(True)
+        self.vr.setFont(f)
+        self.date = QDateEdit(_qdate(None))
+        self.date.setCalendarPopup(True)
+        self.date.setDisplayFormat("dd-MM-yyyy")
+        self.edit_job = QLineEdit()
+        self.edit_job.setPlaceholderText("Edit Job#")
+        self.edit_job.setMaximumWidth(110)
+        self.edit_job.returnPressed.connect(self._edit_job)
+        for w in (QLabel("Vr No :"), self.vr, QLabel("Date"), self.date,
+                  QLabel("Edit Job#"), self.edit_job):
+            self.toolbar.addWidget(w)
+        self.toolbar.addStretch(1)
+        self.button("Show Orders", self._show_orders, primary=True)
+        self.b_save = self.button("Save", self._save, primary=True)
+        self.button("New", self.refresh)
+        self.last = QLabel("")
+        self.last.setObjectName("H2")
+        self.outer.addWidget(self.last)
+        self.grid = _table([l for _k, l in self.COLS])
+        self.grid.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
+                                  | QAbstractItemView.EditTrigger.AnyKeyPressed)
+        self.outer.addWidget(self.grid, 1)
+        self.hint = QLabel("Show Orders lists the order lines waiting for their jobs. Pick "
+                           "them, set Prod Pcs (made now) and Job/Pcs (pieces per job card), "
+                           "Save - the jobs go to Job Mapping.")
+        self.hint.setObjectName("Muted")
+        self.hint.setWordWrap(True)
+        self.outer.addWidget(self.hint)
+        self.lines: list[dict[str, Any]] = []
+        self.refresh()
+
+    def refresh(self) -> None:
+        with SessionLocal() as s:
+            self.vr.setText(str(production.next_job_card_vr(s)))
+            last = production.last_job_no(s)
+        self.last.setText(f"Last Job Card No. : {last or '—'}")
+        self.lines = []
+        self.edit_job.clear()
+        self.b_save.setEnabled(True)
+        self._fill()
+
+    def _fill(self, readonly: bool = False) -> None:
+        self.grid.setRowCount(0)
+        for row in self.lines:
+            r = self.grid.rowCount()
+            self.grid.insertRow(r)
+            for c, (k, _l) in enumerate(self.COLS):
+                v = row.get(k)
+                editable = not readonly and k in self.EDITABLE
+                it = _item(v.strftime("%d-%m-%Y") if k == "due" and v else v,
+                           TINT_RECEIVE if editable else None,
+                           right=k in ("ord_pcs", "prod_pcs", "job_pcs"))
+                flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+                if editable:
+                    flags |= Qt.ItemFlag.ItemIsEditable
+                it.setFlags(flags)
+                self.grid.setItem(r, c, it)
+        _fit_columns(self.grid, 4)
+
+    def _show_orders(self) -> None:
+        with SessionLocal() as s:
+            rows = production.pending_for_explode(s)
+        taken = {(l["_order_id"], l["_sno"]) for l in self.lines}
+        rows = [r for r in rows if (r["_order_id"], r["_sno"]) not in taken]
+        dlg = ExplodePickDialog(rows, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        for row in dlg.picked():
+            self.lines.append({**row, "prod_pcs": row["pending"], "job_pcs": row["pending"],
+                               "due": row["del_dt"]})
+        self.b_save.setEnabled(True)
+        self._fill()
+
+    def _cell(self, r: int, key: str) -> str:
+        it = self.grid.item(r, [k for k, _l in self.COLS].index(key))
+        return (it.text() if it else "").strip()
+
+    def _save(self) -> None:
+        from datetime import datetime as _dt
+        out = []
+        for r, row in enumerate(self.lines):
+            try:
+                prod = int(self._cell(r, "prod_pcs") or 0)
+                per = int(self._cell(r, "job_pcs") or 0)
+            except ValueError:
+                _warn(self, "Job Card", f"Row {r + 1}: Prod Pcs and Job/Pcs are whole pieces.")
+                return
+            due_txt = self._cell(r, "due")
+            try:
+                due = _dt.strptime(due_txt, "%d-%m-%Y").date() if due_txt else None
+            except ValueError:
+                _warn(self, "Job Card", f"Row {r + 1}: Prod Due Date as dd-mm-yyyy.")
+                return
+            out.append({"order_id": row["_order_id"], "sno": row["_sno"],
+                        "prod_pcs": prod, "job_pcs": per, "due": due})
+        if not out:
+            _info(self, "Job Card", "Show Orders and pick the order lines first.")
+            return
+        if not confirm_save(self, f"job card for {len(out)} order line(s)"):
+            return
+        with SessionLocal() as s:
+            try:
+                vr, jobs = production.explode_orders(s, out, vr_date=_pydate(self.date))
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot save", str(exc))
+                return
+        _info(self, "Saved", f"Job Card Vr {vr}: job(s) {', '.join(map(str, jobs))} - "
+                             "now pending in Job Mapping.")
+        self.refresh()
+
+    def _edit_job(self) -> None:
+        """Edit Job#: show the Job Card voucher a job was made on."""
+        from diagold.db.models import Job as _Job
+        try:
+            no = int(self.edit_job.text().strip())
+        except ValueError:
+            return
+        with SessionLocal() as s:
+            job = s.scalar(select(_Job).where(_Job.job_no == no))
+            if job is None:
+                _info(self, "Job Card", f"No job {no}.")
+                return
+            same = [job] if not job.job_card_vr else list(s.scalars(
+                select(_Job).where(_Job.job_card_vr == job.job_card_vr).order_by(_Job.job_no)))
+            self.vr.setText(str(job.job_card_vr or "— (allotted on the order's save)"))
+            self.lines = []
+            for j in same:
+                o = s.get(Order, j.order_id) if j.order_id else None
+                line = next((l for l in o.lines if l.sno == j.line_sno), None) if o else None
+                client = s.get(Account, j.account_id) if j.account_id else None
+                metal = s.get(Metal, j.metal_id) if j.metal_id else None
+                self.lines.append({
+                    "ord_no": o.order_no if o else "", "ord_date": o.order_date if o else None,
+                    "ref_no": o.ref if o else "", "client": client.name if client else "stock",
+                    "sku": j.product_sku.sku_code if j.product_sku else "", "c_ref": j.c_ref,
+                    "metal": f"{metal.name} {metal.print_on_tag}".strip() if metal else "",
+                    "col": j.colour, "size": (line.size if line else "") or "-",
+                    "del_dt": j.prod_del_date, "ord_pcs": line.pcs if line else "",
+                    "prod_pcs": j.pcs, "job_pcs": f"job {j.job_no}", "due": j.prod_del_date})
+        self.b_save.setEnabled(False)
+        self._fill(readonly=True)
+
+
+# --------------------------------------------------------------------------
 # Job Mapping (T-03)
 # --------------------------------------------------------------------------
 class JobMappingWidget(_Screen):

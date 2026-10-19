@@ -154,6 +154,10 @@ class Job(Base, PKMixin, TimestampMixin):
     # weights and stones but travel together - "M<vr no>" of the issue that
     # merged them; ticking one on a later voucher ticks the rest.
     merge_group: Mapped[str] = mapped_column(String(16), default="", index=True)
+    # Production - Planning ▸ Job Card voucher that exploded the order line
+    # into this job (12 Oct video, Vr 930 -> job 29456); None when the job was
+    # allotted on the order's save.
+    job_card_vr: Mapped[int | None] = mapped_column(nullable=True, index=True)
 
     # complete = last route step received = Pending for MFG Transfer;
     # transferred = priced into ready stock by an MFG transfer (28 Sept R2).

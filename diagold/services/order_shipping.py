@@ -104,3 +104,55 @@ def print_html(order: Order) -> str:
         return ""
     return ("<h3>Shipping Details</h3><table border=1 cellspacing=0 cellpadding=3>"
             + "".join(rows) + "</table>")
+
+
+# -- Order menu: Order List, Status, Ship Tracking Number (12 Oct video) ------
+
+ORDER_STATUSES = ("Pending", "In Production", "Ready", "Cancelled")
+
+
+def order_status(jobs: list) -> str:
+    """Pending: no job moved yet; In Production: a job is in work or waiting
+    for its MFG transfer; Ready: every job is in ready stock; Cancelled: every
+    job cancelled. (Our reading of the legacy Order ▸ Status - question 118.)"""
+    live = [j for j in jobs if j.status != "cancelled"]
+    if jobs and not live:
+        return "Cancelled"
+    if live and all(j.status == "transferred" for j in live):
+        return "Ready"
+    if any(j.status in ("in_progress", "complete", "transferred") for j in live):
+        return "In Production"
+    return "Pending"
+
+
+def order_list(session: Session, date_from, date_to, status: str | None = None,
+               **_kw) -> list[dict]:
+    """One row per order: customer, lines, pieces, jobs and how far they are."""
+    from diagold.db.models import Job
+    orders = session.scalars(select(Order).where(
+        Order.order_date >= date_from, Order.order_date <= date_to)
+        .order_by(Order.order_date, Order.order_no)).all()
+    jobs: dict[int, list] = {}
+    for j in session.scalars(select(Job).where(Job.order_id.in_([o.id for o in orders]))):
+        jobs.setdefault(j.order_id, []).append(j)
+    rows = []
+    for o in orders:
+        js = jobs.get(o.id, [])
+        st = order_status(js)
+        if status and st != status:
+            continue
+        a = session.get(Account, o.account_id) if o.account_id else None
+        d = get(o)
+        rows.append({
+            "_order_id": o.id, "ord_no": o.order_no, "date": o.order_date,
+            "type": "Repair" if o.is_repair else o.order_type,
+            "client": a.name if a else "stock", "ref": o.ref,
+            "lines": len(o.lines), "pcs": sum(int(l.pcs or 0) for l in o.lines),
+            "jobs": len([j for j in js if j.status != "cancelled"]),
+            "in_work": len([j for j in js if j.status in ("in_progress", "complete")]),
+            "in_stock": len([j for j in js if j.status == "transferred"]),
+            "del_dt": o.delivery_date, "status": st,
+            "tracking_no": o.tracking_no, "ship_via": d["ship_via"], "awb_no": d["awb_no"],
+            "destination": d["destination"], "remark": o.remark,
+        })
+    return rows

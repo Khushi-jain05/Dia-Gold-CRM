@@ -1,9 +1,13 @@
 """The application menu structure.
 
-This mirrors ``HEADING OR SUB HEADING.xlsx`` exactly - 14 main headings, each
-with the sub-headings the client listed. ``key`` values are stable identifiers
-used to look up the screen to open (see ``diagold/ui/registry.py``) and to
-check User Rights permissions.
+Built from ``HEADING OR SUB HEADING.xlsx`` and put in the legacy DIAGOLD
+1.1.7778 order as the 12 Oct walkthrough videos show it: Masters, S.K.U.,
+Quotation, Order, M.R.P., Production - Planning, Manufacturing, Purchase,
+Inventory, Sale, Accounts, Tools, Reports, Window. ``key`` values are stable
+identifiers used to look up the screen to open (see ``diagold/ui/registry.py``)
+and to check User Rights permissions - an item moved to another menu keeps its
+key (Order is still ``production_planning.order``), so rights and Tools ▸
+Option settings already saved carry over.
 """
 from __future__ import annotations
 
@@ -24,11 +28,14 @@ class MenuGroup:
 
 
 def _g(key: str, label: str, items: list[tuple[str, str]]) -> MenuGroup:
-    return MenuGroup(key, label, [MenuItem(f"{key}.{ik}", il) for ik, il in items])
+    # An item key with a dot is already a full key (an item moved here from
+    # another menu keeps its key).
+    return MenuGroup(key, label, [MenuItem(ik if "." in ik else f"{key}.{ik}", il)
+                                  for ik, il in items])
 
 
 MENU: list[MenuGroup] = [
-    _g("master", "Master", [
+    _g("master", "Masters", [
         ("company", "Company"),
         ("user_right", "User Right"),
         ("currency", "Currency"),
@@ -56,7 +63,7 @@ MENU: list[MenuGroup] = [
         ("set_margins", "Set Margins"),
         ("other", "Other"),
     ]),
-    _g("sku", "SKU", [
+    _g("sku", "S.K.U.", [
         ("stone_sku", "Stone SKU"),
         ("product_sku_master", "Product SKU Master"),
     ]),
@@ -65,17 +72,27 @@ MENU: list[MenuGroup] = [
         ("day_book", "Day Book"),
         ("setting", "Setting"),
     ]),
-    _g("mrp", "MRP", [
+    # The legacy Order menu (12 Oct video): Order, Day Book, Order List,
+    # Ship Tracking Number, Status ▸. Order and its Day Book keep their
+    # Production-Planning keys.
+    _g("order", "Order", [
+        ("production_planning.order", "Order"),
+        ("production_planning.day_book", "Day Book"),
+        ("order_list", "Order List"),
+        ("ship_tracking", "Ship Tracking Number"),
+        ("status", "Status"),
+    ]),
+    _g("mrp", "M.R.P.", [
         ("mrp", "MRP"),
         ("purchase_order", "Purchase Order"),
     ]),
-    # Order feeds this module (saving one allots the jobs), so it sits at the
-    # top of Production Planning. Which of the legacy items survive is a
-    # configuration switch (Tools > Option), not a code change - see
-    # services/settings.py and the 11 September notes (R10, C-01).
-    _g("production_planning", "Production Planning", [
-        ("order", "Order"),
-        ("stone_issue", "Stone Issue on Job-Card"),
+    # In the legacy order (12 Oct video): WIP Job Card, Job Card, Job Mapping,
+    # In-House, Job Card Bag, Job History F11, Printing Options, Inv Return ▸,
+    # Day Book ▸, Reports ▸. Stone Issue on Job-Card is Inventory ▸ Stone ▸
+    # Issue On Job Card there (same screen and key). Opening Stone Balances is
+    # ours (no legacy item seen), last. Which items show is a switch in
+    # Tools > Option, not a code change (11 Sept R10, C-01).
+    _g("production_planning", "Production - Planning", [
         ("wip_job_card", "WIP Job Card"),
         ("job_card", "Job Card"),
         ("job_mapping", "Job Mapping"),
@@ -83,10 +100,10 @@ MENU: list[MenuGroup] = [
         ("job_card_bag", "Job Card Bag"),
         ("job_history", "Job History"),
         ("printing_options", "Printing Options"),
-        ("inv_return", "Inv Return – Stone"),
-        ("opening_stone", "Opening Stone Balances"),
-        ("day_book", "Order Day Book"),
+        ("inv_return", "Inv Return"),
+        ("pp_day_book", "Day Book"),
         ("reports", "Reports"),
+        ("opening_stone", "Opening Stone Balances"),
     ]),
     _g("manufacturing", "Manufacturing", [
         ("waxing", "Waxing"),
@@ -136,7 +153,7 @@ MENU: list[MenuGroup] = [
         ("stone", "Stone"),
         ("reports", "Reports"),
     ]),
-    _g("account", "Account", [
+    _g("account", "Accounts", [
         ("groups", "Groups"),
         ("voucher_entry", "Voucher Entry"),
         ("outstandings", "Outstandings"),
@@ -197,5 +214,8 @@ DROPPED_MASTERS: tuple[str, ...] = ("Findings", "Voucher Type")
 DROPPED_SKU_SCREENS: tuple[str, ...] = ("Packet No", "SKU View")
 
 MENU_BY_KEY: dict[str, MenuGroup] = {g.key: g for g in MENU}
+# Every item by its key, whichever menu it sits in.
+ITEM_BY_KEY: dict[str, MenuItem] = {it.key: it for g in MENU for it in g.items}
+GROUP_OF_ITEM: dict[str, MenuGroup] = {it.key: g for g in MENU for it in g.items}
 
 ALL_ITEM_KEYS: list[str] = [item.key for g in MENU for item in g.items]

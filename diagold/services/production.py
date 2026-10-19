@@ -244,6 +244,126 @@ def sync_jobs_for_order(session: Session, order: Order) -> list[Job]:
     return jobs
 
 
+JOBS_ON_SAVE_SETTING = "pp.jobs_on_order_save"
+
+
+def order_saved(session: Session, order: Order) -> None:
+    """After an order is saved: allot its jobs now (setting on, or a repair
+    order), or leave its lines for Production - Planning ▸ Job Card (the
+    legacy way, 12 Oct video) and only bring jobs already made up to date."""
+    from diagold.services import settings
+    if order.is_repair or settings.opt_on(JOBS_ON_SAVE_SETTING, session):
+        sync_jobs_for_order(session, order)
+    else:
+        refresh_order_jobs(session, order)
+
+
+def refresh_order_jobs(session: Session, order: Order) -> None:
+    """Jobs already exploded from the order follow an edit of their line (SKU,
+    metal, colour, C-Ref, dates); a removed line cancels its jobs unless one
+    has moved, when the save is refused. Pieces stay as the Job Card set them."""
+    session.flush()
+    lines = {l.sno: l for l in order.lines}
+    for job in session.scalars(select(Job).where(Job.order_id == order.id,
+                                                 Job.status != "cancelled")):
+        line = lines.get(job.line_sno)
+        if line is None:
+            if _job_has_movements(session, job):
+                raise ProductionError(
+                    f"Line {job.line_sno} cannot be removed: job {job.job_no} already has "
+                    "material issued against it. Cancel the job's vouchers first.")
+            job.status = "cancelled"
+            continue
+        job.product_sku_id = line.product_sku_id
+        job.account_id = order.account_id
+        job.c_ref = line.c_ref
+        job.metal_id = line.metal_id
+        job.colour = line.colour
+        job.prod_del_date = line.delivery_date or order.delivery_date
+    session.flush()
+
+
+def line_pending_pcs(session: Session, order: Order, line: OrderLine) -> int:
+    made = session.scalar(select(func.coalesce(func.sum(Job.pcs), 0)).where(
+        Job.order_id == order.id, Job.line_sno == line.sno, Job.status != "cancelled"))
+    return max(int(line.pcs or 0) - int(made or 0), 0)
+
+
+def pending_for_explode(session: Session) -> list[dict[str, Any]]:
+    """Job Card ▸ Show Orders: "Pending Orders For Explode" - every order line
+    with pieces not yet made into jobs (12 Oct video)."""
+    rows = []
+    for order in session.scalars(select(Order).order_by(Order.order_no)):
+        client = session.get(Account, order.account_id) if order.account_id else None
+        for line in order.lines:
+            left = line_pending_pcs(session, order, line)
+            if left <= 0:
+                continue
+            metal = session.get(Metal, line.metal_id) if line.metal_id else None
+            sku = session.get(ProductSku, line.product_sku_id) if line.product_sku_id else None
+            rows.append({
+                "_order_id": order.id, "_sno": line.sno, "ord_no": order.order_no,
+                "ord_date": order.order_date, "ref_no": order.ref,
+                "client": client.name if client else "stock",
+                "sku": sku.sku_code if sku else line.sku_desc, "c_ref": line.c_ref,
+                "metal": f"{metal.name} {metal.print_on_tag}".strip() if metal else "",
+                "col": line.colour, "size": line.size or "-",
+                "del_dt": line.delivery_date or order.delivery_date,
+                "ord_pcs": int(line.pcs or 0), "pending": left,
+                "repair": 1 if order.is_repair else 0,
+            })
+    return rows
+
+
+def last_job_no(session: Session) -> int | None:
+    return session.scalar(select(func.max(Job.job_no)))
+
+
+def next_job_card_vr(session: Session) -> int:
+    return next_number(session, Job.job_card_vr)
+
+
+def explode_orders(session: Session, lines: list[dict[str, Any]], *,
+                   vr_date: date | None = None) -> tuple[int, list[int]]:
+    """Job Card save: each picked order line becomes Prod Pcs ÷ Job/Pcs jobs
+    (the last takes the remainder), all on one Job Card voucher number.
+    Returns (vr no, job numbers)."""
+    if not lines:
+        raise ProductionError("Pick the order lines with Show Orders first.")
+    vr_no = next_job_card_vr(session)
+    made: list[int] = []
+    for ln in lines:
+        order = session.get(Order, ln["order_id"])
+        line = next((l for l in order.lines if l.sno == ln["sno"]), None) if order else None
+        if line is None:
+            raise ProductionError("That order line no longer exists - Show Orders again.")
+        left = line_pending_pcs(session, order, line)
+        prod = int(ln.get("prod_pcs") or 0)
+        per = int(ln.get("job_pcs") or prod or 0)
+        if prod <= 0 or per <= 0:
+            raise ProductionError(f"Order {order.order_no} line {line.sno}: Prod Pcs and "
+                                  "Job/Pcs must be 1 or more.")
+        if prod > left:
+            raise ProductionError(f"Order {order.order_no} line {line.sno}: only {left} "
+                                  f"pc(s) are left to make, not {prod}.")
+        while prod > 0:
+            pcs = min(per, prod)
+            prod -= pcs
+            job = Job(job_no=next_job_no(session), order_id=order.id, line_sno=line.sno,
+                      status="pending", product_sku_id=line.product_sku_id,
+                      account_id=order.account_id, c_ref=line.c_ref,
+                      metal_id=line.metal_id, colour=line.colour, pcs=pcs,
+                      prod_date=vr_date or date.today(),
+                      prod_del_date=ln.get("due") or line.delivery_date
+                      or order.delivery_date, job_card_vr=vr_no)
+            session.add(job)
+            session.flush()
+            seed_bag_requirements(session, job)
+            made.append(job.job_no)
+    session.flush()
+    return vr_no, made
+
+
 def delete_order(session: Session, order: Order) -> None:
     """Delete an order together with the jobs its lines allotted.
 

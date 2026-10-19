@@ -1591,6 +1591,45 @@ def _sale_specs(money, wt, pcs) -> dict[str, ReportSpec]:
     }
 
 
+def _order_menu_specs(pcs) -> dict[str, ReportSpec]:
+    """Order ▸ Order List, Ship Tracking Number and Status ▸ (12 Oct video)."""
+    from diagold.services import order_shipping as OSH
+
+    def open_order(w: "ReportWidget", r: dict) -> None:
+        from diagold.ui.order_shipping import open_for
+        if r.get("_order_id") and open_for(w, r["_order_id"]):
+            w.run()
+
+    cols = [Col("ord_no", "ORD NO"), Col("date", "DATE"), Col("type", "TYPE"),
+            Col("client", "CLIENT"), Col("ref", "REF"), pcs("lines", "LINES"),
+            pcs("pcs", "PCS"), pcs("jobs", "JOBS"), pcs("in_work", "IN WORK"),
+            pcs("in_stock", "IN STOCK"), Col("del_dt", "DEL-DT"), Col("status", "STATUS"),
+            Col("tracking_no", "TRACKING NO"), Col("remark", "REMARK")]
+    out = {
+        "order_list": ReportSpec(
+            key="order_list", title="Order List", columns=static(cols),
+            query=lambda s, a, b, **_k: OSH.order_list(s, a, b),
+            filter_column="status", on_activate=open_order,
+            note="Every order with its jobs and how far they are. Double-click: Shipping "
+                 "Details."),
+        "order_tracking": ReportSpec(
+            key="order_tracking", title="Ship Tracking Number",
+            columns=static([Col("ord_no", "ORD NO"), Col("date", "DATE"),
+                            Col("client", "CLIENT"), Col("ref", "REF"), Col("status", "STATUS"),
+                            Col("tracking_no", "TRACKING NO"), Col("ship_via", "SHIP VIA"),
+                            Col("awb_no", "AW NO"), Col("destination", "DESTINATION")]),
+            query=lambda s, a, b, **_k: OSH.order_list(s, a, b), on_activate=open_order,
+            note="Double-click an order to enter its Tracking No and Shipping Details."),
+    }
+    for st in OSH.ORDER_STATUSES:
+        key = "order_status_" + st.lower().replace(" ", "_")
+        out[key] = ReportSpec(
+            key=key, title=f"Order Status - {st}", columns=static(cols),
+            query=lambda s, a, b, _st=st, **_k: OSH.order_list(s, a, b, status=_st),
+            on_activate=open_order)
+    return out
+
+
 def build_specs() -> dict[str, ReportSpec]:
     from diagold.services.production import order_day_book
 
@@ -1612,6 +1651,7 @@ def build_specs() -> dict[str, ReportSpec]:
         "job_costing": job_costing_spec(),
         **_register_specs(money, wt, pcs),
         **_sale_specs(money, wt, pcs),
+        **_order_menu_specs(pcs),
         # -- day books ---------------------------------------------------
         "order_day_book": ReportSpec(
             key="order_day_book", title="Order Day Book",

@@ -24,6 +24,8 @@ from diagold.db.session import SessionLocal
 PP_DEFAULT_VISIBLE: frozenset[str] = frozenset({
     "production_planning.order",
     "production_planning.stone_issue",
+    # 12 Oct video: Job Card explodes the order into jobs before mapping.
+    "production_planning.job_card",
     "production_planning.job_mapping",
     "production_planning.job_card_bag",
     "production_planning.job_history",
@@ -34,7 +36,13 @@ PP_DEFAULT_VISIBLE: frozenset[str] = frozenset({
     # they depend on) are on.
     "production_planning.reports",
     "production_planning.opening_stone",
+    # Day Book ▸ - the Production-Planning day books (12 Oct video order).
+    "production_planning.pp_day_book",
 })
+# Order and its Day Book moved to the Order menu (12 Oct video) but kept their
+# keys; they are no longer Production-Planning switches and always show.
+ALWAYS_SHOWN: frozenset[str] = frozenset({
+    "production_planning.order", "production_planning.day_book"})
 
 # Menu items outside Production Planning that are switched off by default but
 # kept in the code, so the client can bring one back from Tools > Option
@@ -154,6 +162,11 @@ SETTINGS_TREE: tuple[Setting, ...] = (
             "After each receipt the order remark becomes \"daank/167/12.02, DIA./412/5.55, "
             "...\" - the stones in the piece, as the legacy does (12 Oct). One-job orders "
             "only"),
+    Setting("Production Planning", "pp.jobs_on_order_save",
+            "Allot jobs when the order is saved", "bool", "0",
+            "Off = the legacy way (12 Oct video): an order's lines wait in Production - "
+            "Planning ▸ Job Card ▸ Show Orders (Pending Orders For Explode) and the Job Card "
+            "makes the jobs, with Prod Pcs and Job/Pcs. On = one job per line on save"),
     Setting("Production Planning", "pp.ask_merge_jobs",
             "Ask \"Do you want to merge jobs?\" on a multi-job issue", "bool", "1",
             "Yes keeps the ticked jobs together: each keeps its own weights and stones, "
@@ -365,6 +378,8 @@ def opt_on(key: str, session: Session | None = None) -> bool:
 def menu_visible(menu_key: str, session: Session | None = None) -> bool:
     """Is this menu item shown? Production-Planning items and the ones in
     MENU_DEFAULT_HIDDEN are switchable; everything else follows the menu."""
+    if menu_key in ALWAYS_SHOWN:
+        return True
     if menu_key in MENU_DEFAULT_HIDDEN:
         default = "0"
     elif not menu_key.startswith("production_planning."):

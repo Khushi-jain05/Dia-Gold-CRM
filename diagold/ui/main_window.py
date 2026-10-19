@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 from diagold import APP_NAME, __version__
 from diagold.config import COMPANY_DISPLAY_NAME, DB_PATH
 from diagold.db.session import SessionLocal
-from diagold.menu import MENU, MENU_BY_KEY
+from diagold.menu import ITEM_BY_KEY, MENU
 from diagold.services import settings
 from diagold.services.auth import AuthError, CurrentUser, change_password
 from diagold.ui.dashboard import DashboardWidget
@@ -165,6 +165,19 @@ class MainWindow(QMainWindow):
                 label = item.label
                 if not has_real_screen(item.key) and item.key not in self.ACTIONS:
                     label += "  ·  soon"
+                if item.key in self.NESTED:
+                    # Inv Return ▸ Stone, as the legacy menu nests it.
+                    sub = menu.addMenu(item.label)
+                    sub.setObjectName("TopMenuPopup")
+                    act = sub.addAction(self.NESTED[item.key])
+                    act.triggered.connect(
+                        lambda _c=False, k=item.key, l=item.label: self._open_screen(k, l))
+                    self._search_targets[f"{item.label} {self.NESTED[item.key]}  —  "
+                                         f"{group.label}"] = item.key
+                    shown += 1
+                    continue
+                if item.key == "production_planning.job_history":
+                    label += "\tF11"   # the legacy menu shows its key
                 action = menu.addAction(label)
                 action.triggered.connect(
                     lambda _c=False, k=item.key, l=item.label: self._open_screen(k, l))
@@ -333,13 +346,12 @@ class MainWindow(QMainWindow):
         self._tabs_by_key["__dashboard__"] = dash
 
     def _open_by_key(self, key: str) -> None:
-        group = MENU_BY_KEY.get(key.split(".", 1)[0])
-        label = EXTRA_SCREENS.get(key, key)
-        if group:
-            for it in group.items:
-                if it.key == key:
-                    label = it.label
+        item = ITEM_BY_KEY.get(key)
+        label = item.label if item else EXTRA_SCREENS.get(key, key)
         self._open_screen(key, label)
+
+    # A menu item shown as a one-item submenu, as the legacy nests it.
+    NESTED = {"production_planning.inv_return": "Stone"}
 
     # Menu items that act on the window rather than open a screen.
     ACTIONS = {"tools.change_password", "tools.read_barcode", "window.close_all"}

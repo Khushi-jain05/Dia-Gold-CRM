@@ -517,7 +517,10 @@ with SessionLocal() as s:
     QT.copy_line(s, q, 1); s.commit(); s.refresh(q)
     check("copy selected row", [l.sno for l in q.lines], [1, 2])
     qo = QT.convert_to_order(s, q); s.commit()
-    check("convert to order: 2 lines, jobs, status", (len(qo.lines), len(s.scalars(select(Job).where(Job.order_id == qo.id)).all()), q.status), (2, 2, "Converted"))
+    check("convert to order: 2 lines, no jobs yet (Job Card), status", (len(qo.lines), len(s.scalars(select(Job).where(Job.order_id == qo.id)).all()), q.status), (2, 0, "Converted"))
+    check("its lines wait in Pending Orders For Explode", len([r for r in P.pending_for_explode(s) if r["_order_id"] == qo.id]), 2)
+    P.explode_orders(s, [{"order_id": qo.id, "sno": l.sno, "prod_pcs": l.pcs, "job_pcs": l.pcs} for l in qo.lines]); s.commit()
+    check("Job Card makes their jobs", len(s.scalars(select(Job).where(Job.order_id == qo.id)).all()), 2)
     refused("convert twice", lambda: QT.convert_to_order(s, q))
     check("day book lists it", len([r for r in QT.day_book(s, *FY) if r["quot_no"] == q.quot_no]), 2)
 
@@ -578,6 +581,35 @@ with SessionLocal() as s:
         refused("one job cannot be merged", lambda: P.merge_jobs(s, [pend[0]["_job_id"]], vr))
     else:
         check("two jobs pending issue for the merge check", len(pend), 2)
+    s.rollback()
+
+    print("\n== N11. 12 Oct video sequence: Order -> Job Card (explode) -> Job Mapping")
+    from diagold.menu import MENU
+    check("top menus in the legacy order", [g.label for g in MENU], ["Masters", "S.K.U.", "Quotation", "Order", "M.R.P.", "Production - Planning", "Manufacturing", "Purchase", "Inventory", "Sale", "Accounts", "Tools", "Reports", "Window"])
+    check("Order menu", [i.label for i in MENU[3].items], ["Order", "Day Book", "Order List", "Ship Tracking Number", "Status"])
+    check("Production - Planning in the legacy order", [i.label for i in MENU[5].items][:10], ["WIP Job Card", "Job Card", "Job Mapping", "In-House", "Job Card Bag", "Job History", "Printing Options", "Inv Return", "Day Book", "Reports"])
+    sku5 = s.scalars(select(ProductSku)).first()
+    o5 = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(o5); s.flush()
+    s.add(OrderLine(order_id=o5.id, sno=1, product_sku_id=sku5.id, pcs=5)); s.flush(); s.refresh(o5)
+    P.order_saved(s, o5)
+    check("order save makes no job (setting off)", s.scalars(select(Job).where(Job.order_id == o5.id)).all(), [])
+    refused("explode more than ordered", lambda: P.explode_orders(s, [{"order_id": o5.id, "sno": 1, "prod_pcs": 6, "job_pcs": 2}]))
+    vr5, made5 = P.explode_orders(s, [{"order_id": o5.id, "sno": 1, "prod_pcs": 3, "job_pcs": 2}], vr_date=T)
+    check("3 pcs at 2 per job -> 2 jobs (2 + 1)", [s.scalar(select(Job.pcs).where(Job.job_no == n)) for n in made5], [2, 1])
+    check("2 pcs still pending", [r["pending"] for r in P.pending_for_explode(s) if r["_order_id"] == o5.id], [2])
+    check("new jobs wait for Job Mapping", {s.scalar(select(Job.status).where(Job.job_no == n)) for n in made5}, {"pending"})
+    from diagold.services import settings as SETG
+    SETG.set_setting(s, P.JOBS_ON_SAVE_SETTING, "1")
+    o6 = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(o6); s.flush()
+    s.add(OrderLine(order_id=o6.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(o6)
+    P.order_saved(s, o6)
+    check("setting on: one job per line on save", len(s.scalars(select(Job).where(Job.order_id == o6.id)).all()), 1)
+    SETG.set_setting(s, P.JOBS_ON_SAVE_SETTING, "0")
+    from diagold.services import order_shipping as OSH2
+    st = {r["ord_no"]: r["status"] for r in OSH2.order_list(s, *FY)}
+    check("Order List status: exploded, unmoved -> Pending", st.get(o5.order_no), "Pending")
     s.rollback()
 
     print("\n== M. Invariants")

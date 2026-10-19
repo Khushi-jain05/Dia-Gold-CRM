@@ -117,7 +117,13 @@ with SessionLocal() as s:
                     pcs=1))
     s.flush()
     s.refresh(o)
-    job = P.sync_jobs_for_order(s, o)[0]
+    P.order_saved(s, o)
+    check("order save leaves the line for the Job Card", s.scalars(select(Job).where(Job.order_id == o.id)).all(), [])
+    pend = [r for r in P.pending_for_explode(s) if r["_order_id"] == o.id]
+    check("Pending Orders For Explode: 1680 line, 1 pc", [(r["ord_no"], r["sku"], r["ord_pcs"]) for r in pend], [(o.order_no, "NS-1430", 1)])
+    vr, made = P.explode_orders(s, [{"order_id": o.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1, "due": ON}], vr_date=ON)
+    job = s.scalar(select(Job).where(Job.job_no == made[0]))
+    check("Job Card makes one job, line no longer pending", (len(made), job.job_card_vr, [r for r in P.pending_for_explode(s) if r["_order_id"] == o.id]), (1, vr, []))
     for bl in s.scalars(select(JobBagLine).where(JobBagLine.job_id == job.id)):
         s.delete(bl)
     s.flush()

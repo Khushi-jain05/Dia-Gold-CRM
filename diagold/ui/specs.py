@@ -1435,7 +1435,8 @@ def _prepare_order(values: dict, children: dict, session) -> None:
 
 
 def _order_saved(order, children, session) -> None:
-    production.sync_jobs_for_order(session, order)
+    # Jobs on save, or later from Production - Planning ▸ Job Card (12 Oct).
+    production.order_saved(session, order)
 
 
 def _order_delete(order, session) -> None:
@@ -1531,7 +1532,14 @@ def _order_after_save(widget, order_id: int) -> None:
     with SessionLocal() as s:
         o = s.get(Order, order_id)
         no = o.order_no if o else ""
-    yes = QMessageBox.question(widget, "Order", f"Order {no} saved.\n\nPrint Order Sheet?")
+    with SessionLocal() as s:
+        on_save = settings.opt_on(production.JOBS_ON_SAVE_SETTING, s) or (o and o.is_repair)
+    if not on_save:
+        no = f"{no} saved. Its lines wait in Production - Planning ▸ Job Card ▸ Show Orders"
+        no += " for their jobs"
+    else:
+        no = f"{no} saved"
+    yes = QMessageBox.question(widget, "Order", f"Order {no}.\n\nPrint Order Sheet?")
     if yes == QMessageBox.StandardButton.Yes:
         QMessageBox.information(widget, "Print", f"Saved {_order_sheet_pdf(order_id)}")
 

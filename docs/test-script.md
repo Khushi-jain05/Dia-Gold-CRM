@@ -8,7 +8,7 @@ Login `admin` / `admin`. Do the steps in order: each screen feeds the next
 2. Master ▸ Metal ▸ + New — TEST22 / 22KT TEST 916 / fineness 916; ratio GOLD 91.6 + ALLOY 8.3 is refused, 8.4 saves.
 3. SKU ▸ Stone SKU ▸ + New — RUBY OVAL 5*4, cost 800, sale 1200, Per Cts; Make A Copy.
 4. SKU ▸ Product SKU ▸ + New — RG-9001, item ring, metal 14KT CASTING 590, gross 5.200 / net 4.100, stone RUBY OVAL 5*4 × 4 pcs 1.000 ct; totals compute; duplicate code refused.
-5. Production Planning ▸ Order ▸ + New — KK JEWELS, lines RG-9001 ×2 and NS-2968 ×1; two jobs allotted.
+5. Order ▸ Order ▸ + New — KK JEWELS, lines RG-9001 ×2 and NS-2968 ×1; then Production - Planning ▸ Job Card ▸ Show Orders → tick both lines → Save; two jobs allotted.
 6. Job Mapping — Apply Group Default, Save Route, Copy To All, Add Step Repair HM.
 7. Stone Issue on Job-Card — Primary, EMERALD PEAR 6*4, 4 pcs / 1.200; 999 pcs refused.
 8. Job History (F11) — issue/receive on CASTING with RAHUL JI → loss 0.050; refusals; Add Comments; Print.

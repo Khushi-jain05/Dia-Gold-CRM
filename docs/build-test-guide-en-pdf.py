@@ -153,20 +153,27 @@ a screenshot.""") + part("A. Masters — the rates and people the test uses") + 
     ["After Save, Wastage Wt <b>0.045</b>.",
      "CHAND still holds from this: 2.000 − 1.800 − 0.045 = <b>0.155 g</b>."],
 ) + part("C. Order → Job → Route → Stones") + step(
-    "Production Planning ▸ Order → + New", [
+    "Order ▸ Order → + New", [
         ("Ord Type / Customer", "Customer / <b>KK JEWELS</b>"), ("Ref", "<b>TEST-1</b>"),
         ("Terms", "<b>15 days</b>"), ("Priority", "<b>High</b>"), ("Delivery Date", "today + 10 days"),
         ("SKU Lines row 1", "SKU <b>NS-1430</b> · Metal <b>14KT 590</b> · Colour <b>Y</b> · Size <b>7</b> · C-Ref "
                             "<b>TEST-C</b> · Pcs <b>1</b>")],
-    ["Save gives an Ord No and <b>1 job</b>. Write down the Job No (28857 on a fresh demo).",
+    ["Save gives an Ord No; the line now waits for its job (no job yet - the legacy way, 12 Oct video).",
      "Save with no Customer → refused. Pcs 0 → refused."],
 ) + step(
-    "Production Planning ▸ Job Mapping", [
+    "Production - Planning ▸ Job Card", [
+        ("Show Orders", "Pending Orders For Explode → tick your order's line → OK"),
+        ("Prod Pcs / Job/Pcs / Prod Due Date", "<b>1</b> / <b>1</b> / delivery date")],
+    ["Save → <b>Job Card Vr</b> and <b>1 job</b>. Write down the Job No (28857 on a fresh demo).",
+     "\"Last Job Card No.\" shows the latest job; Edit Job# shows the voucher a job was made on.",
+     "Prod Pcs more than the order's pieces → refused."],
+) + step(
+    "Production - Planning ▸ Job Mapping", [
         ("Pending Jobs", "select your job"),
         ("Process Group", "<b>Default</b> → <b>Apply Group</b> → <b>Save Route</b>")],
     ["11 steps: CAD CAM CS HM COL PP ST FP fs Meena Puwai. Your job leaves the Pending list."],
 ) + step(
-    "Production Planning ▸ Stone Issue on Job-Card → + New", [
+    "Inventory ▸ Stone ▸ Issue On Job Card → + New", [
         ("Job No", "your job"),
         ("Stones row 1", "Location <b>Primary</b> · SSKU <b>POLKI 12-14</b> · Pcs <b>10</b> · Weight <b>0.800</b> · "
                          "S Type <b>Polki</b>"),
@@ -174,7 +181,7 @@ a screenshot.""") + part("A. Masters — the rates and people the test uses") + 
                          "<b>0.500</b> · S Type <b>CS</b>")],
     ["It saves. The same issue with Pcs <b>999</b> is refused ('Primary holds only …')."],
 ) + step(
-    "Production Planning ▸ Job Card Bag", [
+    "Production - Planning ▸ Job Card Bag", [
         ("Job No", "your job"), ("POLKI 12-14 line", "select → <b>Setting Type</b> → <b>Polki</b>")],
     ["POLKI 12-14: Rcvd <b>10 / 0.800</b>, Bal 10, Setting <b>Polki</b>. EMERALD PEAR: Rcvd <b>5 / 0.500</b>.",
      "Return to Stock <b>50</b> pcs → refused."],
@@ -221,7 +228,7 @@ appear. Type in the green cells.</p>
     ["<b>Day Book</b> → today's vouchers, grouped by process. <b>Statement</b> → Worker Metal Ledger.",
      "<b>Delete</b> on your CASTING receipt → refused: <i>\"delete the later voucher first\"</i>. Nothing is deleted."],
 ) + part("E. Job History — the full story of one job") + step(
-    "Production Planning ▸ Job History (F11)", [("Job No", "your job")],
+    "Production - Planning ▸ Job History (F11)", [("Job No", "your job")],
     ["11 rows; issue side <b>pink</b>, receive side <b>green</b>. Losses 0.300 · 0.200 · 0.000 · 0.100 · 0.050 · "
      "0.090 · 0.020 · 0.020 · 0.020 → total <b>0.800 g</b>.",
      "Setting row Labour <b>240.00</b>. Double-click a pink cell → issue voucher; green cell → receipt.",
@@ -327,7 +334,7 @@ appear. Type in the green cells.</p>
     ["The piece is back in stock. KK's <b>Cl Bal 0.00</b>.",
      "Item Search → history: <b>MF · RA · RAR · RS · RSR</b>."],
 ) + part("L. Repair") + step(
-    "Production Planning ▸ Order → + New (repair order)", [
+    "Order ▸ Order → + New (repair order)", [
         ("Ord Type / Customer", "Customer / <b>KK JEWELS</b>"), ("Repair", "<b>tick</b>"),
         ("SKU Lines", "leave empty"), ("Save", "Yes")],
     ["With Repair ticked it saves with no lines."],
@@ -595,7 +602,7 @@ appear. Type in the green cells.</p>
 ) + step(
     "Repair: sales return → repair job → new Stock No", [
         ("Sale ▸ Ready Stock ▸ Sale Return", "return a sold piece → Save"),
-        ("Production Planning ▸ Order", "Add → tick <b>Repair</b> → Save → <b>Repair List</b> → pick the piece"),
+        ("Order ▸ Order", "Add → tick <b>Repair</b> → Save → <b>Repair List</b> → pick the piece"),
         ("Job History", "map, issue and receive the repair job, then MFG Transfer it"),
         ("Item Search", "search the old and the new Stock No"),
         ("M.I.S. Reports ▸ WIP Repair Items / MFG TR [only Repair] / MFG TR Stone[only Repair]", "")],

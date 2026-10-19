@@ -18,16 +18,17 @@ The menu structure is taken directly from the client design workbook
 | Master ▸ Findings, Voucher Type | ⬜ Dropped — the client confirmed they are unused, so they are hidden from the menu |
 | Master ▸ User Right | ✅ Users + Roles + permission matrix (view / edit per module) |
 | SKU ▸ Stone SKU, Product SKU Master | ✅ Full add / edit / delete / search, priced from the stone catalogue |
-| Production Planning ▸ Order | ✅ Header + SKU lines; saving allots one job per line (global job sequence) |
-| Production Planning ▸ Job Mapping | ✅ Pending-jobs queue, process groups → dated route per job, Copy To All |
-| Production Planning ▸ Job History (F11) | ✅ Issue / receive vouchers per step with worker and weights; loss and loss % per step against an allowed loss % per line; setting labour (pieces set × setting-type rate) stored on the receive; MFG price preview (Fill Prices) |
-| Production Planning ▸ Reports ▸ Worker Metal Ledger | ✅ Per karigar: inward / outward / loss / allowance, running balance in weight and fine |
-| Production Planning ▸ Job Card Bag | ✅ Per-job stone ledger (Req/Rcvd/Extra/Pnd/Iss/Rtn/Break/Lost/Back/Bal) + two reports; setting type per stone line |
-| Production Planning ▸ Stone Issue, Inv Return – Stone | ✅ Numbered vouchers; Show Pending on returns; stock ledger per location; over-issue / over-return refused; metal / mould / finding returns behind a switch |
-| Production Planning ▸ Reports | ✅ Shared report engine (toolbar, date range, grouping, filters, export, async) with Job Analysis, Process Analysis (process filter), Job Card Analysis – Stone (location × group with Opening), Job Stock Analysis, Inv Rtn O/s Stone, Job O/s – Stone, three day books, Inv O/S, Data Quality |
-| Production Planning ▸ Opening Stone Balances | ✅ Opening per location by SKU or by group |
-| Production Planning ▸ Printing Options | ✅ Six prints from data-driven templates → PDF, with a print log (placeholder layouts until the client's Word format arrives) |
-| Production Planning ▸ Order Day Book | ✅ In the Reports hub; menu item hidden by default (Tools ▸ Option) |
+| Order ▸ Order / Day Book / Order List / Ship Tracking Number / Status ▸ | ✅ The legacy Order menu (12 Oct video); Header + SKU lines, Shipping Details, Tracking No |
+| Production - Planning ▸ Job Card | ✅ Show Orders (Pending Orders For Explode) → Prod Pcs, Job/Pcs → jobs on one Job Card Vr (global job sequence). Tools ▸ Option can allot one job per line on the order's save instead |
+| Production - Planning ▸ Job Mapping | ✅ Pending-jobs queue, process groups → dated route per job, Copy To All |
+| Production - Planning ▸ Job History (F11) | ✅ Issue / receive vouchers per step with worker and weights; loss and loss % per step against an allowed loss % per line; setting labour (pieces set × setting-type rate) stored on the receive; MFG price preview (Fill Prices) |
+| Production - Planning ▸ Reports ▸ Worker Metal Ledger | ✅ Per karigar: inward / outward / loss / allowance, running balance in weight and fine |
+| Production - Planning ▸ Job Card Bag | ✅ Per-job stone ledger (Req/Rcvd/Extra/Pnd/Iss/Rtn/Break/Lost/Back/Bal) + two reports; setting type per stone line |
+| Production - Planning ▸ Stone Issue, Inv Return – Stone | ✅ Numbered vouchers; Show Pending on returns; stock ledger per location; over-issue / over-return refused; metal / mould / finding returns behind a switch |
+| Production - Planning ▸ Reports | ✅ Shared report engine (toolbar, date range, grouping, filters, export, async) with Job Analysis, Process Analysis (process filter), Job Card Analysis – Stone (location × group with Opening), Job Stock Analysis, Inv Rtn O/s Stone, Job O/s – Stone, three day books, Inv O/S, Data Quality |
+| Production - Planning ▸ Opening Stone Balances | ✅ Opening per location by SKU or by group |
+| Production - Planning ▸ Printing Options | ✅ Six prints from data-driven templates → PDF, with a print log (placeholder layouts until the client's Word format arrives) |
+| Order ▸ Day Book | ✅ Order menu; also under Production - Planning ▸ Day Book ▸ |
 | Tools ▸ Option | ✅ Production-Planning menu scope by configuration |
 | Manufacturing ▸ MFG Transfer, Pending for MFG Transfer, MFG Transfer Day Book | ✅ Fill Prices (metal + stones + labour + mark-up → price → tag), Stock No / bar code in Primary, Tag List |
 | Item Search (top right) | ✅ Find by Stock No / Job No / SKU / Cert No; Delete History & Purchase sends the job back to Pending for MFG Transfer, with an audit row |

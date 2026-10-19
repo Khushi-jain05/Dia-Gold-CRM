@@ -187,5 +187,7 @@ Before the questions, the follow-up from 9 Oct (T-01):
 115. The issue screens ask "Do you want to merge jobs?" - what does merging do? We now ask it on a multi-job issue: Yes keeps the jobs together (each keeps its own weights and stones; ticking one on the next voucher ticks the rest; Unmerge takes one out). Is that the legacy meaning, or are the jobs combined into one job / one weight? *(12 Oct video)*
 116. After the Puwai receipt the Order Remark was rewritten with the stones used ("daank/167/12.02, DIA./412/5.55, …"). We do the same for one-job orders. Should it happen for orders with several lines too? *(12 Oct video)*
 117. Order > Shipping Details has "Fetch Dept" and "Fetch Last Dtls". We read Fetch Last Dtls as "copy the customer's last order" and Fetch Dept as "fill Buyer's / Consignee details from the account master". Is Fetch Dept that, or does it fetch something else (a department)? *(12 Oct video)*
+118. Order > Status has a submenu in the legacy (12 Oct video) - what is in it? We show orders as Pending (no job moved), In Production, Ready (all in stock) and Cancelled. *(12 Oct video)*
+119. We now make jobs the legacy way: an order's lines wait in Production - Planning > Job Card > Show Orders, and the Job Card makes the jobs (Prod Pcs, Job/Pcs - 3 pcs at 2 per job = 2 jobs). Jobs from a Repair List are still made at once. OK? And Job/Pcs 0.5 (seen on other orders) - half a piece per job, e.g. one earring of a pair? *(12 Oct video)*
 
 Thank you!

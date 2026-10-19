@@ -36,8 +36,8 @@ The job numbers above are for a fresh demo database. If you added jobs before lo
 
 | # | Where | Do | You should see |
 |---|---|---|---|
-| 1.1 | Production Planning ▸ Order | Find order 9001 | Terms **30 days credit**, Priority **Normal** and Remark are all shown in the list. |
-| 1.2 | Production Planning ▸ Job Card Bag | Job No **28856** | POLKI 12-14: Rcvd 10 / 0.800, Iss 10 / 0.800, Back 2 / 0.160, **Bal 2 / 0.160**, Setting **Polki**. EMERALD PEAR 3*4: Rcvd 5, Iss 5, **Bal 0**. The columns fill the width, with no blank strip on the right. |
+| 1.1 | Order ▸ Order | Find order 9001 | Terms **30 days credit**, Priority **Normal** and Remark are all shown in the list. |
+| 1.2 | Production - Planning ▸ Job Card Bag | Job No **28856** | POLKI 12-14: Rcvd 10 / 0.800, Iss 10 / 0.800, Back 2 / 0.160, **Bal 2 / 0.160**, Setting **Polki**. EMERALD PEAR 3*4: Rcvd 5, Iss 5, **Bal 0**. The columns fill the width, with no blank strip on the right. |
 | 1.3 | same | Job No **28853** | Every stone line balances to **0**. |
 | 1.4 | same | Select a line and **Return to Stock** more pieces than the bag holds | The save is refused with a message. |
 
@@ -66,7 +66,7 @@ Try the hot-keys on any weight-bearing process. Select a line first, then:
 | 3.1 | Process **HandMade**, Account **PRASENJIT** | Mt Bal next to the account shows PRASENJIT's metal balance. |
 | 3.2 | **Show Pending** | **28855** is listed, with PRASENJIT, 14.800 g. Tick it and press OK. |
 | 3.3 | Enter GrossWt **14.300** and NetWt **14.300** (the green cells), then **Save** | The voucher saves. |
-| 3.4 | Production Planning ▸ Job History, job **28855** | On the HandMade row: Loss **0.500**, Loss % **3.38**. The allowance is 3.5% of 14.300 = **0.500**. The next pending step is **COLOUR**. |
+| 3.4 | Production - Planning ▸ Job History, job **28855** | On the HandMade row: Loss **0.500**, Loss % **3.38**. The allowance is 3.5% of 14.300 = **0.500**. The next pending step is **COLOUR**. |
 | 3.5 | Double-click a pink (issue) cell, then a green (receive) cell | The issue voucher opens, then the receipt. |
 
 ## 4. Job History and setting labour

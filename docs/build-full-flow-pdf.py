@@ -180,27 +180,33 @@ har step agle step ko data deta hai. Koi cheez dropdown / Show Pending me na mil
     ["Save → Wastage Wt khud <b>0.045</b>.",
      "CHAND ke paas ab is voucher se bacha: 2.000 − 1.800 − 0.045 = <b>0.155 g</b> (step 40 me check)."],
 ) + part("C. Order → Job → Route → Stones") + step(
-    "Production Planning ▸ Order → + New", [
+    "Order ▸ Order → + New", [
         ("Ord Type / Customer", "Customer / <b>KK JEWELS</b>"), ("Ref", "<b>TEST-1</b>"),
         ("Terms", "<b>15 days</b>"), ("Priority", "<b>High</b>"), ("Delivery Date", "aaj + 10 din"),
         ("SKU Lines row 1", "SKU <b>NS-1430</b> · Metal <b>14KT 590</b> · Colour <b>Y</b> · Size <b>7</b> · C-Ref <b>TEST-C</b> · Pcs <b>1</b>")],
-    ["Save → Ord No khud; <b>1 job allot</b> hua — Job No likh lein (fresh demo me 28857).",
+    ["Save → Ord No khud; job abhi nahi banta — line <b>Job Card</b> ka wait karti hai (legacy jaisa, 12 Oct video).",
      "Order list me <b>Terms 15 days</b>, Priority High, Remark dikhne chahiye.",
      "Customer khali karke Save → refuse. Pcs 0 → refuse."],
 ) + step(
-    "Production Planning ▸ Job Mapping", [
+    "Production - Planning ▸ Job Card", [
+        ("Show Orders", "Pending Orders For Explode → apne order ki line tick → OK"),
+        ("Prod Pcs / Job/Pcs / Prod Due Date", "<b>1</b> / <b>1</b> / delivery date")],
+    ["Save → <b>Job Card Vr</b> aur <b>1 job</b> — Job No likh lein (fresh demo me 28857).",
+     "Prod Pcs order ke pcs se zyada → refuse."],
+) + step(
+    "Production - Planning ▸ Job Mapping", [
         ("Pending Jobs", "apna job select"), ("Process Group", "<b>Default</b> → <b>Apply Group</b> → <b>Save Route</b>")],
     ["11 steps: CAD CAM CS HM COL PP ST FP fs Meena Puwai.",
      "Job ab Pending Jobs se hat jata hai; Job History me route yahi dikhega."],
 ) + step(
-    "Production Planning ▸ Stone Issue on Job-Card → + New", [
+    "Inventory ▸ Stone ▸ Issue On Job Card → + New", [
         ("Job No", "apna job"),
         ("Stones row 1", "Location <b>Primary</b> · SSKU <b>POLKI 12-14</b> · Pcs <b>10</b> · Weight <b>0.800</b> · S Type <b>Polki</b>"),
         ("Stones row 2", "Location <b>Primary</b> · SSKU <b>EMERALD PEAR 3*4</b> · Pcs <b>5</b> · Weight <b>0.500</b> · S Type <b>CS</b>")],
     ["Save. Same issue Pcs <b>999</b> ke saath → refuse ('Primary holds only …').",
      "<b>Show Pending</b> button bhi try karein — jin jobs ko abhi stone chahiye wo dikhenge."],
 ) + step(
-    "Production Planning ▸ Job Card Bag", [
+    "Production - Planning ▸ Job Card Bag", [
         ("Job No", "apna job"),
         ("POLKI 12-14 line", "select → <b>Setting Type</b> → <b>Polki</b>")],
     ["POLKI 12-14: Rcvd <b>10 / 0.800</b>, Bal 10; Setting column <b>Polki</b>. EMERALD PEAR: Rcvd <b>5 / 0.500</b>.",
@@ -264,7 +270,7 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
      "first\"</i> (job aage badh chuka hai, isliye purana voucher nahi hatega). Kuch delete nahi hua.",
      "<b>Add</b> → khaali naya voucher."],
 ) + part("E. Job History — ek job ki poori kahani") + step(
-    "Production Planning ▸ Job History (F11)", [("Job No", "apna job")],
+    "Production - Planning ▸ Job History (F11)", [("Job No", "apna job")],
     ["Header: SKU NS-1430, C-Ref TEST-C, Client KK JEWELS, Ord No, Route CAD CAM CS HM COL PP ST FP fs Meena Puwai.",
      "11 rows; issue half <b>pink</b>, receive half <b>green</b>. Loss column Worker ke saath: "
      "0.300 · 0.200 · 0.000 · 0.100 · 0.050 · 0.090 · 0.020 · 0.020 · 0.020 → total <b>0.800 g</b>.",
@@ -312,7 +318,7 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
     "Job Card Bag — bache hue 2 Polki wapas stock me", [
         ("Job No", "apna job"), ("POLKI 12-14 line", "select → <b>Return to Stock</b> → 2 pcs → Location Primary")],
     ["POLKI Bal <b>0</b>. <b>Stones in Job Cards</b> / <b>Bag Balance Report</b> → report khulte hain, Export CSV.",
-     "(Ya yahi kaam Production Planning ▸ Inv Return – Stone → Show Pending se.)"],
+     "(Ya yahi kaam Production - Planning ▸ Inv Return – Stone → Show Pending se.)"],
 ) + part("H. Reports — sab link hai ki nahi") + step(
     "Inventory ▸ Metal ▸ Reports ▸ Metal Analysis (FY)", [],
     ["RAJESH JI · 14KT 590: Inward <b>252.800</b> (demo 201 + purchase 50 + receipt 1.800), "
@@ -411,7 +417,7 @@ Issue line pe <b>Mt Price 8,680.67</b>, Size 7, L Price On NetWt, OrderNo, Clien
     ["Piece wapas stock me. KK ka <b>Cl Bal 0.00</b>. Aapka order phir se From Order me Bal 1.",
      "Item Search → aapka piece → history: <b>MF · RA · RAR · RS · RSR</b>, party KK JEWELS ke saath."],
 ) + part("L. Repair") + step(
-    "Production Planning ▸ Order → + New (repair order)", [
+    "Order ▸ Order → + New (repair order)", [
         ("Ord Type / Customer", "Customer / <b>KK JEWELS</b>"), ("Repair", "<b>tick</b>"),
         ("SKU Lines", "khaali chhodo"), ("Save", "Yes")],
     ["Repair tick ke saath bina line ke save hota hai (bina tick ke refuse hota hai)."],

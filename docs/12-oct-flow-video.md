@@ -45,6 +45,8 @@ Order **1680**, 12-10-2026, Account **stock**, SKU **NS-1430** (bridal necklace)
 7. **MFG transfer**: Metal = N × rate; Labour = 1,200 × N; Stone = Σ ct × price; Price = Total × (1 + margin 50 %); Tag = price ÷ 1,000.
 8. Order has a **Shipping Details** dialog and a **Tracking No** — the fields 9 Oct T-07 / T-08 need.
 9. Issue screens ask **"Do you want to merge jobs?"** - asked on our multi-job issue too; Yes keeps the jobs together (question 115).
+11. **Menu sequence as the legacy shows it** - Masters, S.K.U., Quotation, **Order** (Order, Day Book, Order List, Ship Tracking Number, Status ▸), M.R.P., Production - Planning (WIP Job Card, Job Card, Job Mapping, In-House, Job Card Bag, Job History F11, Printing Options, Inv Return ▸, Day Book ▸, Reports ▸), Manufacturing, Purchase, Inventory (Stone ▸ Issue On Job Card), Sale, Accounts, Tools, Reports, Window - built (v0.10.2).
+12. **Jobs come from the Job Card**, not the order's save: Show Orders → Pending Orders For Explode → Prod Pcs / Job/Pcs → Save (Vr 930 → job 29456) - built; Tools ▸ Option switch for the old way.
 10. Order Shipping Details, Tracking No, Fetch Dept / Fetch Last Dtls and "Print Order Sheet?" after save - built (Order list > Shipping Details).
 
 The full chain is reproduced on our app by `tests/ns1430_flow.py`.

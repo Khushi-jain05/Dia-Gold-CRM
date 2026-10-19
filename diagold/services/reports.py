@@ -427,7 +427,8 @@ def job_card_day_book(session: Session, date_from: date, date_to: date) -> list[
         line = lines.get((job.order_id, job.line_sno)) if job.order_id else None
         sku = job.product_sku
         rows.append({
-            "date": day, "vrno": order.order_no if order else "", "ord_no": order.order_no if order else "",
+            "date": day, "vrno": job.job_card_vr or (order.order_no if order else ""),
+            "ord_no": order.order_no if order else "",
             "ref_no": order.ref if order else "", "client": client.name if client else "stock",
             "sku": sku.sku_code if sku else "", "design": sku.design_no if sku else "",
             "c_ref": job.c_ref, "metal": f"{metal.name} {metal.print_on_tag}".strip() if metal else "",

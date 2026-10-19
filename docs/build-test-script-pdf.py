@@ -62,24 +62,24 @@ step 5 ka job step 6–11 me. Agar koi cheez dropdown me na mile, matlab uska pi
     ("Stone Info grid", "SSKU RUBY OVAL 5*4 → Cost/Sale/Per khud bhar jayenge; Pcs 4, Weight 1.000")],
     ["Save → Stone Amount 1,200.00, Mt Rate, Metal Amount, TOTAL RS khud calculate.",
      "Dobara RG-9001 naam se New banao → 'already in use' message."],
-) + step(5, "Production Planning ▸ Order → + New", [
+) + step(5, "Order ▸ Order → + New", [
     ("Date", "aaj"), ("Ord Type", "Customer"), ("Customer", "KK JEWELS"), ("Ref", "TEST-1"),
     ("Delivery Date", "aaj + 10 din"),
     ("SKU Lines row 1", "SKU <b>RG-9001</b> (ye step 4 me banaya tha — list me na dikhe to step 4 pura karein) → Desc/Metal/weights khud aa jayenge; <b>Pcs 2</b>"),
     ("SKU Lines row 2", "<b>Add row</b> dabayein, SKU koi bhi doosra (jaise ER-1337), <b>Pcs 1</b>")],
-    ["Save → Ord No khud milega; <b>2 jobs allot hue</b> (Job Mapping me dikhenge) — dono job number likh lein.",
+    ["Save → Ord No khud milega; jobs abhi nahi bante — <b>Production - Planning ▸ Job Card</b> ▸ Show Orders → dono lines tick → Save → <b>2 jobs</b> (Job Mapping me dikhenge) — dono job number likh lein.",
      "Customer khali chhod ke Save → refuse.",
      "Kisi line ka Pcs 0 karke Save → refuse ('Line 1 has no pieces')."],
-) + step(6, "Production Planning ▸ Job Mapping", [],
+) + step(6, "Production - Planning ▸ Job Mapping", [],
     ["'Pending Jobs For Definition' me apne 2 naye jobs. Pehla select → Process Group Default → <b>Apply Group</b> → 11 steps → <b>Save Route</b>.",
      "<b>Copy To All</b> → doosre job pe bhi route.",
      "<b>Add Step</b> → Repair HM → Save Route (repair step insert)."],
     "Order save hote hi jobs yahan aate hain.",
-) + step(7, "Production Planning ▸ Stone Issue on Job-Card → + New", [
+) + step(7, "Inventory ▸ Stone ▸ Issue On Job Card → + New", [
     ("Job No", "apna naya job (RG-9001 wala)"), ("Date", "aaj"),
     ("Stones row", "Location Primary · SSKU EMERALD PEAR 6*4 (Size/Wt khud) · Pcs 4 · Weight 1.200")],
     ["Save. Dobara same, Pcs 999 → refuse: 'Primary holds only …'."],
-) + step(8, "Production Planning ▸ Job History  (ya F11)", [
+) + step(8, "Production - Planning ▸ Job History  (ya F11)", [
     ("Job No", "step 5 wala apna job number type → Enter"),
     ("+ Issue", "Process step <b>3 · CASTING</b> (dialog khud isi pe khulta hai; CAD pe weight boxes band rehte hain), Worker RAHUL JI, Pcs 1, Gross 5.200, Net 5.200 → Save"),
     ("+ Receive", "wahi step, Worker RAHUL JI, Gross 5.150, Net 5.150 → Save")],
@@ -87,23 +87,23 @@ step 5 ka job step 6–11 me. Agar koi cheez dropdown me na mile, matlab uska pi
      "+ Receive bina weight → refuse ('carries metal…'). Worker khali → refuse.",
      "Step dropdown me <b>1 · CAD</b> chunein → weight boxes apne aap band ho jate hain aur neeche wajah likhi aati hai (design-only step).",
      "<b>Add Comments</b> → note neeche dikhega. <b>Print</b> → PDF banega."],
-) + step(9, "Production Planning ▸ Job Card Bag", [
+) + step(9, "Production - Planning ▸ Job Card Bag", [
     ("Job No", "apna job"), ("EMERALD PEAR 6*4 line", "Bal 4 / 1.200 dikhna chahiye")],
     ["Select → <b>Issue to Worker</b> 2 pcs, RAHUL JI → Bal 2.",
      "<b>Return to Stock</b> 1 pc → Bal 1, Primary +1.",
      "Issue to Worker 10 → refuse.",
      "<b>Stones in Job Cards</b> / <b>Bag Balance Report</b> → Export CSV."],
-) + step(10, "Production Planning ▸ Inv Return – Stone", [
+) + step(10, "Production - Planning ▸ Inv Return – Stone", [
     ("Job No", "apna job"), ("Show Pending", "EMERALD PEAR line, Bal 1"),
     ("Return Pcs / Type / Location", "1 / Returned / Primary")],
     ["<b>Save</b> → voucher number milega, neeche 'Return vouchers on this job' me entry, bag khali."],
-) + step(11, "Production Planning ▸ Printing Options", [
+) + step(11, "Production - Planning ▸ Printing Options", [
     ("Job No", "apna job, 'this job only'"), ("Prints", "Job Sheet ✓, Stone Requirements ✓")],
     ["<b>Print</b> → 'Open print folder' me 2 PDF."],
-) + step(12, "Production Planning ▸ Opening Stone Balances", [
+) + step(12, "Production - Planning ▸ Opening Stone Balances", [
     ("Location", "RAJAT JI"), ("Stone SKU", "RUBY OVAL 5*4"), ("Pcs / Weight", "100 / 25")],
     ["Value <b>khud</b> 20,000 (25 × 800) → <b>Add opening</b>."],
-) + step(13, "Production Planning ▸ Reports — har report kholo", [
+) + step(13, "Production - Planning ▸ Reports — har report kholo", [
     ("Job Analysis", "25006 sabse upar, bada OVERDAYS; 'Late deliveries only' tick → 27751 (21 din)"),
     ("Process Analysis", "Show bar me CST tick → sirf casting group + subtotal"),
     ("Job Card Analysis – Stone", "Primary × COLOR STONE / POLKI; RAJAT JI opening 100; line pe double-click → vouchers"),
