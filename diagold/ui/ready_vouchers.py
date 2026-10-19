@@ -652,32 +652,7 @@ class ReadyVoucherWidget(_Screen):
         self.accounts = QLabel("")
         self.accounts.setObjectName("Muted")
         self.outer.addWidget(self.accounts)
-        # What has been saved on this screen, under the empty new voucher.
-        from diagold.ui.saved_list import SavedVouchersPanel
-        party = "Supplier" if self.t.party == "supplier" else "Account"
-        self.saved = SavedVouchersPanel(
-            self.t.title + "s", [("vr_no", "Vr No"), ("date", "Date"), ("account", party),
-                                 ("ref", "Ref"), ("bill", "Bill No"), ("pcs", "Pcs"),
-                                 ("stock", "Stock No"), ("total", "Total")],
-            self._saved_rows, self.open_voucher)
-        self.outer.addWidget(self.saved)
         self.refresh()
-
-    def _saved_rows(self, date_from, date_to) -> list[dict[str, Any]]:
-        rows = []
-        with SessionLocal() as s:
-            for v in s.scalars(select(ReadyVoucher).where(
-                    ReadyVoucher.vr_type == self.vr_type, ReadyVoucher.vr_date >= date_from,
-                    ReadyVoucher.vr_date <= date_to).order_by(ReadyVoucher.vr_no.desc())):
-                a = s.get(Account, v.account_id) if v.account_id else None
-                items = [s.get(StockItem, l.stock_item_id) for l in v.lines if l.stock_item_id]
-                rows.append({"_id": v.id, "vr_no": v.vr_no, "date": v.vr_date,
-                             "account": a.name if a else "", "ref": v.ref_no or "",
-                             "bill": getattr(v, "bill_no", "") or "",
-                             "pcs": sum(int(l.pcs or 0) for l in v.lines),
-                             "stock": ", ".join(str(i.stock_no) for i in items if i),
-                             "total": float(v.total or 0)})
-        return rows
 
     # -- header ---------------------------------------------------------
     def refresh(self) -> None:
@@ -1101,10 +1076,6 @@ class ReadyVoucherWidget(_Screen):
         vid = self._pick_voucher(f"Edit — open a saved {self.t.title}")
         if vid is None:
             return
-        self.open_voucher(vid)
-
-    def open_voucher(self, vid: int) -> None:
-        """Load saved voucher ``vid`` into the form (Edit, or the saved list)."""
         with SessionLocal() as s:
             v = s.get(ReadyVoucher, vid)
             self.date.blockSignals(True)
@@ -1191,7 +1162,6 @@ class ReadyVoucherWidget(_Screen):
         attach_pending(self.vr_type, vr, self._docs, self.user)
         self.new_voucher()
         self._last_id = vid
-        self.saved.reload()
         extra = (f" New Stock No {', '.join(map(str, nos))}." if self.vr_type in S.NEW_PIECES
                  else "")
         self.totals.setText(f"Saved {self.t.title} Vr {vr}.{extra} Print prints it.")
@@ -1217,7 +1187,6 @@ class ReadyVoucherWidget(_Screen):
                 return
         self.new_voucher()
         self._last_id = None
-        self.saved.reload()
         self.totals.setText(f"{self.t.title} Vr {vr} deleted.")
 
     # -- print / excel ------------------------------------------------------

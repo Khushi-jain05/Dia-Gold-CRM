@@ -443,29 +443,7 @@ class MfgTransferWidget(_Screen):
         legend.setWordWrap(True)
         self.outer.addWidget(legend)
         self.grid.cellDoubleClicked.connect(self._double_click)
-        from diagold.ui.saved_list import SavedVouchersPanel
-        self.saved = SavedVouchersPanel(
-            "MFG Transfers", [("vr_no", "Vr No"), ("date", "Date"), ("ref", "Ref"),
-                              ("jobs", "Jobs"), ("stock", "Stock No"), ("tags", "Tag"),
-                              ("total", "Total")],
-            self._saved_rows, self.open_transfer)
-        self.outer.addWidget(self.saved)
         self.refresh()
-
-    def _saved_rows(self, date_from, date_to) -> list[dict[str, Any]]:
-        rows = []
-        with SessionLocal() as s:
-            for t in s.scalars(select(MfgTransfer).where(
-                    MfgTransfer.vr_date >= date_from, MfgTransfer.vr_date <= date_to)
-                    .order_by(MfgTransfer.vr_no.desc())):
-                items = mfg.stock_for_transfer(s, t)
-                rows.append({"_id": t.id, "vr_no": t.vr_no, "date": t.vr_date,
-                             "ref": t.ref_no or "",
-                             "jobs": ", ".join(str(s.get(Job, l.job_id).job_no) for l in t.lines),
-                             "stock": ", ".join(str(i.stock_no) for i in items),
-                             "tags": ", ".join(l.tag_text or "" for l in t.lines),
-                             "total": float(sum(Decimal(str(l.total or 0)) for l in t.lines))})
-        return rows
 
     # -- data ---------------------------------------------------------
     def refresh(self) -> None:
@@ -537,10 +515,6 @@ class MfgTransferWidget(_Screen):
         tid = self._pick_transfer("Edit — open a saved transfer")
         if tid is None:
             return
-        self.open_transfer(tid)
-
-    def open_transfer(self, tid: int) -> None:
-        """Load saved transfer ``tid`` for editing (Edit, or the saved list)."""
         with SessionLocal() as s:
             t = s.get(MfgTransfer, tid)
             self._seed = mfg.transfer_overrides(t)
@@ -593,7 +567,6 @@ class MfgTransferWidget(_Screen):
                 return
         self.new_transfer()
         self._last_transfer = None
-        self.saved.reload()
         self.totals.setText(f"MFG Transfer Vr {vr} deleted - its jobs are pending again.")
 
     def show_pending(self) -> None:
@@ -764,7 +737,6 @@ class MfgTransferWidget(_Screen):
         self.grid.setRowCount(0)
         self.ref.clear()
         self.refresh()
-        self.saved.reload()
         self.totals.setText(f"Saved Vr {vr}: Stock No {', '.join(map(str, nos))} in Primary.")
         from diagold.services import settings as _settings
         if _settings.opt_on("legacy.inventory_prompt_tag_printing_when_stock_entry"):
@@ -788,7 +760,6 @@ class MfgTransferWidget(_Screen):
                 return
         self.new_transfer()
         self._last_transfer = tid
-        self.saved.reload()
         self.totals.setText(f"MFG Transfer Vr {vr} updated. Tag List reprints its tags.")
 
     def print_format2(self) -> None:
@@ -1415,13 +1386,6 @@ class ProcessVoucherWidget(_Screen):
         legend.setWordWrap(True)
         legend.setObjectName("Muted")
         self.outer.addWidget(legend)
-        from diagold.ui.saved_list import SavedVouchersPanel
-        self.saved = SavedVouchersPanel(
-            "Issues" if issue else "Receipts",
-            [("vr_no", "Vr No"), ("date", "Date"), ("time", "Time"), ("process", "Process"),
-             ("worker", "Karigar"), ("jobs", "Jobs"), ("gross", "G-Wt"), ("net", "N-Wt")],
-            self._saved_rows, self.edit_vr)
-        self.outer.addWidget(self.saved)
         self._last_vr: int | None = None
         # The saved voucher open for editing (Edit), None on a new one.
         self._edit_vr: int | None = None
@@ -1616,34 +1580,6 @@ class ProcessVoucherWidget(_Screen):
             return None
         return lst.currentItem().data(Qt.ItemDataRole.UserRole)
 
-    def _saved_rows(self, date_from, date_to) -> list[dict[str, Any]]:
-        """This screen's saved vouchers (issues or receipts), one row per Vr No."""
-        by: dict[int, dict[str, Any]] = {}
-        with SessionLocal() as s:
-            q = (select(JobVoucher).where(JobVoucher.kind == self.kind,
-                                          JobVoucher.vr_date >= date_from,
-                                          JobVoucher.vr_date <= date_to)
-                 .order_by(JobVoucher.vr_no.desc(), JobVoucher.id))
-            for v in s.scalars(q):
-                r = by.get(v.vr_no)
-                if r is None:
-                    st = s.get(JobStep, v.step_id)
-                    pr = s.get(ManufacturingProcess, st.process_id) if st else None
-                    wk = s.get(Account, v.worker_id) if v.worker_id else None
-                    r = by[v.vr_no] = {"_id": v.vr_no, "vr_no": v.vr_no, "date": v.vr_date,
-                                       "time": v.vr_time or "", "process": pr.name if pr else "",
-                                       "worker": wk.name if wk else "", "jobs": [],
-                                       "gross": Decimal(0), "net": Decimal(0)}
-                r["jobs"].append(str(s.get(Job, v.job_id).job_no))
-                r["gross"] += Decimal(str(v.gross_wt or 0))
-                r["net"] += Decimal(str(v.net_wt or 0))
-        rows = list(by.values())
-        for r in rows:
-            r["jobs"] = ", ".join(r["jobs"])
-            r["gross"] = f"{r['gross']:.3f}" if r["gross"] else ""
-            r["net"] = f"{r['net']:.3f}" if r["net"] else ""
-        return rows
-
     def edit_voucher(self) -> None:
         """Edit: open a saved voucher, change its figures, Save."""
         vr = self._pick_voucher("Edit — open a saved voucher")
@@ -1703,7 +1639,6 @@ class ProcessVoucherWidget(_Screen):
                 return
         self.new_voucher()
         self._last_vr = None
-        self.saved.reload()
         self.totals.setText(f"Vr {vr} deleted.")
 
     def _render(self) -> None:
@@ -1871,7 +1806,6 @@ class ProcessVoucherWidget(_Screen):
         self.narration.clear()
         self.vr_ref.clear()
         self.refresh()
-        self.saved.reload()
         self.totals.setText(f"Saved Vr {vr}: {n} job(s). Print Voucher prints it.")
 
     def _save_edit(self) -> None:
@@ -1897,7 +1831,6 @@ class ProcessVoucherWidget(_Screen):
                 return
         self.new_voucher()
         self._last_vr = vr
-        self.saved.reload()
         self.totals.setText(f"Vr {vr} updated. Print Voucher prints it.")
 
     def print_voucher(self) -> None:
