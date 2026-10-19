@@ -2233,8 +2233,50 @@ class JobCardWidget(_Screen):
         self.hint.setObjectName("Muted")
         self.hint.setWordWrap(True)
         self.outer.addWidget(self.hint)
+        from diagold.ui.saved_list import SavedVouchersPanel
+        self.saved = SavedVouchersPanel(
+            "Job Cards", [("vr_no", "Vr No"), ("date", "Date"), ("orders", "Order No"),
+                          ("client", "Client"), ("jobs", "Jobs"), ("pcs", "Pcs")],
+            self._saved_rows, self.show_card)
+        self.outer.addWidget(self.saved)
         self.lines: list[dict[str, Any]] = []
         self.refresh()
+
+    def _saved_rows(self, date_from, date_to) -> list[dict[str, Any]]:
+        from diagold.db.models import Job as _Job
+        by: dict[int, dict[str, Any]] = {}
+        with SessionLocal() as s:
+            for j in s.scalars(select(_Job).where(_Job.job_card_vr.is_not(None))
+                               .order_by(_Job.job_card_vr.desc(), _Job.job_no)):
+                d = j.prod_date
+                if d is not None and not (date_from <= d <= date_to):
+                    continue
+                r = by.setdefault(j.job_card_vr, {"_id": j.job_card_vr, "vr_no": j.job_card_vr,
+                                                  "date": d, "orders": set(), "client": set(),
+                                                  "jobs": [], "pcs": 0})
+                o = s.get(Order, j.order_id) if j.order_id else None
+                a = s.get(Account, j.account_id) if j.account_id else None
+                if o:
+                    r["orders"].add(str(o.order_no))
+                r["client"].add(a.name if a else "stock")
+                r["jobs"].append(str(j.job_no))
+                r["pcs"] += int(j.pcs or 0)
+        rows = list(by.values())
+        for r in rows:
+            r["orders"] = ", ".join(sorted(r["orders"]))
+            r["client"] = ", ".join(sorted(r["client"]))
+            r["jobs"] = ", ".join(r["jobs"])
+        return rows
+
+    def show_card(self, vr: int) -> None:
+        """Show saved Job Card ``vr`` (from the saved list)."""
+        from diagold.db.models import Job as _Job
+        with SessionLocal() as s:
+            first = s.scalar(select(_Job.job_no).where(_Job.job_card_vr == vr)
+                             .order_by(_Job.job_no))
+        if first is not None:
+            self.edit_job.setText(str(first))
+            self._edit_job()
 
     def refresh(self) -> None:
         with SessionLocal() as s:
@@ -2316,6 +2358,7 @@ class JobCardWidget(_Screen):
         _info(self, "Saved", f"Job Card Vr {vr}: job(s) {', '.join(map(str, jobs))} - "
                              "now pending in Job Mapping.")
         self.refresh()
+        self.saved.reload()
 
     def _edit_job(self) -> None:
         """Edit Job#: show the Job Card voucher a job was made on."""

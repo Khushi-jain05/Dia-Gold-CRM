@@ -92,11 +92,12 @@ def _material(ln: StockTransferLine) -> tuple[str, int | None, str, str]:
 
 
 def post(session: Session, head: dict[str, Any], lines: list[dict[str, Any]], *,
-         user_id: int | None = None) -> StockTransfer:
+         user_id: int | None = None, vr_no: int | None = None) -> StockTransfer:
     from diagold.services import inventory as INV
     if not lines:
         raise ProductionError("Add at least one line to a pane.")
-    t = StockTransfer(vr_no=next_vr_no(session), vr_date=head.get("vr_date") or date.today(),
+    # vr_no: an edited transfer posts again under its own number.
+    t = StockTransfer(vr_no=vr_no or next_vr_no(session), vr_date=head.get("vr_date") or date.today(),
                       contact_person=head.get("contact_person") or "",
                       ref_no=head.get("ref_no") or "", remark=head.get("remark") or "",
                       user_id=user_id)

@@ -273,6 +273,8 @@ class StockTransferWidget(_Screen):
         self.header.hide()
         self.lines: list[dict] = []
         self._last_id: int | None = None
+        # A saved transfer open for editing (from the saved list), else None.
+        self._edit_id: int | None = None
         self.vr = QLabel("")
         self.vr.setObjectName("H2")
         self.date = QDateEdit(_qdate(None))
@@ -335,12 +337,79 @@ class StockTransferWidget(_Screen):
         note.setObjectName("Muted")
         note.setWordWrap(True)
         self.outer.addWidget(note)
+        from diagold.ui.saved_list import SavedVouchersPanel
+        self.saved = SavedVouchersPanel(
+            "Stock Transfers", [("vr_no", "Vr No"), ("date", "Date"), ("contact", "Contact"),
+                                ("ref", "Ref"), ("panes", "Lines"), ("stock", "Stock No")],
+            self._saved_rows, self.open_transfer)
+        self.outer.addWidget(self.saved)
         self.refresh()
 
     def refresh(self) -> None:
         with SessionLocal() as s:
-            self.vr.setText(str(ST.next_vr_no(s)))
+            if self._edit_id is not None and s.get(StockTransfer, self._edit_id):
+                self.vr.setText(f"{s.get(StockTransfer, self._edit_id).vr_no} (editing)")
+            else:
+                self._edit_id = None
+                self.vr.setText(str(ST.next_vr_no(s)))
         self._render()
+
+    def _saved_rows(self, date_from, date_to) -> list[dict]:
+        rows = []
+        with SessionLocal() as s:
+            for t in s.scalars(select(StockTransfer).where(
+                    StockTransfer.vr_date >= date_from, StockTransfer.vr_date <= date_to)
+                    .order_by(StockTransfer.vr_no.desc())):
+                n = {p: sum(1 for l in t.lines if l.pane == p) for p in PANE_TITLES}
+                items = [s.get(StockItem, l.stock_item_id) for l in t.lines if l.stock_item_id]
+                rows.append({"_id": t.id, "vr_no": t.vr_no, "date": t.vr_date,
+                             "contact": t.contact_person or "", "ref": t.ref_no or "",
+                             "panes": " · ".join(f"{PANE_TITLES[p]} {c}" for p, c in n.items() if c),
+                             "stock": ", ".join(str(i.stock_no) for i in items if i)})
+        return rows
+
+    def open_transfer(self, tid: int) -> None:
+        """Load a saved transfer into the panes to look at, change and Save
+        again (19 Oct: an Edit for Stock Transfer)."""
+        from diagold.db.models import Location, Metal, StoneSku
+        with SessionLocal() as s:
+            t = s.get(StockTransfer, tid)
+            if t is None:
+                return
+            locs = {l.id: l.name for l in s.scalars(select(Location))}
+            lines = []
+            for ln in t.lines:
+                d = {k: getattr(ln, k) for k in ST._LINE_FIELDS}
+                d = {k: (D(str(v)) if isinstance(v, float) else v) for k, v in d.items()}
+                d.update(pane=ln.pane, location=locs.get(ln.location_id, ""),
+                         to_location=locs.get(ln.to_location_id, ""))
+                if ln.stock_item_id:
+                    item = s.get(StockItem, ln.stock_item_id)
+                    info = S.describe(s, item) if item else {}
+                    d.update({k: info.get(k) for k in ("stock_no", "sku", "metal", "colour",
+                                                       "size", "gross_wt")})
+                if ln.pane == "metal":
+                    m = s.get(Metal, ln.metal_id) if ln.metal_id else None
+                    d["name"] = m.name if m else ln.particulars
+                elif ln.pane == "stone":
+                    k = s.get(StoneSku, ln.stone_sku_id) if ln.stone_sku_id else None
+                    d["name"] = k.sku_code if k else ln.particulars
+                lines.append(d)
+            # A transfer that melted one piece: its lines go together again.
+            outs = [l["stock_item_id"] for l in lines if l["pane"] == "ready_out"]
+            if len(outs) == 1:
+                for l in lines:
+                    if l["pane"] in ("ready_out", "metal", "stone"):
+                        l["_melt"] = outs[0]
+            self.date.setDate(_qdate(t.vr_date))
+            self.contact.setText(t.contact_person or "")
+            self.ref.setText(t.ref_no or "")
+            self.narration.setText(t.remark or "")
+            self._edit_id = self._last_id = tid
+        self.lines = lines
+        self.refresh()
+        self.totals.setText(self.totals.text() + "   <b>Editing</b> - change the lines and Save; "
+                            "Delete removes it.")
 
     # -- lines -------------------------------------------------------------
     def _render(self) -> None:
@@ -489,6 +558,7 @@ class StockTransferWidget(_Screen):
 
     # -- save / delete / print -----------------------------------------------
     def new_voucher(self) -> None:
+        self._edit_id = None
         self.lines = []
         self.narration.clear()
         self.ref.clear()
@@ -509,7 +579,16 @@ class StockTransferWidget(_Screen):
                 "ref_no": self.ref.text().strip(), "remark": self.narration.text().strip()}
         with SessionLocal() as s:
             try:
-                t = ST.post(s, head, self.lines, user_id=getattr(self.user, "id", None))
+                if self._edit_id is not None:
+                    # Edit: the old voucher is undone and posted again under its Vr No.
+                    old = s.get(StockTransfer, self._edit_id)
+                    vr_keep = old.vr_no
+                    ST.delete(s, old, user_id=getattr(self.user, "id", None))
+                    s.flush()
+                    t = ST.post(s, head, self.lines, user_id=getattr(self.user, "id", None),
+                                vr_no=vr_keep)
+                else:
+                    t = ST.post(s, head, self.lines, user_id=getattr(self.user, "id", None))
                 s.commit()
                 tid, vr = t.id, t.vr_no
             except ProductionError as exc:
@@ -518,6 +597,7 @@ class StockTransferWidget(_Screen):
                 return
         self.new_voucher()
         self._last_id = tid
+        self.saved.reload()
         self.totals.setText(f"Saved Stock Transfer Vr {vr}. Print 2 prints it.")
 
     def _pick(self, title: str) -> int | None:
@@ -551,7 +631,7 @@ class StockTransferWidget(_Screen):
         return lst.currentItem().data(Qt.ItemDataRole.UserRole)
 
     def delete_voucher(self) -> None:
-        tid = self._pick("Delete — pick the stock transfer")
+        tid = self._edit_id or self._pick("Delete — pick the stock transfer")
         if tid is None:
             return
         if QMessageBox.question(self, "Delete", "Delete this stock transfer? Pieces go back "
@@ -566,8 +646,9 @@ class StockTransferWidget(_Screen):
                 s.rollback()
                 QMessageBox.warning(self, "Cannot delete", str(exc))
                 return
+        self.new_voucher()
+        self.saved.reload()
         self.totals.setText("Stock transfer deleted.")
-        self.refresh()
 
     def print_voucher(self) -> None:
         """Print 2: the voucher, pane by pane."""
