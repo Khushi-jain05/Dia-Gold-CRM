@@ -94,3 +94,9 @@ Result: **35 passed, 0 failed**
 - Account ▸ Ledger KK JEWELS: sale debit, receipt 1,00,000 credit
 - Reports ▸ Karigar ▸ Worker Metal Ledger: CHAND — issue 4.000 (edited), receipt 3.800
 - Accounts Dr = Cr and stock = movements were checked after the flow
+
+## M. Purchase ▸ Ready Items — through the screen (16 passed, 0 failed)
+
+- Ready Items Purchase Vr **2** from FULL FLOW SUPPLIER, bill FF-19OCT-RP: BANG-32 14KT 590 Y size 2.4, G 25.000; stones POLKI 12-14 20 / 3.500 ct @8,100, DIA RD MIX 200 / 3.000 ct @13,500 → **N-Wt 23.700**, FineWt 13.983
+- Metal 205,731.88 + Stones 68,850.00 + Labour 28,440.00 = **303,021.88**; Dr Purchase A/c, Cr FULL FLOW SUPPLIER
+- Stock **5** stays in stock — Ready Closing Stock shows DIA WT 3.000, POL WT 3.500
