@@ -99,7 +99,11 @@ def specs() -> dict[str, ReportSpec]:
                             Col("item", "Item"), Col("metal", "METAL"), Col("col", "COL"),
                             Col("size", "SIZE"), _pcs("pcs", "PCS"), _wt("g_wt", "G-WT"),
                             _wt("n_wt", "N-WT"), _wt("oth_wt", "OTH-WT"), _wt("fine", "FINE"),
-                            _money("dia", "DIA"), _money("polki", "POL"), _money("cs", "CS"),
+                            # Carats always shown (19 Oct, item 2); the values on Ctrl+F1.
+                            _wt("dia_wt", "DIA WT"), _wt("polki_wt", "POL WT"),
+                            _wt("cs_wt", "CS WT"),
+                            _money("dia", "DIA AMT"), _money("polki", "POL AMT"),
+                            _money("cs", "CS AMT"),
                             Col("mt_rate", "MT-RATE", "measure", 2), Col("price", "PRICE",
                                                                          "measure", 2),
                             _money("amount", "AMOUNT"), Col("tag", "TAG"),
@@ -110,7 +114,8 @@ def specs() -> dict[str, ReportSpec]:
             on_activate=lambda w, r: w.open_job(r), actions=STOCK_ACTIONS,
             note="Every piece in ready stock on the date. MT-RATE = the day's rate per gram "
                  "of the piece's metal; PRICE per piece, AMOUNT = the piece's price; OTH-WT = "
-                 "gross - net - stones (ct / 5). Select rows and Ctrl+S Catalog / Ctrl+T Tag "
+                 "gross - net - stones (ct / 5). DIA / POL / CS WT = carats of diamond, "
+                 "polki and colour stone; Ctrl+F1 shows their amounts. Select rows and Ctrl+S Catalog / Ctrl+T Tag "
                  "Print (nothing selected = every row shown); Shift+F12 photos; Ctrl+F1 DIA / POL / CS; "
                  "Ctrl+E Excel."),
         "sku_status": ReportSpec(

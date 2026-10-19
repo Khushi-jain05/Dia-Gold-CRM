@@ -790,9 +790,14 @@ class VoucherDialog(QDialog):
             i = self.worker.findData(self._default_worker)
             if i >= 0:
                 self.worker.setCurrentIndex(i)
-        if kind == "issue" and first_free is not None:
-            # Open on the first step that actually takes metal: CAD is where
-            # every route starts, and it is the one step that takes no weights.
+        with SessionLocal() as s:
+            nxt, out = production.current_step(s, s.get(Job, job_id))
+        nxt_i = self.step.findData(nxt.id) if nxt is not None else -1
+        if kind == "issue" and nxt_i >= 0 and out is None:
+            # Open on the job's next step in route order (19 Oct: the process
+            # sequence) - CAD / CAMMING too, they just carry no weights.
+            self.step.setCurrentIndex(nxt_i)
+        elif kind == "issue" and first_free is not None:
             self.step.setCurrentIndex(first_free)
         self.date = QDateEdit(_qdate(None))
         self.date.setCalendarPopup(True)
@@ -908,6 +913,14 @@ class VoucherDialog(QDialog):
             if not bearing:
                 w.setValue(0)
             w.setToolTip("" if bearing else "This step carries no metal weight.")
+        if bearing and self.kind == "issue":
+            # The next process goes out at what came back last (19 Oct meeting,
+            # item 1: after a receipt with loss the next issue must pick the
+            # new gross / net by itself).
+            with SessionLocal() as s:
+                gross, net = production.last_weights(s, s.get(Job, self.job_id))
+            self.gross.setValue(float(gross or 0))
+            self.net.setValue(float(net or 0))
         self.hint.setText(
             "Loss is derived from what comes back: issued net − received net − scrap − dust. "
             "The karigar is allowed Allow Loss % of the net weight received back."
@@ -1070,8 +1083,24 @@ def voucher_view(parent: QWidget, voucher_id: int) -> None:
         lay.addWidget(stones)
     pr_btn = QPushButton("Print Voucher")
     pr_btn.clicked.connect(lambda: _print_table(box, title, lines, f"voucher_{v.kind}_{v.vr_no}"))
+    # Edit this entry straight from Job History (19 Oct meeting, item 1): the
+    # voucher opens on its process screen with its figures, change and Save.
+    ed_btn = QPushButton("Edit")
+    ed_btn.setObjectName("Primary")
+    kind, vr_no = v.kind, v.vr_no
+
+    def edit() -> None:
+        from diagold.ui.manufacturing import ProcessVoucherWidget
+        w = ProcessVoucherWidget(kind, getattr(parent, "user", None))
+        w.edit_vr(vr_no)
+        box.window().close()
+        show_in_dialog(parent, w, f"Edit {title}")
+        if hasattr(parent, "refresh"):
+            parent.refresh()
+    ed_btn.clicked.connect(edit)
     row = QHBoxLayout()
     row.addStretch(1)
+    row.addWidget(ed_btn)
     row.addWidget(pr_btn)
     lay.addLayout(row)
     show_in_dialog(parent, box, title, (1100, 520))

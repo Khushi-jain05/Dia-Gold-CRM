@@ -1585,6 +1585,10 @@ class ProcessVoucherWidget(_Screen):
         vr = self._pick_voucher("Edit — open a saved voucher")
         if vr is None:
             return
+        self.edit_vr(vr)
+
+    def edit_vr(self, vr: int) -> None:
+        """Open saved voucher ``vr`` for editing (also from Job History)."""
         with SessionLocal() as s:
             rows = production.voucher_rows(s, vr)
         if not rows:

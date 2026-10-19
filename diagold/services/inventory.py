@@ -359,13 +359,13 @@ def metal_to_job_step(session: Session, voucher: Any, location_id: int, metal_id
         remark="metal with a job step (F5)")
 
 
-def delete_voucher(session: Session, v: InvVoucher, *, user_id: int | None = None) -> None:
-    """Reverse a voucher's postings and keep the whole voucher in the log."""
+def _reverse_postings(session: Session, v: InvVoucher, what: str) -> None:
+    """Take a saved voucher's stock movements and account entries back out."""
     from diagold.services import accounts
     vt = VOUCHER_TYPES[v.vr_type]
     if accounts.bill_has_allocations(session, v.vr_type, v.vr_no):
         raise ProductionError(f"{vt.title} {v.vr_no} has receipts / payments knocked off "
-                              "against it - delete those first.")
+                              f"against it - delete those first, then {what} it.")
     remove_entries(session, v.vr_type, v.vr_no)
     moves = session.scalars(select(StockMovement).where(
         StockMovement.ref_kind == v.vr_type, StockMovement.ref_no == v.vr_no)).all()
@@ -378,12 +378,35 @@ def delete_voucher(session: Session, v: InvVoucher, *, user_id: int | None = Non
             if vt.direction > 0 and (row.pcs < 0 or _dec(row.weight) < 0) \
                     and negative_mode(session) == "block":
                 raise ProductionError(
-                    f"{vt.title} {v.vr_no} cannot be deleted - what it brought in has "
+                    f"{vt.title} {v.vr_no} cannot be {what}d - what it brought in has "
                     "already gone out again.")
         session.delete(m)
     for e in session.scalars(select(AccountEntry).where(
             AccountEntry.ref_kind == v.vr_type, AccountEntry.ref_no == v.vr_no)).all():
         session.delete(e)
+    session.flush()
+
+
+def repost_voucher(session: Session, v: InvVoucher, *, user_id: int | None = None) -> None:
+    """Edit (19 Oct meeting, item 5): a saved voucher changed - its old stock
+    movements and account entries come out and the voucher posts again from
+    its new lines. A first save simply posts."""
+    had = session.scalar(select(StockMovement.id).where(
+        StockMovement.ref_kind == v.vr_type, StockMovement.ref_no == v.vr_no).limit(1)) or \
+        session.scalar(select(AccountEntry.id).where(
+            AccountEntry.ref_kind == v.vr_type, AccountEntry.ref_no == v.vr_no).limit(1))
+    if had:
+        _reverse_postings(session, v, "edit")
+        session.add(DeletionLog(user_id=user_id, kind=v.vr_type, reason="edited",
+                                ref=f"{VOUCHER_TYPES[v.vr_type].title} {v.vr_no}",
+                                before_json="{}"))
+    post_voucher(session, v)
+
+
+def delete_voucher(session: Session, v: InvVoucher, *, user_id: int | None = None) -> None:
+    """Reverse a voucher's postings and keep the whole voucher in the log."""
+    vt = VOUCHER_TYPES[v.vr_type]
+    _reverse_postings(session, v, "delete")
 
     def image(obj) -> dict[str, Any]:
         return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}

@@ -664,7 +664,10 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
         # receive. The client's own live rows issue HandMade with no metal
         # weight (Vr 3018 carried only stones, Vr 3019 nothing at all), so an
         # issue may go out unweighed; a receive on a metal step may not.
-        if kind == "receive" and not (net and net > 0):
+        if kind == "receive" and not (net and net > 0) and \
+                receive_weight_optional(session, step):
+            pass
+        elif kind == "receive" and not (net and net > 0):
             # Unless nothing weighed went out either: the 12 Oct walkthrough
             # issues and receives CASTING on job 29456 with no weight at all
             # (Vr 3247 / 3245) - the first weight is HandMade's 50.000.
@@ -1709,6 +1712,22 @@ def post_multi_voucher(session: Session, kind: str, worker_id: int | None,
 
 
 MERGE_SETTING = "pp.ask_merge_jobs"
+RECEIVE_OPTIONAL_SETTING = "pp.receive_weight_optional"
+
+
+def receive_weight_optional(session: Session, step: JobStep) -> bool:
+    """A process whose receipt needs no weight (Tools ▸ Option, default
+    CASTING - 19 Oct meeting)."""
+    from diagold.services import settings
+    names = {n.strip().lower() for n in
+             (settings.opt(RECEIVE_OPTIONAL_SETTING, session) or "").split(",") if n.strip()}
+    proc = session.get(ManufacturingProcess, step.process_id)
+    return bool(proc and proc.name.strip().lower() in names)
+
+
+def _issued_unweighed(session: Session, receive: JobVoucher) -> bool:
+    issue = session.get(JobVoucher, receive.issue_id) if receive.issue_id else None
+    return issue is not None and not _dec(issue.net_wt)
 
 
 def merge_jobs(session: Session, job_ids: list[int], vr_no: int) -> str:
@@ -2017,7 +2036,8 @@ def update_voucher(session: Session, vr_no: int, lines: dict[int, dict[str, Any]
                 val = _dec(val)
             setattr(v, key, val)
         if step.weight_bearing:
-            if v.kind == "receive" and not (v.net_wt and _dec(v.net_wt) > 0):
+            if v.kind == "receive" and not (v.net_wt and _dec(v.net_wt) > 0) and not (
+                    receive_weight_optional(session, step) or _issued_unweighed(session, v)):
                 raise ProductionError(f"Job {job.job_no}: this step carries metal - the "
                                       "net weight received back is required.")
         elif (v.gross_wt and _dec(v.gross_wt) > 0) or (v.net_wt and _dec(v.net_wt) > 0):

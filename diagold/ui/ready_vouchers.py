@@ -356,6 +356,8 @@ class NewPieceDialog(QDialog):
         lay.addWidget(self.amounts)
         for w in (self.net, self.rate, self.lab_rate, self.setting, self.other, self.title):
             w.valueChanged.connect(lambda _v: self._recalc())
+        # N-Wt follows G-Wt less the stones (ct x 0.2 g) - 19 Oct meeting, item 3.
+        self.gross.valueChanged.connect(lambda _v: self._net_from_stones())
         self.metal.currentIndexChanged.connect(lambda _i: self._metal_changed())
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                               | QDialogButtonBox.StandardButton.Cancel)
@@ -376,7 +378,12 @@ class NewPieceDialog(QDialog):
         dlg = StoneBreakupDialog(self.stones, self, full=True)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.stones = dlg.stones()
+            self._net_from_stones()
         self._recalc()
+
+    def _net_from_stones(self) -> None:
+        gross = D(str(round(self.gross.value(), 3)))
+        self.net.setValue(float(S.net_from_gross(gross, self.stones)))
 
     def values(self) -> dict[str, Any]:
         net = D(str(round(self.net.value(), 3)))
@@ -924,9 +931,20 @@ class ReadyVoucherWidget(_Screen):
         ln = self.lines[r]
         val = _num(it.text())
         ln[k] = val if val is not None else D(0)
+        if k == "gross_wt":
+            # N-Wt = G-Wt less the stones in the piece (19 Oct meeting, item 3).
+            ln["net_wt"] = S.net_from_gross(ln[k], ln.get("stones") or [])
+            self._refine(ln)
         self._recalc_line(ln)
         self._render()
         self.grid.selectRow(r)
+
+    @staticmethod
+    def _refine(ln: dict) -> None:
+        """FineWt follows a new N-Wt: net x title / 1000."""
+        if ln.get("title") not in (None, ""):
+            ln["fine_wt"] = (D(str(ln.get("net_wt") or 0)) * D(str(ln["title"]))
+                             / 1000).quantize(D("0.001"))
 
     def _recalc_line(self, ln: dict) -> None:
         from diagold.services import costing
@@ -999,6 +1017,9 @@ class ReadyVoucherWidget(_Screen):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             ln["stones"] = dlg.stones()
             ln["st_wt"] = sum((D(s["weight"]) for s in ln["stones"]), D(0))
+            if self.vr_type in S.NEW_PIECES and self._edit_id is None:
+                ln["net_wt"] = S.net_from_gross(ln.get("gross_wt"), ln["stones"])
+                self._refine(ln)
             self._recalc_line(ln)
             self._render()
 

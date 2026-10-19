@@ -92,8 +92,11 @@ def piece_row(session: Session, item: StockItem, c: _Cache | None = None,
     st_wt = sum((_dec(s.get("weight")) for s in stones), ZERO)
     from diagold.services import sales
     groups = {"DIAMOND": ZERO, "POLKI": ZERO, "COLOR STONE": ZERO}
+    # Carats per group too - the client wants the DIA / POLKI weight (19 Oct).
+    grp_wt = {"DIAMOND": ZERO, "POLKI": ZERO, "COLOR STONE": ZERO}
     for st in stones:
         groups[sales.stone_block(st)] += sales.stone_amount(st)
+        grp_wt[sales.stone_block(st)] += _dec(st.get("weight"))
     rate = production.metal_price(session, metal_id, on_date or date.today())
     pcs = int(item.pcs or 1)
     return {
@@ -117,6 +120,9 @@ def piece_row(session: Session, item: StockItem, c: _Cache | None = None,
         "fine": costing.fine_metal_weight(metal, net).quantize(D3) if metal else None,
         "dia": groups["DIAMOND"] or None, "polki": groups["POLKI"] or None,
         "cs": groups["COLOR STONE"] or None,
+        "dia_wt": grp_wt["DIAMOND"].quantize(D3) if grp_wt["DIAMOND"] else None,
+        "polki_wt": grp_wt["POLKI"].quantize(D3) if grp_wt["POLKI"] else None,
+        "cs_wt": grp_wt["COLOR STONE"].quantize(D3) if grp_wt["COLOR STONE"] else None,
         "mt_rate": rate or None, "price": (_dec(item.price) / pcs).quantize(Decimal("0.01")),
         "amount": _dec(item.price), "tag": item.tag_text,
         "status": STATUS_TEXT.get(item.status, item.status), "_status": item.status,

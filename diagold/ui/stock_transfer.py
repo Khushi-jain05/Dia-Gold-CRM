@@ -372,9 +372,24 @@ class StockTransferWidget(_Screen):
         g = self.grids[pane]
         r = g.currentRow()
         rows = [l for l in self.lines if l["pane"] == pane]
-        if 0 <= r < len(rows):
-            self.lines.remove(rows[r])
-            self._render()
+        if not 0 <= r < len(rows):
+            return
+        ln = rows[r]
+        melt = ln.get("_melt")
+        if melt is not None:
+            # A melted piece and the metal / stones it gave go together (19 Oct
+            # meeting, item 4): removing any one of them removes the lot.
+            group = [l for l in self.lines if l.get("_melt") == melt]
+            if len(group) > 1 and QMessageBox.question(
+                    self, "Remove Line",
+                    f"This line is part of the melting of Stock {ln.get('stock_no') or melt}. "
+                    f"Remove the piece and its {len(group) - 1} metal / stone line(s)?") \
+                    != QMessageBox.StandardButton.Yes:
+                return
+            self.lines = [l for l in self.lines if l.get("_melt") != melt]
+        else:
+            self.lines.remove(ln)
+        self._render()
 
     def _piece_line(self, pane: str, info: dict, to_loc: tuple[int, str] | None = None) -> dict:
         ln = {"pane": pane, "stock_item_id": info["stock_item_id"],
@@ -452,8 +467,13 @@ class StockTransferWidget(_Screen):
                 QMessageBox.warning(self, "Stock Melting", str(exc))
                 return
         loc = info["location"]
+        if any(l.get("_melt") == item.id for l in self.lines):
+            QMessageBox.information(self, "Stock Melting",
+                                    f"Stock {info['stock_no']} is already on this voucher.")
+            return
         for ln in lines:
             ln.setdefault("location", loc)
+            ln["_melt"] = item.id
             if ln["pane"] == "ready_out":
                 ln.update({k: info[k] for k in ("stock_no", "sku", "metal", "colour", "size")})
         self.lines += lines

@@ -75,7 +75,8 @@ def voucher_spec(vr_type: str) -> CrudSpec:
         return "This takes stock below zero:\n" + "\n".join(short)
 
     def saved(v, _children, session) -> None:
-        INV.post_voucher(session, v)
+        # A new voucher posts; an edited one takes its old postings out first.
+        INV.repost_voucher(session, v)
 
     def before_delete(v, session) -> None:
         INV.delete_voucher(session, v)
@@ -263,7 +264,7 @@ def voucher_spec(vr_type: str) -> CrudSpec:
         key=f"inventory.{vr_type}", title=vt.title, model=InvVoucher, fields=head,
         extra_buttons=buttons,
         order_by="-vr_no", date_field="vr_date", search_hint="Search by ref, narration…",
-        editable=False, before_save=prepare, after_save=saved, validate=validate,
+        editable=True, before_save=prepare, after_save=saved, validate=validate,
         warn=warn, before_delete=before_delete, fixed={"vr_type": vr_type},
         form_width=1180, singular_title=vt.title,
     )

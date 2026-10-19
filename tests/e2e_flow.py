@@ -612,6 +612,41 @@ with SessionLocal() as s:
     check("Order List status: exploded, unmoved -> Pending", st.get(o5.order_no), "Pending")
     s.rollback()
 
+    print("\n== N12. 19 Oct meeting: casting receive, closing-stock carats, net weight, edit")
+    from diagold.services import stock_tools as STK, sales as SAL2
+    # 3) N-Wt = G-Wt less stones x 0.2 (25.000 with 6.5 ct -> 23.700)
+    check("net from gross 25.000 - 6.5 ct", SAL2.net_from_gross(D("25"), [{"weight": "3.5"}, {"weight": "3"}]), D("23.700"))
+    # 2) DIA / POL / CS carats on the closing stock
+    rows = STK.ready_closing_stock(s, T)
+    withst = [r for r in rows if r["_stones"]]
+    if withst:
+        r0 = withst[0]
+        tot = sum((D(str(x.get("weight") or 0)) for x in r0["_stones"]), D(0)).quantize(D("0.001"))
+        check("DIA + POL + CS WT = the piece's carats", sum((r0[k] or D(0) for k in ("dia_wt", "polki_wt", "cs_wt")), D(0)), tot)
+    # 5) Edit a metal issue: 2.000 -> 1.500 moves the location's balance by 0.500
+    before = P.stock_balance(s, raj.id, "metal", m590.id)
+    mi.lines[0].weight = D("1.500"); INV.fill_line(s, "metal_issue", {"metal_id": m590.id, "weight": D("1.5")})
+    s.flush(); INV.repost_voucher(s, mi)
+    after = P.stock_balance(s, raj.id, "metal", m590.id)
+    check("edited issue: balance up by 0.500", (D(str(after[1])) - D(str(before[1]))).quantize(D("0.001")), D("0.500"))
+    check("still one set of movements", len(s.scalars(select(StockMovement).where(StockMovement.ref_kind == "metal_issue", StockMovement.ref_no == mi.vr_no)).all()), 1)
+    # 1) CASTING weighed out, received with no weight; the next issue goes at the casting weight
+    o7 = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(o7); s.flush(); s.add(OrderLine(order_id=o7.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(o7)
+    _v, mk = P.explode_orders(s, [{"order_id": o7.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+    j7 = s.scalar(select(Job).where(Job.job_no == mk[0])); P.map_job(s, j7, "Default", T)
+    wk7 = s.scalars(select(Account).where(Account.account_type == "Worker")).first() or chand
+    def go(kind, g=None, n=None):
+        r = [x for x in P.pending_steps(s, kind) if x["_job_id"] == j7.id][0]
+        return P.post_multi_voucher(s, kind, wk7.id, [{"job_id": j7.id, "step_id": r["_step_id"], "gross": g, "net": n}])
+    for _ in range(2):
+        go("issue"); go("receive")
+    go("issue", D("22"), D("22"))
+    go("receive")
+    check("CASTING received with no weight after a weighed issue", P.current_step(s, j7)[1], None)
+    check("next issue goes at the casting weight", P.last_weights(s, j7), (D("22.000"), D("22.000")))
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

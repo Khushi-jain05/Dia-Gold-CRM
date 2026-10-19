@@ -162,6 +162,11 @@ SETTINGS_TREE: tuple[Setting, ...] = (
             "After each receipt the order remark becomes \"daank/167/12.02, DIA./412/5.55, "
             "...\" - the stones in the piece, as the legacy does (12 Oct). One-job orders "
             "only"),
+    Setting("Production Planning", "pp.receive_weight_optional",
+            "Processes received without a weight", "text", "CASTING",
+            "Comma-separated process names whose receipt may be saved with no gross / net "
+            "even when the issue was weighed (19 Oct meeting: \"casting me metal receive "
+            "don't mandatory\"). The next process then goes out at the last weight"),
     Setting("Production Planning", "pp.jobs_on_order_save",
             "Allot jobs when the order is saved", "bool", "0",
             "Off = the legacy way (12 Oct video): an order's lines wait in Production - "

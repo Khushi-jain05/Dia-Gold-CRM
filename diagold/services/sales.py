@@ -93,6 +93,14 @@ READY_TYPES: dict[str, ReadyType] = {t.key: t for t in (
     ReadyType("rp_opening", "Opening Stock — Ready Items", "OPR", "none", ("",), "in_stock"),
 )}
 NEW_PIECES = ("rp_purchase", "rp_opening")
+
+
+def net_from_gross(gross: Any, stones: list[dict]) -> Decimal:
+    """N-Wt of a piece = G-Wt less its stones at 0.2 g a carat (19 Oct meeting,
+    item 3; the legacy setting receipt works the same way, 12 Oct video)."""
+    st = sum((Decimal(str(s.get("weight") or 0)) for s in stones or []), Decimal(0))
+    net = Decimal(str(gross or 0)) - st * Decimal("0.2")
+    return max(net, Decimal(0)).quantize(Decimal("0.001"))
 STATE_LABEL = {"in_stock": "in stock", "sold": "sold", "on_approval": "out on approval",
                "in_repair": "issued to repair", "returned": "returned to the supplier",
                "melted": "melted (Stock Transfer)", "repair_job": "in a repair job",
