@@ -32,7 +32,7 @@ Namaste Rohit ji. Everything we still need from you, in one list. Please reply w
 **Stones and the job bag**
 16. Broken stones: where do they go, and how are they valued? *(18 Sep Q5)*
 17. Can extra stones go back to stock straight from the job bag, without going to a karigar? (If never, we will block it.) *(28 Sep Q14)*
-18. The job bag's "Back" column: what does it mean exactly? *(11 Sep Q7)*
+18. The job bag's "Back" column: what does it mean exactly? *(11 Sep Q7)* — **Answered 19 Oct:** Bal = Rcvd − Iss − Rtn − Loss − Back; Back = stones taken out of the bag back to the party. Built.
 19. Splitting one job between karigars (job 27684 went 0.3 / 0.3 / 0.4): when is it done, who decides, how are the weights set, and can the parts merge back? *(18 Sep C-02)*
 20. Negative stock (Primary 24KT shows −1,030 g): should the system block it, warn, or allow it? (It warns now.) *(28 Sep Q6)*
 

@@ -1220,24 +1220,31 @@ class BagRow:
         return self.pcs.get(key, 0), self.wt.get(key, ZERO)
 
 
-COLUMNS: tuple[str, ...] = ("req", "rcvd", "extra", "pnd", "iss", "rtn",
-                            "break", "lost", "back", "bal")
+# The Job Card Bag's columns as the client reads them (19 Oct):
+#   Bal = Rcvd - Iss - Rtn - Loss (Break + Lost) - Back
+# Iss  = net with the karigars: issued less what they handed back (key iss_net;
+#        the raw "iss" / "back" movements stay for the reports that need them);
+# Back = stones taken out of the bag back to the party (movement kind "out").
+COLUMNS: tuple[str, ...] = ("req", "rcvd", "extra", "pnd", "iss_net", "rtn",
+                            "break", "lost", "out", "bal")
 COLUMN_LABELS: dict[str, str] = {
-    "req": "Req", "rcvd": "Rcvd", "extra": "Extra", "pnd": "Pnd", "iss": "Iss",
-    "rtn": "Rtn", "break": "Break", "lost": "Lost", "back": "Back", "bal": "Bal",
+    "req": "Req", "rcvd": "Rcvd", "extra": "Extra", "pnd": "Pnd", "iss_net": "Iss",
+    "rtn": "Rtn", "break": "Break", "lost": "Lost", "out": "Back", "bal": "Bal",
 }
+_MOVE_KINDS = ("rcvd", "iss", "rtn", "break", "lost", "back", "out")
 
 
 def bag_row(line: JobBagLine) -> BagRow:
     """Derive every ledger column from the movements on one line.
 
-    Bal = Rcvd - Iss - Rtn - Break - Lost + Back. Extra and Pnd are the two
-    sides of Rcvd against Req. 'Back' is read as "returned from the worker
-    into the bag" - seen on screen, never explained; confirm with the client
-    (Q7).
+    Bal = Rcvd - Iss - Rtn - Break - Lost - Back, the client's formula
+    (19 Oct), with Iss net of what the karigars handed back and Back the
+    stones taken out of the bag to the party. Extra and Pnd are the two sides
+    of Rcvd against Req.
     """
-    pcs = {k: 0 for k in COLUMNS}
-    wt = {k: ZERO for k in COLUMNS}
+    keys = set(COLUMNS) | set(_MOVE_KINDS)
+    pcs = {k: 0 for k in keys}
+    wt = {k: ZERO for k in keys}
     for m in line.movements:
         if m.kind in pcs:
             pcs[m.kind] += int(m.pcs or 0)
@@ -1247,8 +1254,11 @@ def bag_row(line: JobBagLine) -> BagRow:
     wt["extra"] = max(wt["rcvd"] - wt["req"], ZERO) if wt["req"] else ZERO
     pcs["pnd"] = max(pcs["req"] - pcs["rcvd"], 0)
     wt["pnd"] = max(wt["req"] - wt["rcvd"], ZERO)
-    pcs["bal"] = pcs["rcvd"] - pcs["iss"] - pcs["rtn"] - pcs["break"] - pcs["lost"] + pcs["back"]
-    wt["bal"] = wt["rcvd"] - wt["iss"] - wt["rtn"] - wt["break"] - wt["lost"] + wt["back"]
+    pcs["iss_net"] = pcs["iss"] - pcs["back"]
+    wt["iss_net"] = wt["iss"] - wt["back"]
+    pcs["bal"] = (pcs["rcvd"] - pcs["iss_net"] - pcs["rtn"] - pcs["break"] - pcs["lost"]
+                  - pcs["out"])
+    wt["bal"] = wt["rcvd"] - wt["iss_net"] - wt["rtn"] - wt["break"] - wt["lost"] - wt["out"]
     for k in wt:
         wt[k] = wt[k].quantize(D3)
     return BagRow(line=line, pcs=pcs, wt=wt)
@@ -1266,12 +1276,13 @@ def bag_move(session: Session, line: JobBagLine, kind: str, pcs: int,
              location_id: int | None = None, mv_date: date | None = None,
              ref_kind: str = "", ref_id: int | None = None,
              remark: str = "") -> JobBagMovement:
-    """Issue to a worker / return to stock / break / lost / back into the bag.
+    """Issue to a worker / back from the worker / return to stock / break /
+    lost / out of the bag back to the party ("out" - the bag's Back column).
 
     Weight defaults to the line's average per piece when not given, which is
     how "returning 2 of 6 pieces at 0.680" comes to 0.227 and leaves 0.453.
     """
-    if kind not in ("iss", "rtn", "break", "lost", "back"):
+    if kind not in ("iss", "rtn", "break", "lost", "back", "out"):
         raise ProductionError(f"Unknown bag movement '{kind}'.")
     pcs = int(pcs or 0)
     if pcs <= 0 and _dec(weight) <= 0:
@@ -1290,11 +1301,12 @@ def bag_move(session: Session, line: JobBagLine, kind: str, pcs: int,
         weight = (avg * pcs).quantize(D4)
     weight = _dec(weight)
     name = f"{line.particulars} {line.size}".strip()
-    if kind in ("iss", "rtn", "break", "lost"):
+    if kind in ("iss", "rtn", "break", "lost", "out"):
         if pcs > bal_pcs or weight > bal_wt + D3:
             raise ProductionError(
                 f"Job bag holds {bal_pcs} pcs / {bal_wt} of {name} - cannot "
-                f"{'return' if kind == 'rtn' else kind} {pcs} pcs / {weight}."
+                f"{ {'rtn': 'return', 'out': 'send back'}.get(kind, kind)} {pcs} pcs / "
+                f"{weight}."
             )
     if kind == "back":
         out_pcs = row["iss"][0] - row["back"][0]

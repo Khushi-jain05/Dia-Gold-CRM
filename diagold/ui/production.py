@@ -1801,8 +1801,9 @@ class JobHistoryWidget(_Screen):
 # Job Card Bag (T-02)
 # --------------------------------------------------------------------------
 class MovementDialog(QDialog):
-    KINDS = {"iss": "Issue to worker", "back": "Back from worker",
-             "rtn": "Return to stock", "break": "Broken", "lost": "Lost"}
+    KINDS = {"iss": "Issue to worker", "back": "Return from worker",
+             "rtn": "Return to stock", "break": "Broken", "lost": "Lost",
+             "out": "Back (out of the bag to the party)"}
 
     def __init__(self, row: production.BagRow, kind: str, parent=None):
         super().__init__(parent)
@@ -1874,8 +1875,9 @@ class JobBagWidget(_Screen):
         self.user = user
         self.button("Show Pending", self._show_pending, primary=True)
         self.button("Issue to Worker", lambda: self._move("iss"))
-        self.button("Back from Worker", lambda: self._move("back"))
+        self.button("Return from Worker", lambda: self._move("back"))
         self.button("Return to Stock", lambda: self._move("rtn"))
+        self.button("Back", lambda: self._move("out"))
         # Break and Lost are rarer; they sit on the second row so the first
         # row stays inside a laptop's width.
         self.button("Break", lambda: self._move("break"), secondary=True)
@@ -1905,9 +1907,10 @@ class JobBagWidget(_Screen):
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setVisible(False)
         self.outer.addWidget(self.empty, 1)
-        legend = QLabel("Bal = Rcvd − Iss − Rtn − Break − Lost + Back.  Tints: Iss yellow, "
-                        "Break pink, Lost red, Bal green (as on the legacy screen).  "
-                        "'Back' is read as returned from the worker into the bag (Q7).")
+        legend = QLabel("Bal = Rcvd − Iss − Rtn − Loss (Break + Lost) − Back.  Iss = with the "
+                        "karigars (issued less returned from them); Rtn = returned to stock; "
+                        "Back = taken out of the bag back to the party.  Tints: Iss yellow, "
+                        "Break pink, Lost red, Bal green (as on the legacy screen).")
         legend.setObjectName("Muted")
         legend.setWordWrap(True)
         self.outer.addWidget(legend)
@@ -1920,7 +1923,7 @@ class JobBagWidget(_Screen):
         if not self.job_id:
             self.header.clear()
             return
-        tints = {"iss": TINT_ISS, "break": TINT_BREAK, "lost": TINT_LOST, "bal": TINT_BAL}
+        tints = {"iss_net": TINT_ISS, "break": TINT_BREAK, "lost": TINT_LOST, "bal": TINT_BAL}
         with SessionLocal() as s:
             job = s.get(Job, self.job_id)
             self.header.set_job(s, job)

@@ -405,7 +405,9 @@ class JobBagMovement(Base, PKMixin, TimestampMixin):
     # voucher), so deleting the voucher takes them back out again.
     voucher_id: Mapped[int | None] = mapped_column(nullable=True)
 
-    KINDS = ("rcvd", "iss", "rtn", "break", "lost", "back")
+    # back = from the karigar into the bag; out = out of the bag to the party
+    # (the Job Card Bag's "Back" column, 19 Oct).
+    KINDS = ("rcvd", "iss", "rtn", "break", "lost", "back", "out")
 
     line: Mapped[JobBagLine] = relationship(back_populates="movements")
 

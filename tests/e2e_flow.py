@@ -647,6 +647,30 @@ with SessionLocal() as s:
     check("next issue goes at the casting weight", P.last_weights(s, j7), (D("22.000"), D("22.000")))
     s.rollback()
 
+    print("\n== N13. Job Card Bag: Bal = Rcvd - Iss - Rtn - Loss - Back (19 Oct, client's formula)")
+    o8 = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(o8); s.flush(); s.add(OrderLine(order_id=o8.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(o8)
+    _v, mk8 = P.explode_orders(s, [{"order_id": o8.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+    j8 = s.scalar(select(Job).where(Job.job_no == mk8[0]))
+    si8 = StoneIssue(vr_no=P.next_number(s, StoneIssue.vr_no), job_id=j8.id, vr_date=T); s.add(si8); s.flush()
+    s.add(StoneIssueLine(issue_id=si8.id, sno=1, location_id=prim.id, stone_sku_id=polki.id, size=polki.size or "", pcs=12, weight=D("2.500"), s_type="Polki"))
+    s.flush(); s.refresh(si8); P.apply_stone_issue(s, si8)
+    bl = next(l for l in s.scalars(select(JobBagLine).where(JobBagLine.job_id == j8.id)) if l.stone_sku_id == polki.id)
+    P.bag_move(s, bl, "iss", 12, D("2.500"), worker_id=chand.id)
+    P.bag_move(s, bl, "back", 5, D("1.042"), worker_id=chand.id)       # Return from Worker
+    P.bag_move(s, bl, "rtn", 5, D("1.000"), location_id=prim.id)       # Return to Stock
+    s.refresh(bl); r8 = P.bag_row(bl)
+    check("screenshot case: Rcvd 12, Iss (net) 7, Rtn 5, Back 0 -> Bal 0 pcs / 0.042",
+          (r8["rcvd"], r8["iss_net"], r8["rtn"], r8["out"], r8["bal"]),
+          ((12, D("2.500")), (7, D("1.458")), (5, D("1.000")), (0, D("0.000")), (0, D("0.042"))))
+    P.bag_move(s, bl, "back", 7, D("1.458"), worker_id=chand.id)
+    P.bag_move(s, bl, "lost", 1, D("0.200"))
+    P.bag_move(s, bl, "out", 6, D("1.300"))                            # Back to the party
+    s.refresh(bl); r8 = P.bag_row(bl)
+    check("Bal = 12 - 0 - 5 - 1 lost - 6 back = 0", r8["bal"], (0, D("0.000")))
+    refused("Back more than the bag holds", lambda: P.bag_move(s, bl, "out", 1, D("0.100")))
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])
