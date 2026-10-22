@@ -1,0 +1,245 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>ERP Flow Video — Detailed Script</title>
+<style>
+@page { size: A4; margin: 14mm 13mm 14mm 13mm; }
+body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #1d2330; line-height: 1.5; }
+h1 { font-size: 22pt; margin: 0 0 1mm; }
+.sub { color: #6b5a1e; margin-bottom: 5mm; }
+h2 { font-size: 14.5pt; margin: 7mm 0 2.5mm; padding: 2mm 3mm; background: #1d2330; color: #fff; border-radius: 4px;
+     page-break-after: avoid; }
+h2 .t { float: right; font-weight: 400; font-size: 10.5pt; color: #e8d9a8; }
+.step { page-break-inside: auto; }
+.do, .see, .say, table, .box { page-break-inside: avoid; }
+.lbl { display: block; font-weight: 700; font-size: 10pt; letter-spacing: 1.5px; margin: 2.5mm 0 1mm; }
+.do .lbl { color: #3B5BA5; }
+.see .lbl { color: #6b5a1e; }
+.say .lbl { color: #0E6B54; }
+.do, .see, .say { padding: 2mm 4mm; border-radius: 4px; margin-bottom: 2mm; }
+.do { background: #eef2fb; }
+.see { background: #faf6e8; }
+.say { background: #eaf6f1; border-left: 4px solid #0E6B54; }
+.say p { margin: 0 0 1.5mm; font-style: italic; }
+ol, ul { margin: 0; padding-left: 5.5mm; }
+li { margin: 0.6mm 0; }
+.path { font-family: Menlo, Consolas, monospace; font-size: 9.8pt; background: #fff; border: 1px solid #d6dbe6;
+        padding: 0 1.5mm; border-radius: 3px; white-space: nowrap; }
+.box { border: 2px solid #C9A227; background: #fffbea; border-radius: 5px; padding: 3mm 4mm; margin: 3mm 0; }
+.box.red { border-color: #B3261E; background: #fff4f2; }
+.box b.h { display: block; letter-spacing: 2px; font-size: 10pt; margin-bottom: 1mm; }
+table { border-collapse: collapse; width: 100%; font-size: 10pt; margin: 1mm 0; }
+td, th { border: 1px solid #ddd3b5; padding: 1mm 2mm; text-align: left; }
+th { background: #f3efe2; }
+.num { text-align: right; }
+.flow { text-align: center; background: #1d2330; color: #fff; padding: 3mm; border-radius: 5px; font-size: 11pt; }
+</style></head><body>
+
+<h1>Dia Gold ERP — Flow Video (Detailed Script)</h1>
+<div class="sub">Order 9002 ka poora flow · demo data · ~10–12 minute · har step: <b>kya karna</b> → <b>kya dikhega</b> → <b>kya bolna</b></div>
+
+<div class="flow">Order 9002 → Job Card (jobs 28860–62) → Job Mapping → Stones → Job History → MFG Transfer (TAG 361) → Ready Stock → Sale → WhatsApp → Payment</div>
+
+<div class="box"><b class="h">SHURU SE PEHLE (recording se pehle)</b>
+<ol>
+<li>Terminal me: <span class="path">python main.py --demo</span> → login <b>admin / admin</b>.</li>
+<li>Window ke title me "DEMO DATA (testing)" dikhna chahiye. Window full screen kar lo.</li>
+<li>Saare purane tabs band (sirf Dashboard rahe).</li>
+<li>Screen recorder ON, mic ON. Ek baar 5 sec ki test recording kar lo — awaaz saaf aa rahi hai?</li>
+<li>Ye script doosri screen / phone pe khol lo.</li>
+</ol></div>
+<div class="box red"><b class="h">GALTI SE BACHNA</b>
+<ul>
+<li><b>Save aur Delete kabhi mat dabana.</b> Hum sirf pehle se bane records khol ke dikha rahe hain.</li>
+<li>Koi form khul jaaye to <b>Cancel / Exit</b> ya tab ka <b>×</b>.</li>
+<li>Mouse dheere chalao, har click ke baad 1–2 second ruko taaki video me dikhe.</li>
+<li>Kuch atak jaaye to ghabrao mat — tab band karke wahi step dobara.</li>
+</ul></div>
+
+<!-- INTRO -->
+<div class="step"><h2>0. Intro <span class="t">30 sec</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li>Dashboard khula rakho. Mouse ko upar ke menu bar pe ek baar left se right le jao.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+Dashboard ke numbers (pending jobs, orders, accounts) aur upar menu: Masters, S.K.U., Quotation, Order, M.R.P., Production - Planning, Manufacturing, Purchase, Inventory, Sale, Accounts, Tools, Reports, Window.</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Namaste sir. Is video me main aapko Dia Gold ERP ka poora flow dikhaungi — order aane se lekar maal banne, stock me aane, bikne aur payment tak."</p>
+<p>"Upar menu ka sequence bilkul aapke purane DIAGOLD software jaisa rakha hai — Masters, S.K.U., Quotation, Order, M.R.P., Production Planning, Manufacturing, Purchase, Inventory, Sale, Accounts, Tools aur Reports — taaki aapki team ko kuch naya seekhna na pade."</p>
+<p>"Ye demo data hai, aur main ek hi order — order number 9002 — ko shuru se end tak follow karungi."</p></div></div>
+
+<div class="step"><h2>1. Masters — base data <span class="t">45 sec</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li><span class="path">Masters › Account</span> kholo → search box me <b>KK</b> likho → KK JEWELS dikhao.</li>
+<li>Search me <b>CHAND</b> likho → CHAND KUMAR HAZRA (Worker) dikhao. Tab band.</li>
+<li><span class="path">Masters › Daily Metal Rate</span> kholo → aaj ki date ki row dikhao. Tab band.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+Accounts ki list (client, supplier, karigar sab ek jagah) · Daily Metal Rate: 24K fine rate 14,713 / g → 14KT 590 = 8,680.67 / g.</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Sabse pehle Masters. Yahan saare accounts hain — clients jaise KK Jewels, suppliers, aur karigar jaise Chand Kumar Hazra. Har account ka type alag hai, isliye har voucher me sahi log hi aate hain."</p>
+<p>"Ye Daily Metal Rate hai — roz ka 24 carat rate yahan daalte hain, aur software 14KT, 18KT jaise har metal ka rate uski purity se khud nikaal leta hai. Aage costing, sale, sab isi rate se hota hai."</p></div></div>
+
+<div class="step"><h2>2. Inventory — maal aana aur karigar ko metal <span class="t">1 min</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li><span class="path">Inventory › Stone › Purchase</span> → list me <b>Vr 3</b> select → <b>View</b>. Lines dikhao → Close.</li>
+<li><span class="path">Inventory › Metal › Purchase</span> → <b>Vr 4</b> select → View (14KT 590, 100 g) → Close.</li>
+<li><span class="path">Inventory › Metal › Issue Outside / Worker</span> → <b>Vr 2</b> select → <b>Edit</b> button dikhao (form khulega) → <b>Cancel</b>.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+<table><tr><th>Stone Purchase Vr 3</th><th class="num">Pcs</th><th class="num">Ct</th><th class="num">Rate</th><th class="num">Amount</th></tr>
+<tr><td>POLKI 12-14</td><td class="num">40</td><td class="num">3.200</td><td class="num">8,100</td><td class="num">25,920</td></tr>
+<tr><td>DIA RD MIX</td><td class="num">500</td><td class="num">7.000</td><td class="num">13,500</td><td class="num">94,500</td></tr>
+<tr><td>EMERALD PEAR 3*4</td><td class="num">20</td><td class="num">2.000</td><td class="num">2,000</td><td class="num">4,000</td></tr></table>
+Metal Issue Vr 2: CHAND KUMAR HAZRA ko 14KT 590 <b>4.000 g</b>.</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Ab Inventory. Supplier se stone aaye — Polki, Diamond aur Emerald — har ek ki pieces, carat aur rate ke saath. Amount software khud calculate karta hai."</p>
+<p>"Metal purchase se 100 gram 14KT metal Primary location me aaya. Location-wise stock hamesha live dikhta hai."</p>
+<p>"Aur ye Metal Issue — karigar Chand ko metal diya. Yahan aapne Edit maanga tha — ab koi bhi inventory voucher edit ho sakta hai, aur edit karte hi stock aur account apne aap theek ho jaate hain."</p></div></div>
+
+<div class="step"><h2>3. Order <span class="t">1 min</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li><span class="path">Order › Order</span> kholo → list me order <b>9002</b> select.</li>
+<li><b>Edit</b> dabao → form me lines dikhao (2 lines) aur Tracking No → <b>Cancel</b>.</li>
+<li>List pe <b>Shipping Details</b> button dabao → dialog dikhao (Despatch, Buyer, Consignee, Export) → <b>Cancel</b>.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+Order 9002 · KK JEWELS · Ref FF-19OCT · Terms 30 days · Tracking No TRK-FF-19OCT<br>
+Line 1: NS-1430, 14KT 590, Y, size 7, 1 pc · Line 2: BANG-32, size 2.4, 2 pcs<br>
+Shipping Details: BlueDart → Jaipur, buyer / consignee KK JEWELS ki details.</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Ab order. KK Jewels ka order 9002 — ek necklace NS-1430 aur do bangles BANG-32. Har line pe SKU, metal, colour, size aur pieces."</p>
+<p>"Order me Tracking Number aur Shipping Details bhi hain — jaise aapke software me — despatch, buyer, consignee aur export ki saari details. Fetch Last Details se pichhle order ki details ek click me aa jaati hain."</p>
+<p>"Ek important baat — aapke software ki tarah, order save karne pe job nahi banti. Job, Job Card se banti hai — wo agle step me dikhati hoon."</p></div></div>
+
+<div class="step"><h2>4. Job Card → Job Mapping <span class="t">1 min 15 sec</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li><span class="path">Production - Planning › Job Card</span> kholo. <b>Show Orders</b> button pe mouse rakho (dabana nahi).</li>
+<li><b>Edit Job#</b> box me <b>28860</b> likho → Enter → grid me 3 jobs dikhengi.</li>
+<li><span class="path">Production - Planning › Job Mapping</span> kholo → <b>Show Jobs (mapped too)</b> tick karo → list me job <b>28860</b> click.</li>
+<li>Right side ka route dikhao. Kuch save nahi.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+Job Card Vr 1: job <b>28860</b> (NS-1430, 1 pc), <b>28861</b> aur <b>28862</b> (BANG-32, 1-1 pc) · "Last Job Card No."<br>
+Job Mapping route: CAD → CAMMING → CASTING → HandMade → COLOUR → PrePolish → Setting → Final Polish → final setting → Meena → Puwai.</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Job Card me Show Orders dabane pe saare pending orders aate hain. Order line chuno, Prod Pcs aur Job/Pcs daalo — jaise bangle ke 2 pieces, ek job me ek piece — aur save pe jobs ban jaati hain."</p>
+<p>"Is order se teen jobs bani — 28860 necklace ki, aur 28861, 28862 dono bangles ki."</p>
+<p>"Ab Job Mapping. Yahan har job ko uska process route milta hai. Default group lagaya to poora route aa gaya — CAD, CAMMING, Casting, HandMade, Colour, PrePolish, Setting, Final Polish, final setting, Meena aur Puwai. Kisi job me koi step nahi chahiye to yahin hata sakte hain."</p></div></div>
+
+<div class="step"><h2>5. Stones — Job Card Bag <span class="t">1 min</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li><span class="path">Production - Planning › Job Card Bag</span> kholo → Job No me <b>28860</b> chuno.</li>
+<li>Teeno rows aur neeche likha formula dikhao. Buttons pe mouse ghumao: Issue to Worker, Return from Worker, Return to Stock, Back.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+<table><tr><th></th><th class="num">Rcvd</th><th class="num">Iss</th><th class="num">Break</th><th class="num">Bal</th></tr>
+<tr><td>DIA</td><td class="num">120 / 1.800</td><td class="num">119 / 1.785</td><td class="num">1 / 0.015</td><td class="num">0</td></tr>
+<tr><td>POLKI</td><td class="num">12 / 0.960</td><td class="num">10 / 0.800</td><td class="num">0</td><td class="num">2 / 0.160</td></tr>
+<tr><td>EMERALD PEAR</td><td class="num">6 / 0.600</td><td class="num">6 / 0.600</td><td class="num">0</td><td class="num">0</td></tr></table></div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Stone Issue on Job Card se stones job ke bag me aate hain — is job me 120 diamond, 12 polki aur 6 emerald."</p>
+<p>"Job Card Bag me har stone ka hisaab hai — kitne aaye, kitne karigar ke paas gaye, kitne stock me wapas gaye, kitne toote ya kho gaye. Balance aapke formula se — Bal barabar Rcvd minus Iss minus Rtn minus Loss minus Back."</p>
+<p>"Jaise yahan ek diamond setting me toota, aur 2 polki setting se wapas aayi — isliye polki ka balance 2 dikh raha hai."</p></div></div>
+
+<div class="step"><h2>6. Job History — har process ka hisaab (sabse important) <span class="t">2 min</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li>Keyboard pe <b>F11</b> dabao → Job History khulega → Job No me <b>28860</b> chuno.</li>
+<li>Upar se neeche har row pe dheere mouse chalao: CAD, CAMMING, Casting, HandMade, COLOUR, PrePolish, Setting…</li>
+<li>HandMade row ke <b>Loss</b> column pe ruko.</li>
+<li>COLOUR row ke <b>pink</b> (issue) cell pe <b>double-click</b> → voucher khulega → <b>Edit</b> button dikhao (dabana nahi) → window band.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+<table><tr><th>Process</th><th>Karigar</th><th class="num">Issue G / N</th><th class="num">Receive G / N</th><th class="num">Loss</th></tr>
+<tr><td>CAD, CAMMING</td><td>Office</td><td class="num">—</td><td class="num">—</td><td></td></tr>
+<tr><td>Casting</td><td>Office</td><td class="num">22.000</td><td class="num">(khaali)</td><td></td></tr>
+<tr><td>HandMade</td><td>CHAND KUMAR HAZRA</td><td class="num">22.000</td><td class="num">21.500</td><td class="num">0.500 (2.27 %)</td></tr>
+<tr><td>COLOUR</td><td>FACTORY</td><td class="num">21.500</td><td class="num">21.500</td><td class="num">0</td></tr>
+<tr><td>PrePolish</td><td>BUDDHA POL</td><td class="num">21.500</td><td class="num">21.200</td><td class="num">0.300 (1.40 %)</td></tr>
+<tr><td>Setting</td><td>rakesh sarkar</td><td class="num">21.200</td><td class="num">21.850 / 21.213</td><td class="num">−0.013</td></tr>
+<tr><td>Final Polish … Puwai</td><td>BUDDHA POL, akshay j, JAGDISH PRA</td><td class="num"></td><td class="num">… 21.810 / 21.173</td><td class="num">0.010 each</td></tr></table></div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Ye Job History hai — F11 se kahin se bhi khulta hai. Ek job ki poori zindagi ek screen pe — har process, kis karigar ke paas gaya, kitna weight gaya, kitna wapas aaya. Pink columns issue hain, green receive."</p>
+<p>"CAD aur CAMMING me weight nahi hota. Casting me aapne kaha tha receive pe weight mandatory na ho — dekhiye, yahan receive bina weight ke save hai."</p>
+<p>"HandMade me 22 gram gaya, 21.5 aaya — 0.5 gram ghat, aur loss percent software khud nikaal deta hai — 2.27 percent."</p>
+<p>"Aapka doosra point tha ki ghat ke baad agle process me weight khud aaye — dekhiye, Colour me 21.5 apne aap gaya, kisi ko type nahi karna pada."</p>
+<p>"Setting me stones lage, isliye net weight stones ka weight ghata ke khud bana. Aur kisi bhi entry pe double-click karke ab Edit kar sakte hain — ye bhi aapne maanga tha."</p></div></div>
+
+<div class="step"><h2>7. Manufacturing — Issue / Receive <span class="t">45 sec</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li><span class="path">Manufacturing › Issue</span> kholo → Process aur Worker dropdown dikhao → <b>Show Pending</b> dabao.</li>
+<li>Pending jobs ki list dikhao → <b>Close</b> → <b>Exit</b>. Kuch save nahi.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+Issue To — process screen: Vr No, date, karigar, Mt Bal · Show Pending me us process ke liye pending jobs.</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Roz ka kaam yahan hota hai — Manufacturing Issue aur Receive. Process aur karigar chuno, Show Pending dabao — sirf wahi jobs aati hain jo us process ke liye pending hain."</p>
+<p>"Ek hi voucher me kai jobs ek saath issue ya receive ho sakti hain, aur saath me F3 se stones, F5 se metal bhi jaata hai. Karigar ka metal balance — Mt Bal — wahin dikh jaata hai."</p></div></div>
+
+<div class="step"><h2>8. MFG Transfer — job se ready stock <span class="t">1 min 15 sec</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li><span class="path">Manufacturing › MFG Transfer</span> kholo → <b>Edit</b> → list me <b>Vr 1</b> → OK.</li>
+<li>Pehli row (job 28860) ke columns pe left se right mouse chalao: G-Wt, N-Wt, Metal Amount, Stone Amount, Labour, Total, Margin, Price, Tag.</li>
+<li><b>Tag List</b> button dabao → barcode list dikhao → band. Tab band (Save nahi).</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+<table><tr><th>Job</th><th class="num">G / N</th><th class="num">Metal</th><th class="num">Stone</th><th class="num">Labour</th><th class="num">Total</th><th class="num">Price (+50 %)</th><th>Tag</th></tr>
+<tr><td>28860 NS-1430</td><td class="num">21.810 / 21.173</td><td class="num">1,83,795.83</td><td class="num">31,777.50</td><td class="num">25,407.60</td><td class="num">2,40,980.93</td><td class="num">3,61,471.40</td><td>361</td></tr>
+<tr><td>28861 BANG-32</td><td class="num">11.600</td><td class="num">1,00,695.77</td><td class="num">—</td><td class="num">13,920.00</td><td class="num">1,14,615.77</td><td class="num">1,71,923.66</td><td>171</td></tr>
+<tr><td>28862 BANG-32</td><td class="num">11.600</td><td class="num">1,00,695.77</td><td class="num">—</td><td class="num">13,920.00</td><td class="num">1,14,615.77</td><td class="num">1,71,923.66</td><td>171</td></tr></table>
+Stock No: 28860 → <b>1</b>, 28861 → <b>2</b>, 28862 → <b>3</b>.</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Job ka aakhri process receive hote hi wo 'Pending for MFG Transfer' me aa jaati hai. MFG Transfer me Fill Prices dabao — software aaj ka metal rate, labour rate, margin aur job ke bag ke stones se poori costing khud kar deta hai."</p>
+<p>"Necklace ka metal 1 lakh 83 hazaar, stones 31 hazaar, labour 25 hazaar — total 2 lakh 40 hazaar. 50 percent margin lagake price 3 lakh 61 hazaar, aur Tag 361."</p>
+<p>"Save karte hi har piece ko apna Stock Number aur barcode mil jaata hai, aur Tag List se tag print hote hain."</p></div></div>
+
+<div class="step"><h2>9. Ready Stock dekhna <span class="t">1 min</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li>Upar right <b>Item Search</b> dabao → Stock No me <b>1</b> → Enter. Piece ki history dikhao. Tab band.</li>
+<li><span class="path">Reports › All Reports › Ready Stock › Ready Closing Stock</span> (ya Go to screen me "Ready Closing Stock") → <b>Run</b>.</li>
+<li>Stock <b>5</b> ki row pe <b>DIA WT</b> aur <b>POL WT</b> columns dikhao.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+Item Search Stock 1: NS-1430, job 28860, MFG Transfer → Sale (KK JEWELS).<br>
+Ready Closing Stock: Stock <b>2</b> (BANG-32, N 11.600, 1,71,923.66) aur Stock <b>5</b> (BANG-32, N 23.700, <b>DIA WT 3.000 · POL WT 3.500</b>, 3,03,021.88).</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Item Search kisi bhi screen se upar se khulta hai. Stock number ya barcode daalo — piece ki poori kahani: kis job se bana, kab stock me aaya, kisko approval gaya, kisko bika."</p>
+<p>"Ready Closing Stock me aaj kya-kya stock me hai — weight, fine, amount aur tag. Aapne diamond aur polki ka weight maanga tha — ab DIA WT, POL WT aur CS WT columns carat me dikhte hain. Amount chahiye to Ctrl+F1."</p></div></div>
+
+<div class="step"><h2>10. Sale — approval, bill, dispatch <span class="t">1 min 30 sec</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li><span class="path">Sale › Ready Stock › Sale</span> kholo → <b>Edit</b> → <b>Vr 1</b> → OK.</li>
+<li>Do lines aur neeche total dikhao. Buttons pe mouse: <b>From Order</b>, <b>Excel Invoice</b>, <b>Dispatch / Tracking</b>.</li>
+<li>Tab band (Save nahi). <span class="path">Tools › WhatsApp Log</span> kholo → message dikhao.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+Sale Vr 1 · KK JEWELS · Stock 1 (NS-1430) + Stock 3 (BANG-32) · Total <b>3,55,596.70</b> · Ship by Courier, tracking BD-FF-19OCT.<br>
+WhatsApp Log: KK JEWELS ko dispatch message (sandbox).</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Ab sale. Piece barcode se, Show Stock se, ya From Order se aata hai — order se uthaya to order apne aap close ho jaata hai. Pehle isi customer ko ek bangle approval pe gaya tha aur wapas aaya — wo bhi record me hai."</p>
+<p>"Bill me har piece ka metal, stone, labour alag dikhta hai, aur Excel Invoice aapke breakup format me banta hai."</p>
+<p>"Dispatch karte hi courier aur tracking number daalte hain, aur customer ko WhatsApp pe message chala jaata hai — abhi test mode me hai, aapka Meta WhatsApp number milte hi asli message jaayega."</p></div></div>
+
+<div class="step"><h2>11. Purchase — Ready Items <span class="t">45 sec</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li><span class="path">Purchase › Ready Items</span> kholo → <b>Edit</b> → <b>Vr 2</b> → OK.</li>
+<li>Line me G-Wt, St Wt, N-Wt columns dikhao. <b>Stone Breakup</b> dabao → stones dikhao → Cancel. Tab band.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+FULL FLOW SUPPLIER · BANG-32 · G-Wt 25.000 · stones POLKI 3.500 ct + DIA 3.000 ct = St Wt 6.500 · <b>N-Wt 23.700</b> · Total 3,03,021.88.</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Bahar se bana-banaya maal Ready Items Purchase se aata hai. Aapne net weight ka issue bataya tha — ab stones daalte hi net weight khud ban jaata hai: 25 gram gross, 6.5 carat stone, to net 23.7 gram."</p>
+<p>"Save pe piece ko Stock Number milta hai aur supplier ke account me entry chali jaati hai."</p></div></div>
+
+<div class="step"><h2>12. Accounts aur Reports <span class="t">1 min</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li><span class="path">Accounts › Ledger</span> → account <b>KK JEWELS</b> chuno → Run.</li>
+<li><span class="path">Order › Order List</span> → order <b>9002</b> ki row (Status Ready).</li>
+<li><span class="path">Reports › M.I.S. Reports</span> → list ko dheere scroll karo.</li></ol></div>
+<div class="see"><span class="lbl">SCREEN PE KYA DIKHEGA</span>
+KK JEWELS ledger: Sale Vr 1 debit 3,55,596.70 · Receipt Vr 1 credit 1,00,000 · baaki balance.<br>
+Order List: 9002 → 3 jobs, 3 in stock → <b>Ready</b>.<br>
+M.I.S. Reports: legacy ki 34 reports ki list.</div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"Accounts alag se nahi likhne padte — sale, purchase, receipt sab apne aap ledger me jaate hain. KK Jewels ka sale ka bill debit, 1 lakh ki receipt credit, aur baaki balance."</p>
+<p>"Order List me har order ka status — Pending, In Production, Ready — 9002 ab Ready hai kyunki teeno jobs stock me aa gayi."</p>
+<p>"Aur M.I.S. Reports me aapke purane software ki saari 34 reports isi naam se — sales, stone, production, stock — sab."</p></div></div>
+
+<div class="step"><h2>13. Ending <span class="t">20 sec</span></h2>
+<div class="do"><span class="lbl">SCREEN PE KYA KARNA HAI</span>
+<ol><li>Saare tabs band karke Dashboard pe wapas aa jao.</li></ol></div>
+<div class="say"><span class="lbl">PEECHE KYA BOLNA HAI</span>
+<p>"To ye tha poora flow — order se Job Card, mapping, har process ka issue-receive, MFG Transfer se stock, sale, WhatsApp aur payment. Sab ek doosre se linked hai, kuch dobara type nahi karna padta."</p>
+<p>"Aapke 19 October wale saare points isme fix hain. Agar kahin kuch alag chahiye to bataiye. Thank you sir."</p></div></div>
+
+<div class="box"><b class="h">RECORDING KE BAAD</b>
+<ul><li>Video ek baar poora dekh lo — awaaz aur screen dono saaf hain?</li>
+<li>Kahin galti se Save ho gaya ho to batao — backup se wapas kar denge.</li></ul></div>
+
+</body></html>
