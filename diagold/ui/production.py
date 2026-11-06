@@ -222,6 +222,8 @@ def show_in_dialog(parent: QWidget | None, widget: QWidget, title: str,
     dlg.setWindowTitle(title)
     lay = QVBoxLayout(dlg)
     lay.setContentsMargins(0, 0, 0, 0)
+    from diagold.ui.declutter import declutter
+    declutter(widget)
     lay.addWidget(widget)
     dlg.resize(*size)
     dlg.exec()
@@ -1933,7 +1935,7 @@ class JobBagWidget(_Screen):
         self.empty.setVisible(False)
         self.outer.addWidget(self.empty, 1)
         legend = QLabel("Bal = Rcvd − Iss + Return − Rtn − Break − Lost − Back.  Iss = issued to "
-                        "the karigars; Return = handed back by them (F3 on the receipt or "
+                        "the karigars; Return = handed back by them (on the receipt's stone grid or "
                         "Return from Worker) — broken / lost ones then leave as Break / Lost; "
                         "Rtn = returned to stock; Back = out of the bag to the party.  Tints: "
                         "Iss yellow, Return blue, Break pink, Lost red, Bal green.")

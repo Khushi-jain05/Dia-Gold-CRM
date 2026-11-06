@@ -224,7 +224,7 @@ def specs() -> dict[str, ReportSpec]:
             options={"monthwise": ("Month-wise", True)}, on_activate=_ledger_drill,
             graph=_ledger_graph,
             note="Month-wise as the legacy ledger opens; double-click a month to see it voucher "
-                 "by voucher (or untick Month-wise). Ctrl+G draws it. Mode filters cash / bill / "
+                 "by voucher (or untick Month-wise). Ctrl+G graph. Mode filters cash / bill / "
                  "bank / metal. Opening = the master's opening + everything before From."),
         "acc_day_book": ReportSpec(
             key="acc_day_book", title="Day Book (Accounts)",

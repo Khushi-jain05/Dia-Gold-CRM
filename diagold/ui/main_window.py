@@ -339,6 +339,8 @@ class MainWindow(QMainWindow):
         dash = DashboardWidget(self.user)
         dash.open_requested.connect(self._open_by_key)
         dash.barcode_requested.connect(self._barcode_read)
+        from diagold.ui.declutter import declutter
+        declutter(dash)
         idx = self.tabs.addTab(dash, "  Dashboard  ")
         self.tabs.setCurrentIndex(idx)
         # dashboard tab is not closable
@@ -391,6 +393,8 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Error", f"Could not open '{label}':\n{exc}")
             return
+        from diagold.ui.declutter import declutter
+        declutter(widget)        # notes off, shortcut keys kept (6 Nov)
         idx = self.tabs.addTab(widget, f"  {label}  ")
         self._tabs_by_key[menu_key] = widget
         self.tabs.setCurrentIndex(idx)

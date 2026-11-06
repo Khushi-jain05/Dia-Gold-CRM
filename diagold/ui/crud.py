@@ -821,6 +821,8 @@ class FormDialog(QDialog):
                 w.setEnabled(False)
             buttons.button(QDialogButtonBox.StandardButton.Save).setVisible(False)
             buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Close")
+        from diagold.ui.declutter import declutter
+        declutter(self)          # field notes off, shortcut keys kept (6 Nov)
         self._fit_to_screen(body)
 
     def _build_shortcut_panel(self, body_layout) -> None:

@@ -141,16 +141,6 @@ class DashboardWidget(QWidget):
 
         outer.addStretch(1)
 
-        note = QLabel(
-            "This build covers the Master, SKU and Production-Planning modules "
-            "(Order → Job Mapping → issue/receive vouchers → Job History, Job Card Bag, "
-            "Stone Issue, Return to Inventory, Printing Options). Quotation, MRP, "
-            "Manufacturing, Purchase, Inventory, Sale, Account and Reports are in the "
-            "navigation and will be built next."
-        )
-        note.setObjectName("Muted")
-        note.setWordWrap(True)
-        outer.addWidget(note)
 
     def _scan(self, kind: str, box: QLineEdit) -> None:
         text = box.text().strip()
