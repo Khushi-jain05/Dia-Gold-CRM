@@ -56,7 +56,9 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    # Release whatever built: a Mac runner that never starts (cancelled) must
+    # not hold back the Windows zip the client installs.
+    if: always() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write

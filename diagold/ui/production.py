@@ -1098,9 +1098,34 @@ def voucher_view(parent: QWidget, voucher_id: int) -> None:
         if hasattr(parent, "refresh"):
             parent.refresh()
     ed_btn.clicked.connect(edit)
+    # Delete it from here too (6 Nov): the jobs go back to pending for the
+    # step, stones and metal sent with it come back; kept in the deletion log.
+    del_btn = QPushButton("Delete")
+
+    def delete() -> None:
+        if QMessageBox.question(
+                box, "Delete", f"Delete {title}?\n\nThe job(s) go back to pending for this "
+                "step and the stones / metal on it come back. It is kept in the deletion "
+                "log.") != QMessageBox.StandardButton.Yes:
+            return
+        with SessionLocal() as s2:
+            try:
+                production.delete_job_voucher(s2, vr_no,
+                                              user_id=getattr(getattr(parent, "user", None),
+                                                              "id", None))
+                s2.commit()
+            except ProductionError as exc:
+                s2.rollback()
+                _warn(box, "Cannot delete", str(exc))
+                return
+        box.window().close()
+        if hasattr(parent, "refresh"):
+            parent.refresh()
+    del_btn.clicked.connect(delete)
     row = QHBoxLayout()
     row.addStretch(1)
     row.addWidget(ed_btn)
+    row.addWidget(del_btn)
     row.addWidget(pr_btn)
     lay.addLayout(row)
     show_in_dialog(parent, box, title, (1100, 520))
@@ -1907,10 +1932,11 @@ class JobBagWidget(_Screen):
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setVisible(False)
         self.outer.addWidget(self.empty, 1)
-        legend = QLabel("Bal = Rcvd − Iss − Rtn − Loss (Break + Lost) − Back.  Iss = with the "
-                        "karigars (issued less returned from them); Rtn = returned to stock; "
-                        "Back = taken out of the bag back to the party.  Tints: Iss yellow, "
-                        "Break pink, Lost red, Bal green (as on the legacy screen).")
+        legend = QLabel("Bal = Rcvd − Iss + Return − Rtn − Break − Lost − Back.  Iss = issued to "
+                        "the karigars; Return = handed back by them (F3 on the receipt or "
+                        "Return from Worker) — broken / lost ones then leave as Break / Lost; "
+                        "Rtn = returned to stock; Back = out of the bag to the party.  Tints: "
+                        "Iss yellow, Return blue, Break pink, Lost red, Bal green.")
         legend.setObjectName("Muted")
         legend.setWordWrap(True)
         self.outer.addWidget(legend)
@@ -1923,7 +1949,8 @@ class JobBagWidget(_Screen):
         if not self.job_id:
             self.header.clear()
             return
-        tints = {"iss_net": TINT_ISS, "break": TINT_BREAK, "lost": TINT_LOST, "bal": TINT_BAL}
+        tints = {"iss": TINT_ISS, "ret": QColor("#E3EEFB"), "break": TINT_BREAK,
+                 "lost": TINT_LOST, "bal": TINT_BAL}
         with SessionLocal() as s:
             job = s.get(Job, self.job_id)
             self.header.set_job(s, job)

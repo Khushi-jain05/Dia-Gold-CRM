@@ -343,7 +343,7 @@ class ChildTableEditor(QWidget):
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         hdr.setStretchLastSection(True)
         widths = {"fk": 210, "choice": 90, "int": 72, "float": 96, "date": 120,
-                  "bool": 60, "text": 160}
+                  "bool": 60, "text": 160, "stone_sku": 170, "stone_size": 110}
         for c, f in enumerate(spec.fields):
             w = widths.get(f.type, 130)
             w = max(w, self.table.fontMetrics().horizontalAdvance(f.label) + 28)
@@ -382,10 +382,91 @@ class ChildTableEditor(QWidget):
                 # above does - a line that says "Pcs 0" is nobody's intention.
                 value = f.default() if callable(f.default) else f.default
             widget = self._cell(f, value)
-            if f.on_change is not None:
+            if f.on_change is not None and f.type != "stone_sku":
                 self._wire_cell_change(f, widget, r)
             self.table.setCellWidget(r, c, widget)
+        self._link_stone_cells(r, values)
         self._refresh_summary()
+
+    # -- stone name + size pickers (6 Nov) --------------------------------
+    # SSKU lists each stone once (POLKI, EMERALD PEAR ...) and Size lists that
+    # stone's sizes; the pair is the Stone SKU the line stores.
+    def _stone_index(self) -> dict[str, list[tuple[str, int]]]:
+        if "__stones__" not in self._fk_cache:
+            from diagold.db.models import StoneSku
+            idx: dict[str, list[tuple[str, int]]] = {}
+            real: dict[int, str] = {}
+            with SessionLocal() as session:
+                for k in session.scalars(select(StoneSku).where(StoneSku.is_active.is_(True))
+                                         .order_by(StoneSku.sku_code)):
+                    name = (k.stone or k.sku_code or "").strip()
+                    size = (k.size or "").strip()
+                    if not size and k.stone and k.sku_code.upper().startswith(k.stone.upper()):
+                        # No size on the master (POLKI U, POLKI 24): the rest
+                        # of the SKU code tells them apart in the list.
+                        size = k.sku_code[len(k.stone):].strip()
+                    idx.setdefault(name, []).append((size, k.id))
+                    real[k.id] = (k.size or "").strip()
+            self._fk_cache["__stones__"] = idx
+            self._fk_cache["__stone_size__"] = real
+        return self._fk_cache["__stones__"]
+
+    def _stone_cols(self) -> tuple[int, int] | None:
+        sc = next((c for c, f in enumerate(self.spec.fields) if f.type == "stone_sku"), None)
+        zc = next((c for c, f in enumerate(self.spec.fields) if f.type == "stone_size"), None)
+        return (sc, zc) if sc is not None and zc is not None else None
+
+    def _sku_name_size(self, sku_id: Any) -> tuple[str, str]:
+        for name, items in self._stone_index().items():
+            for size, kid in items:
+                if kid == sku_id:
+                    return name, size
+        return "", ""
+
+    def _resolve_stone(self, row: int) -> Any:
+        cols = self._stone_cols()
+        if cols is None:
+            return None
+        name = self.table.cellWidget(row, cols[0]).currentText().strip()
+        size = self.table.cellWidget(row, cols[1]).currentText().strip()
+        items = self._stone_index().get(name, [])
+        hit = [kid for sz, kid in items if sz.lower() == size.lower()]
+        if hit:
+            return hit[0]
+        return items[0][1] if len(items) == 1 and not size else None
+
+    def _link_stone_cells(self, r: int, values: dict) -> None:
+        cols = self._stone_cols()
+        if cols is None:
+            return
+        sc, zc = cols
+        name_w, size_w = self.table.cellWidget(r, sc), self.table.cellWidget(r, zc)
+        f_sku = self.spec.fields[sc]
+        name, size = self._sku_name_size(values.get(f_sku.name))
+        size = (values.get(self.spec.fields[zc].name) or size or "").strip()
+
+        def fill_sizes(_t: str = "", fire: bool = True) -> None:
+            keep = size_w.currentText()
+            size_w.blockSignals(True)
+            size_w.clear()
+            size_w.addItems([sz for sz, _k in self._stone_index().get(name_w.currentText(), [])])
+            size_w.setCurrentText(keep if size_w.findText(keep) >= 0 else
+                                  (size_w.itemText(0) if size_w.count() == 1 else ""))
+            size_w.blockSignals(False)
+            if fire:
+                changed()
+
+        def changed(_t: str = "") -> None:
+            if f_sku.on_change is not None:
+                f_sku.on_change(self, r, self._resolve_stone(r))
+            self._refresh_summary()
+        name_w.setCurrentText(name)
+        fill_sizes(fire=False)     # loading a saved line changes nothing on it
+        size_w.blockSignals(True)
+        size_w.setCurrentText(size)
+        size_w.blockSignals(False)
+        name_w.currentTextChanged.connect(fill_sizes)
+        size_w.currentTextChanged.connect(changed)
 
     def _wire_cell_change(self, f: Field, widget: QWidget, row: int) -> None:
         """Let a grid cell react to its own change, e.g. to fill sibling cells."""
@@ -424,6 +505,17 @@ class ChildTableEditor(QWidget):
                 idx = w.findData(value)
                 if idx >= 0:
                     w.setCurrentIndex(idx)
+            elif f.type == "stone_sku":
+                name, size = self._sku_name_size(value)
+                w.setCurrentText(name)
+                cols = self._stone_cols()
+                if cols and size:
+                    self.table.cellWidget(row, cols[1]).setCurrentText(size)
+            elif f.type == "stone_size":
+                # The picked size is the choice; a blank (a stone whose master
+                # has no size) must not wipe it.
+                if value not in (None, ""):
+                    w.setCurrentText(str(value))
             else:
                 w.setText("" if value is None else str(value))
             return
@@ -454,6 +546,15 @@ class ChildTableEditor(QWidget):
             w.setCalendarPopup(True)
             w.setDisplayFormat("yyyy-MM-dd")
             w.setDate(value if isinstance(value, date) else date.today())
+            return w
+        if f.type == "stone_sku":
+            w = QComboBox()
+            w.addItem("")
+            w.addItems(sorted(self._stone_index(), key=str.lower))
+            return w
+        if f.type == "stone_size":
+            w = QComboBox()
+            w.setEditable(True)
             return w
         if f.type == "fk":
             w = QComboBox()
@@ -491,6 +592,15 @@ class ChildTableEditor(QWidget):
             return date(qd.year(), qd.month(), qd.day())
         if f.type == "fk":
             return w.currentData()
+        if f.type == "stone_sku":
+            return self._resolve_stone(row)
+        if f.type == "stone_size":
+            # The master's own size is what is stored (a list label like "U"
+            # for POLKI U is only for picking - stock is kept by real size).
+            sku_id = self._resolve_stone(row)
+            if sku_id is not None:
+                return self._fk_cache.get("__stone_size__", {}).get(sku_id, "")
+            return w.currentText().strip()
         return w.text().strip()
 
     def _remove_row(self) -> None:

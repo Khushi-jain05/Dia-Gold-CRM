@@ -1663,11 +1663,12 @@ def _fill_stone_line(grid, row: int, sku_id) -> None:
         return
     if not grid.cell_value(row, "size"):
         grid.set_cell_value(row, "size", sku.size)
-    if not grid.cell_value(row, "wt_per_pcs"):
+    # The user picked this stone / size: its per-piece weight and type follow.
+    if sku.wt_per_pcs or not grid.cell_value(row, "wt_per_pcs"):
         grid.set_cell_value(row, "wt_per_pcs", sku.wt_per_pcs)
     if not grid.cell_value(row, "price_unit"):
         grid.set_cell_value(row, "price_unit", sku.per or "Cts")
-    if not grid.cell_value(row, "s_type"):
+    if sku.stone_type or not grid.cell_value(row, "s_type"):
         grid.set_cell_value(row, "s_type", sku.stone_type)
     # Where is it? Point Location at the place holding the most of it, unless
     # the user already chose a location that has some.
@@ -1783,10 +1784,12 @@ _register(CrudSpec(
                       Field("job_id", "Job", type="fk", fk_model=Job, fk_label=_job_fk_label),
                       Field("location_id", "Location", type="fk", fk_model=Location,
                             fk_label=_location_label),
-                      Field("stone_sku_id", "SSKU", type="fk", fk_model=StoneSku,
-                            fk_label=_stone_sku_label, on_change=_fill_stone_line),
+                      # SSKU = the stone's name once, Size = that stone's sizes;
+                      # the pair is the Stone SKU (6 Nov).
+                      Field("stone_sku_id", "SSKU", type="stone_sku", fk_model=StoneSku,
+                            on_change=_fill_stone_line),
+                      Field("size", "Size", type="stone_size"),
                       Field("particulars", "Particulars"),
-                      Field("size", "Size"),
                       Field("wt_per_pcs", "Wt/Pcs", type="float", decimals=4),
                       Field("req_pcs", "Req Pcs", type="int"),
                       Field("req_wt", "Req Wt", type="float", decimals=3),

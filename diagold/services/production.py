@@ -1287,16 +1287,20 @@ class BagRow:
         return self.pcs.get(key, 0), self.wt.get(key, ZERO)
 
 
-# The Job Card Bag's columns as the client reads them (19 Oct):
-#   Bal = Rcvd - Iss - Rtn - Loss (Break + Lost) - Back
-# Iss  = net with the karigars: issued less what they handed back (key iss_net;
-#        the raw "iss" / "back" movements stay for the reports that need them);
-# Back = stones taken out of the bag back to the party (movement kind "out").
-COLUMNS: tuple[str, ...] = ("req", "rcvd", "extra", "pnd", "iss_net", "rtn",
+# The Job Card Bag's columns (19 Oct formula; 6 Nov: the stones a karigar
+# hands back must show in the bag, not vanish into a net Iss):
+#   Bal = Rcvd - Iss + Return - Rtn - Break - Lost - Back
+# Iss    = issued to the karigars;
+# Return = handed back by them on a receipt (F3) or Return from Worker - whole,
+#          broken or lost; the broken / lost ones then leave as Break / Lost
+#          (movement kind "back", key "ret");
+# Rtn    = returned to stock; Back = out of the bag to the party (kind "out").
+COLUMNS: tuple[str, ...] = ("req", "rcvd", "extra", "pnd", "iss", "ret", "rtn",
                             "break", "lost", "out", "bal")
 COLUMN_LABELS: dict[str, str] = {
-    "req": "Req", "rcvd": "Rcvd", "extra": "Extra", "pnd": "Pnd", "iss_net": "Iss",
-    "rtn": "Rtn", "break": "Break", "lost": "Lost", "out": "Back", "bal": "Bal",
+    "req": "Req", "rcvd": "Rcvd", "extra": "Extra", "pnd": "Pnd", "iss": "Iss",
+    "ret": "Return", "rtn": "Rtn", "break": "Break", "lost": "Lost", "out": "Back",
+    "bal": "Bal",
 }
 _MOVE_KINDS = ("rcvd", "iss", "rtn", "break", "lost", "back", "out")
 
@@ -1304,10 +1308,9 @@ _MOVE_KINDS = ("rcvd", "iss", "rtn", "break", "lost", "back", "out")
 def bag_row(line: JobBagLine) -> BagRow:
     """Derive every ledger column from the movements on one line.
 
-    Bal = Rcvd - Iss - Rtn - Break - Lost - Back, the client's formula
-    (19 Oct), with Iss net of what the karigars handed back and Back the
-    stones taken out of the bag to the party. Extra and Pnd are the two sides
-    of Rcvd against Req.
+    Bal = Rcvd - Iss + Return - Rtn - Break - Lost - Back (see COLUMNS); the
+    net with the karigars stays as iss_net. Extra and Pnd are the two sides of
+    Rcvd against Req.
     """
     keys = set(COLUMNS) | set(_MOVE_KINDS)
     pcs = {k: 0 for k in keys}
@@ -1323,6 +1326,7 @@ def bag_row(line: JobBagLine) -> BagRow:
     wt["pnd"] = max(wt["req"] - wt["rcvd"], ZERO)
     pcs["iss_net"] = pcs["iss"] - pcs["back"]
     wt["iss_net"] = wt["iss"] - wt["back"]
+    pcs["ret"], wt["ret"] = pcs["back"], wt["back"]
     pcs["bal"] = (pcs["rcvd"] - pcs["iss_net"] - pcs["rtn"] - pcs["break"] - pcs["lost"]
                   - pcs["out"])
     wt["bal"] = wt["rcvd"] - wt["iss_net"] - wt["rtn"] - wt["break"] - wt["lost"] - wt["out"]
