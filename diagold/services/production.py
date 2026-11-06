@@ -1199,11 +1199,78 @@ def apply_stone_issue(session: Session, issue: StoneIssue) -> None:
             bag.source_location_id = l.location_id
         if l.s_type and not bag.s_type:
             bag.s_type = l.s_type
+        if bag.setting_type_id is None:
+            bag.setting_type_id = default_setting_type_id(session, bag)
         session.add(JobBagMovement(
             line_id=bag.id, kind="rcvd", pcs=int(l.pcs or 0), weight=_dec(l.weight),
             mv_date=issue.vr_date, location_id=l.location_id,
             ref_kind="stone_issue", ref_id=issue.id, remark=l.remark or "",
         ))
+    session.flush()
+
+
+def _stone_issue_bag_lines(session: Session, issue: StoneIssue) -> set[int]:
+    return {m.line_id for m in session.scalars(select(JobBagMovement).where(
+        JobBagMovement.ref_kind == "stone_issue", JobBagMovement.ref_id == issue.id))}
+
+
+def unapply_stone_issue(session: Session, issue: StoneIssue) -> set[int]:
+    """Take a posted Stone Issue on Job-Card back out: its stock movements
+    (stones back into their locations) and its Received pieces in the bags.
+    Returns the bag lines it touched, for the balance check."""
+    touched = _stone_issue_bag_lines(session, issue)
+    for m in session.scalars(select(JobBagMovement).where(
+            JobBagMovement.ref_kind == "stone_issue", JobBagMovement.ref_id == issue.id)).all():
+        session.delete(m)
+    # Inventory's own Stone Issue (Outside / Worker) shares the ref kind; the
+    # job-card one always carries the job.
+    for m in session.scalars(select(StockMovement).where(
+            StockMovement.ref_kind == "stone_issue", StockMovement.ref_no == issue.vr_no,
+            StockMovement.job_id.is_not(None))).all():
+        row = stock_row(session, m.location_id, m.material_class, m.ref_id, m.size, m.ref_text)
+        if row is not None:
+            row.pcs = int(row.pcs) - int(m.pcs)
+            row.weight = (_dec(row.weight) - _dec(m.weight)).quantize(D4)
+        session.delete(m)
+    session.flush()
+    return touched
+
+
+def _check_bags_not_short(session: Session, line_ids: set[int], what: str) -> None:
+    for lid in line_ids:
+        line = session.get(JobBagLine, lid)
+        if line is None:
+            continue
+        session.refresh(line)
+        bal_pcs, bal_wt = bag_row(line)["bal"]
+        if bal_pcs < 0 or bal_wt < -D3:
+            job = session.get(Job, line.job_id)
+            raise ProductionError(
+                f"Job {job.job_no if job else ''}: {line.particulars} {line.size}".strip()
+                + f" from this voucher has already gone to a karigar / back to stock - "
+                f"the bag would go to {bal_pcs} pcs / {bal_wt}. Undo those first, then "
+                f"{what} the voucher.")
+
+
+def repost_stone_issue(session: Session, issue: StoneIssue) -> None:
+    """Edit (6 Nov): a saved Stone Issue on Job-Card changed - the old postings
+    come out, the voucher posts again from its lines, and no bag may be left
+    holding less than has already moved on from it."""
+    touched = unapply_stone_issue(session, issue)
+    apply_stone_issue(session, issue)
+    _check_bags_not_short(session, touched | _stone_issue_bag_lines(session, issue), "change")
+
+
+def delete_stone_issue(session: Session, issue: StoneIssue, *, user_id: int | None = None) -> None:
+    from diagold.db.models import DeletionLog
+    touched = unapply_stone_issue(session, issue)
+    _check_bags_not_short(session, touched, "delete")
+    image = {"issue": {c.name: getattr(issue, c.name) for c in issue.__table__.columns},
+             "lines": [{c.name: getattr(l, c.name) for c in l.__table__.columns}
+                       for l in issue.lines]}
+    session.add(DeletionLog(user_id=user_id, kind="stone_issue_job",
+                            ref=f"Stone Issue on Job-Card Vr {issue.vr_no}",
+                            before_json=json.dumps(image, default=str)))
     session.flush()
 
 
@@ -1475,6 +1542,30 @@ class SettingLabourLine:
     amount: Decimal
 
 
+# A bag line with no Setting Type takes one from its stone group (6 Nov: the
+# final-setting receipt showed labour 0.00 on every stone): Polki -> "Polki",
+# Diamond -> "Diam...", anything else -> "CS". The Setting Type master holds the
+# rate (Diamond 3, Polki 30 a piece - 3 Sept Q7); Job Card Bag ▸ Setting Type
+# still changes it per line.
+_GROUP_SETTING = {"POLKI": "polki", "DIAMOND": "diam", "COLOR STONE": "cs"}
+
+
+def default_setting_type_id(session: Session, line: JobBagLine) -> int | None:
+    from diagold.services import sales
+    sku = session.get(StoneSku, line.stone_sku_id) if line.stone_sku_id else None
+    block = sales.stone_block({"s_type": line.s_type or "",
+                               "label": (sku.stone if sku and sku.stone else
+                                         (sku.sku_code if sku else line.particulars)) or ""})
+    want = _GROUP_SETTING.get(block)
+    if not want:
+        return None
+    for st in session.scalars(select(SettingType).where(SettingType.is_active.is_(True))
+                              .order_by(SettingType.id)):
+        if (st.name or "").strip().lower().startswith(want):
+            return st.id
+    return None
+
+
 def setting_labour_lines(session: Session, issue: JobVoucher,
                          on_date: date | None = None) -> list[SettingLabourLine]:
     """Per stone line: pieces set on this step and the labour for them.
@@ -1505,8 +1596,9 @@ def setting_labour_lines(session: Session, issue: JobVoucher,
         line = session.get(JobBagLine, line_id)
         if line is None or issued <= 0:
             continue
-        st = session.get(SettingType, line.setting_type_id) if line.setting_type_id else None
-        rate, source = setting_rate(session, line.setting_type_id, on_date)
+        st_id = line.setting_type_id or default_setting_type_id(session, line)
+        st = session.get(SettingType, st_id) if st_id else None
+        rate, source = setting_rate(session, st_id, on_date)
         set_pcs = max(issued - back, 0)
         out.append(SettingLabourLine(
             line=line, setting_type=st.name if st else "", issued=issued, back=back,
@@ -1569,6 +1661,26 @@ def refresh_setting_labour(session: Session, receive: JobVoucher) -> Decimal:
     receive.labour = total
     session.flush()
     return total
+
+
+def backfill_setting_types(session: Session) -> int:
+    """Bag lines saved before the Setting Type came from the stone get it now,
+    and receipts that stored labour 0 for want of one are worked again (6 Nov).
+    Safe on every start-up: only lines with no type and receipts at 0 change."""
+    changed = 0
+    for line in session.scalars(select(JobBagLine).where(JobBagLine.setting_type_id.is_(None))):
+        st = default_setting_type_id(session, line)
+        if st:
+            line.setting_type_id = st
+            changed += 1
+    if not changed:
+        return 0
+    session.flush()
+    for rcv in session.scalars(select(JobVoucher).where(
+            JobVoucher.kind == "receive", JobVoucher.issue_id.is_not(None))):
+        if not _dec(rcv.labour):
+            refresh_setting_labour(session, rcv)
+    return changed
 
 
 # --------------------------------------------------------------------------

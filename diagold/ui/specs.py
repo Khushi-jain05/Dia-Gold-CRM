@@ -1723,7 +1723,12 @@ def _prepare_stone_issue(values: dict, children: dict, session) -> None:
 
 
 def _stone_issue_saved(issue, children, session) -> None:
-    production.apply_stone_issue(session, issue)
+    # A new voucher posts; an edited one takes its old postings out first (6 Nov).
+    production.repost_stone_issue(session, issue)
+
+
+def _stone_issue_delete(issue, session) -> None:
+    production.delete_stone_issue(session, issue)
 
 
 def _stone_issue_warn(values: dict, children: dict, session) -> str | None:
@@ -1743,7 +1748,7 @@ _register(CrudSpec(
     order_by="-vr_no",
     date_field="vr_date",
     search_hint="Search by ref, barcode, lot…",
-    editable=False, deletable=False,
+    editable=True, before_delete=_stone_issue_delete,
     before_save=_prepare_stone_issue,
     after_save=_stone_issue_saved,
     warn=_stone_issue_warn,

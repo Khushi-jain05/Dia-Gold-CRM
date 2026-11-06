@@ -335,7 +335,19 @@ class ChildTableEditor(QWidget):
         self.table = QTableWidget(0, len(spec.fields))
         self.table.setHorizontalHeaderLabels([f.label for f in spec.fields])
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Each column as wide as what it holds (6 Nov: on Stone Issue on
+        # Job-Card the Job / Location / SSKU pickers were cut to "288", "PRI",
+        # "POL" when every column got an equal share). The grid scrolls
+        # sideways when the columns are wider than the form.
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        hdr.setStretchLastSection(True)
+        widths = {"fk": 210, "choice": 90, "int": 72, "float": 96, "date": 120,
+                  "bool": 60, "text": 160}
+        for c, f in enumerate(spec.fields):
+            w = widths.get(f.type, 130)
+            w = max(w, self.table.fontMetrics().horizontalAdvance(f.label) + 28)
+            self.table.setColumnWidth(c, w)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setMinimumHeight(spec.height)
