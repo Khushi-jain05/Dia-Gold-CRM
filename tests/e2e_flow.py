@@ -749,6 +749,35 @@ with SessionLocal() as s:
           P.net_for_gross(s, jB, D("14.805"), "receive", {blB.id: {"pcs": 1, "wt": D("0.600"), "break_pcs": 1, "break_wt": D("0.010")}}), D("11.949"))
     s.rollback()
 
+    print("\n== N18. Ledger allowance = min(loss, ALW % x outward) - legacy MANIK JI (5 Nov T-09)")
+    from diagold.services import settings as SETM
+    SETM.set_setting(s, "loss.allowance_basis", "received"); s.commit()
+    P._basis_cache = (0.0, P._basis_cache[1])
+    manik = Account(code="FFMANIK", name="MANIK JI (test)", account_type="Worker", group_name="x"); s.add(manik); s.flush()
+    want = []
+    for out_w, loss_w, alw in (("52.011", "1.820", "1.820"), ("6.670", "0.400", "0.233"),
+                               ("8.491", "0.297", "0.297"), ("17.822", "-0.207", "0.000")):
+        oM = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+        s.add(oM); s.flush(); s.add(OrderLine(order_id=oM.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(oM)
+        _v, mkM = P.explode_orders(s, [{"order_id": oM.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+        jM = s.scalar(select(Job).where(Job.job_no == mkM[0])); P.map_job(s, jM, "Default", T)
+        def goM(kind, g=None, allow=None):
+            r = [x for x in P.pending_steps(s, kind) if x["_job_id"] == jM.id][0]
+            return P.post_multi_voucher(s, kind, manik.id, [{"job_id": jM.id, "step_id": r["_step_id"], "gross": g, "net": g, "allow": allow}], vr_date=T)
+        for _ in range(3):
+            goM("issue"); goM("receive")
+        goM("issue", D(out_w) + D(loss_w), D("3.5")); goM("receive", D(out_w), D("3.5"))
+        want.append(D(alw))
+    rowsM = [r for r in P.worker_metal_ledger(s, *FY, worker_id=manik.id) if r["vrtype"] == "RTN"]
+    check("ALW L WT 1.820 / 0.233 (capped) / 0.297 / 0 (gain)", [r["alw_wt"] for r in rowsM], want)
+    last = P.worker_metal_ledger(s, *FY, worker_id=manik.id)[-1]
+    inw = sum(D(x) + D(y) for x, y in (("52.011", "1.820"), ("6.670", "0.400"), ("8.491", "0.297"), ("17.822", "-0.207")))
+    outw = D("52.011") + D("6.670") + D("8.491") + D("17.822")
+    check("Balance = Inward - Outward - Allowance", last["bal_wt"], (inw - outw - sum(want)).quantize(D("0.001")))
+    s.rollback()
+    SETM.set_setting(s, "loss.allowance_basis", "issued"); s.commit()
+    P._basis_cache = (0.0, P._basis_cache[1])
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

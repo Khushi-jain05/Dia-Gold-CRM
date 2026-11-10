@@ -2554,6 +2554,11 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
                 detail = loss_detail(proc, issues.get(v.issue_id), v)
                 if detail is not None:
                     loss, allowed, alw_pct = detail.loss, detail.allowed, detail.allow_pct
+                    # Legacy MANIK JI ledger (5 Nov T-09): the allowance never
+                    # exceeds the loss, and a gain earns none -
+                    # ALW L WT = min(LOSSWT, ALW % x weight); loss -0.207 -> 0.
+                    if not detail.from_allowance:
+                        allowed = min(max(loss, ZERO), allowed)
             job_no, job_id = job.job_no, job.id
             sku = job.product_sku.sku_code if job.product_sku else ""
             process = proc.name if proc else ""

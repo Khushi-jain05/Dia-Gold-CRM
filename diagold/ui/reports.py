@@ -68,6 +68,7 @@ TINT_KEY = QColor("#FBEEEE")
 TINT_MEASURE = QColor("#EAF5EC")
 TINT_GROUP = QColor("#E4E7EC")
 TINT_TOTAL = QColor("#D9DDE5")
+TINT_LATEST = QColor("#7CFC9A")     # the latest ledger row (legacy bright green)
 RED = QColor("#B3261E")
 
 
@@ -86,6 +87,9 @@ class Col:
     # A % worked on subtotal / total rows from two summed columns, e.g. LOSS %
     # = LOSS FINE / NET FINE x 100 per process (9 Oct §4.12).
     ratio: tuple[str, str] | None = None
+    # A running balance: a subtotal shows the group's last value (the closing
+    # balance), the grand total the sum of each group's last (5 Nov T-08).
+    last: bool = False
 
 
 @dataclass
@@ -117,6 +121,9 @@ class ReportSpec:
     stone_group_cols: tuple[str, ...] = ()
     # Header pickers passed to the query as keywords: (key, label, loader) where
     # loader(session) -> [(value, text)] - e.g. the account of a ledger.
+    # Columns a picker makes redundant once it is set: one worker chosen, the
+    # GROUP / WORKER columns go (5 Nov T-08, statement style).
+    picker_hides: dict[str, tuple[str, ...]] = field(default_factory=dict)
     pickers: list[tuple[str, str, Callable[[Any], list[tuple[Any, str]]]]] = field(
         default_factory=list)
     # Ctrl+G draws this chart instead of opening Group (the legacy ledger graph):
@@ -242,6 +249,8 @@ class ReportModel(QAbstractTableModel):
                 return TINT_TOTAL
             if col is None:
                 return None
+            if row.get("_latest"):
+                return TINT_LATEST       # the latest row, bright as on the legacy
             return TINT_MEASURE if col.kind == "measure" else TINT_KEY
         if role == Qt.ItemDataRole.FontRole and kind in ("group", "subtotal", "total"):
             f = QFont()
@@ -738,6 +747,10 @@ class ReportWidget(QWidget):
         # last section left a blank strip then). A long remark stays capped.
         auto_fit(self.view, REPORT_COL_MAX)
         self.view.doubleClicked.connect(self._activate)
+        # Clicking a column heading opens Auto Filter on that column, as the
+        # legacy grid (5 Nov T-08: it only ever offered the first column).
+        self.view.horizontalHeader().setSectionsClickable(True)
+        self.view.horizontalHeader().sectionClicked.connect(self._header_filter)
         # F10 does what a double-click does - "Show JB" on the legacy pending
         # grid (28 Sept §4.8, UX4).
         QShortcut(QKeySequence("F10"), self.view,
@@ -992,6 +1005,14 @@ class ReportWidget(QWidget):
                 if vals:
                     out[c.key] = sum(vals)
         for c in self._cols:
+            if c.last:
+                per: dict[Any, Any] = {}
+                for r in rows:
+                    if _is_num(r.get(c.key)):
+                        per[r.get(self.spec.group_by) if self.spec.group_by else 0] = r[c.key]
+                if per:
+                    out[c.key] = sum(per.values())
+        for c in self._cols:
             if c.ratio:
                 num = sum((r.get(c.ratio[0]) for r in rows if _is_num(r.get(c.ratio[0]))), 0)
                 den = sum((r.get(c.ratio[1]) for r in rows if _is_num(r.get(c.ratio[1]))), 0)
@@ -1006,6 +1027,10 @@ class ReportWidget(QWidget):
         if self.spec.stone_group_cols and not self.show_stone_groups:
             cols = [c for c in cols if c.key not in self.spec.stone_group_cols]
         hidden = {k for _k, _l, ks in self.spec.toggle_cols for k in ks} - self.shown_toggles
+        for pk, ks in self.spec.picker_hides.items():
+            cb = self.picker_boxes.get(pk)
+            if cb is not None and cb.currentData():
+                hidden |= set(ks)
         cols = [c for c in cols if c.key not in hidden]
         if self.show_images:
             cols = [Col("_photo", "IMAGE")] + cols
@@ -1105,8 +1130,14 @@ class ReportWidget(QWidget):
             self._auto[key] = values
         self._rebuild()
 
-    def _auto_filter(self) -> None:
-        col = self._current_col()
+    def _header_filter(self, section: int) -> None:
+        cols = self.visible_cols()
+        c = section - (1 if self.row_numbers else 0)
+        if 0 <= c < len(cols):
+            self._auto_filter(cols[c])
+
+    def _auto_filter(self, col: Col | None = None) -> None:
+        col = col if isinstance(col, Col) else self._current_col()
         if col is None:
             return
         dlg = _AutoFilterDialog(col, self.distinct_counts(col.key), self._auto.get(col.key), self)
@@ -1630,6 +1661,48 @@ def _order_menu_specs(pcs) -> dict[str, ReportSpec]:
     return out
 
 
+# -- Worker Metal Ledger filters (5 Nov T-08) -------------------------------
+def _ledger_workers(s) -> list[tuple[Any, str]]:
+    from diagold.db.models import Account as _A
+    return [("", "(all workers)")] + [
+        (a.id, a.name) for a in s.scalars(select(_A).where(_A.account_type == "Worker",
+                                                          _A.is_active.is_(True))
+                                         .order_by(_A.name))]
+
+
+def _ledger_vrtypes(_s) -> list[tuple[Any, str]]:
+    return [("", "(all types)")] + [(t, t) for t in ("ISS", "RTN", "MI", "MR", "MS", "RS",
+                                                       "RSR", "MRCV", "MPAY")]
+
+
+def _ledger_metals(s) -> list[tuple[Any, str]]:
+    from diagold.db.models import Metal as _M
+    return [("", "(all metals)")] + [(m.name, m.name) for m in s.scalars(
+        select(_M).order_by(_M.name))]
+
+
+def _worker_ledger_q(s, a, b, worker="", vrtype="", metal="", **_k) -> list[dict]:
+    rows = P.worker_metal_ledger(s, a, b, worker_id=int(worker) if worker else None)
+    if vrtype:
+        rows = [r for r in rows if r.get("vrtype") == vrtype]
+    if metal:
+        rows = [r for r in rows if r.get("metal") == metal]
+    last: dict[Any, dict] = {}
+    for r in rows:
+        if r.get("vrtype") != "OPENING":
+            last[r.get("worker")] = r
+    for r in last.values():
+        r["_latest"] = True
+    return rows
+
+
+def _ledger_as_on_today(w: "ReportWidget") -> None:
+    """Every karigar's closing weight and fine as on today."""
+    from diagold.ui.production import show_in_dialog
+    show_in_dialog(w, ReportWidget(build_specs()["worker_metal_balance"], w.user),
+                   "Worker Metal Balance — as on today", (1000, 600))
+
+
 def build_specs() -> dict[str, ReportSpec]:
     from diagold.services.production import order_day_book
 
@@ -2028,11 +2101,15 @@ def build_specs() -> dict[str, ReportSpec]:
                             Col("alw_pct", "ALW L %", "measure", 3, "LOSS"),
                             Col("alw_wt", "ALW L WT", "measure", 3, "LOSS", True),
                             Col("alw_fine", "ALW L FINE", "measure", 3, "LOSS", True),
-                            Col("bal_wt", "WEIGHT", "measure", 3, "BALANCE"),
-                            Col("bal_fine", "FINE", "measure", 3, "BALANCE")]),
-            query=lambda s, a, b, **_k: P.worker_metal_ledger(s, a, b),
+                            Col("bal_wt", "WEIGHT", "measure", 3, "BALANCE", last=True),
+                            Col("bal_fine", "FINE", "measure", 3, "BALANCE", last=True)]),
+            query=_worker_ledger_q,
+            pickers=[("worker", "Worker", _ledger_workers), ("vrtype", "Vr Type", _ledger_vrtypes),
+                     ("metal", "Metal", _ledger_metals)],
             group_by="worker", filter_column="group",
             on_activate=lambda w, r: w.open_job(r),
+            actions=[("As on Today", "", _ledger_as_on_today)],
+            picker_hides={"worker": ("group", "worker")},
             note="The karigar's metal account. Inward = net weight issued on a job step; "
                  "outward = net weight received back plus scrap and dust; LOSSWT = what "
                  "was actually lost; ALW L WT = Allow Loss % of the net received. BALANCE "
