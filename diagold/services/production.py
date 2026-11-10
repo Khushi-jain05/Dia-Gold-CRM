@@ -1727,6 +1727,35 @@ def last_weights(session: Session, job: Job) -> tuple[Decimal | None, Decimal | 
     return (_dec(v.gross_wt) if v.gross_wt is not None else None), _dec(v.net_wt)
 
 
+def why_not_pending(session: Session, job: Job, kind: str,
+                    process_id: int | None = None) -> str:
+    """Why a job typed into an issue / receive is not pending there (5 Nov T-07:
+    "if it's in the handmade process it will take it; if not, it won't")."""
+    if job.status == "cancelled":
+        return f"Job {job.job_no} is cancelled."
+    if job.status == "pending":
+        return f"Job {job.job_no} is not mapped yet - give it a route in Job Mapping."
+    if job.status == "complete":
+        return f"Job {job.job_no} is finished - it is pending for MFG Transfer."
+    if job.status == "transferred":
+        return f"Job {job.job_no} is already in ready stock."
+    step, out = current_step(session, job)
+    proc = session.get(ManufacturingProcess, step.process_id) if step else None
+    where = proc.name if proc else "?"
+    if out is not None:
+        who = session.get(Account, out.worker_id)
+        state = f"out at {where} with {who.name if who else 'a karigar'}"
+    else:
+        state = f"waiting to be issued to {where}"
+    if process_id and step is not None and step.process_id != process_id:
+        return f"Job {job.job_no} is {state}, not at this process."
+    if kind == "issue" and out is not None:
+        return f"Job {job.job_no} is {state} - receive it back first."
+    if kind == "receive" and out is None:
+        return f"Job {job.job_no} is {state} - nothing is out to receive."
+    return f"Job {job.job_no} is {state}."
+
+
 def pending_steps(session: Session, kind: str, process_id: int | None = None,
                   worker_id: int | None = None) -> list[dict[str, Any]]:
     """Jobs pending for an issue (next step not yet issued) or a receive (out

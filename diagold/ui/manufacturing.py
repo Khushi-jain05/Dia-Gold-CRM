@@ -130,6 +130,121 @@ class PendingPicker(QDialog):
                 if self.list.item(i).checkState() == Qt.CheckState.Checked]
 
 
+class PendingForDialog(QDialog):
+    """Show Pending as the legacy pop-up (5 Nov T-07): "Pending For : <process>",
+    Order No / Client / Job No search boxes, the jobs with their details, the
+    highlighted job's photo; tick and OK."""
+
+    COLS = (("job_no", "JobNo"), ("lot", "Lot No"), ("sku", "SKU"), ("c_ref", "C-Ref"),
+            ("metal", "Metal"), ("colour", "Col"), ("size", "Size"), ("pcs", "Pcs"),
+            ("gross", "G-Wt"), ("net", "N-Wt"), ("order_no", "Ord No"),
+            ("order_date", "Date"), ("ref_no", "RefNo"), ("client", "Client"),
+            ("worker", "With"))
+
+    def __init__(self, process: str, rows: list[dict[str, Any]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Pending For : {process}")
+        self.setMinimumSize(1100, 480)
+        self.rows = rows
+        lay = QVBoxLayout(self)
+        top = QHBoxLayout()
+        self.f_ord, self.f_client, self.f_job = QLineEdit(), QLineEdit(), QLineEdit()
+        for label, box in (("Order No", self.f_ord), ("Client", self.f_client),
+                           ("Job No", self.f_job)):
+            box.setPlaceholderText(label)
+            box.textChanged.connect(self._filter)
+            top.addWidget(QLabel(label))
+            top.addWidget(box)
+        top.addStretch(1)
+        self.photo = QLabel("no photo")
+        self.photo.setObjectName("ImageSlot")
+        self.photo.setFixedSize(120, 120)
+        self.photo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top.addWidget(self.photo)
+        lay.addLayout(top)
+        self.table = _table([""] + [h for _k, h in self.COLS])
+        with SessionLocal() as s:
+            for row in rows:
+                job = s.get(Job, row["_job_id"])
+                sku = job.product_sku if job else None
+                row["_photo"] = (sku.image_finished or sku.image_design) if sku else ""
+                r = self.table.rowCount()
+                self.table.insertRow(r)
+                chk = QTableWidgetItem("")
+                chk.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
+                             | Qt.ItemFlag.ItemIsSelectable)
+                chk.setCheckState(Qt.CheckState.Unchecked)
+                self.table.setItem(r, 0, chk)
+                for c, (k, _h) in enumerate(self.COLS, start=1):
+                    v = row.get(k)
+                    if k == "pcs" and v is not None:
+                        v = f"{Decimal(str(v)).normalize():f}"    # 0.5 pc stays 0.5
+                    self.table.setItem(r, c, _item(v if v is not None else "",
+                                                   right=k in ("pcs", "gross", "net")))
+        self.table.resizeColumnsToContents()
+        self.table.itemSelectionChanged.connect(self._show_photo)
+        self.table.cellDoubleClicked.connect(self._toggle)
+        lay.addWidget(self.table, 1)
+        self.note = QLabel("")
+        self.note.setObjectName("Muted")
+        lay.addWidget(self.note)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        b_all = bb.addButton("Tick All", QDialogButtonBox.ButtonRole.ActionRole)
+        b_all.clicked.connect(self._tick_all)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        self._filter()
+
+    def _filter(self, *_a) -> None:
+        o, c, j = (b.text().strip().lower() for b in (self.f_ord, self.f_client, self.f_job))
+        shown = 0
+        for r, row in enumerate(self.rows):
+            hide = (o and o not in str(row.get("order_no", "")).lower()) or \
+                (c and c not in str(row.get("client", "")).lower()) or \
+                (j and j not in str(row.get("job_no", "")).lower())
+            self.table.setRowHidden(r, bool(hide))
+            shown += 0 if hide else 1
+        self.note.setText(f"{shown} of {len(self.rows)} job(s) pending." if self.rows else
+                          "Nothing is pending for this process.")
+        if shown == 1:
+            for r in range(len(self.rows)):
+                if not self.table.isRowHidden(r):
+                    self.table.selectRow(r)
+
+    def _show_photo(self) -> None:
+        sel = self.table.selectionModel().selectedRows()
+        path = self.rows[sel[0].row()].get("_photo") if sel else ""
+        pix = QPixmap(path) if path else QPixmap()
+        if pix.isNull():
+            self.photo.setPixmap(QPixmap())
+            self.photo.setText("no photo")
+        else:
+            self.photo.setText("")
+            self.photo.setPixmap(pix.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio,
+                                            Qt.TransformationMode.SmoothTransformation))
+
+    def _toggle(self, r: int, _c: int) -> None:
+        it = self.table.item(r, 0)
+        it.setCheckState(Qt.CheckState.Unchecked if it.checkState() == Qt.CheckState.Checked
+                         else Qt.CheckState.Checked)
+
+    def _tick_all(self) -> None:
+        for r in range(len(self.rows)):
+            if not self.table.isRowHidden(r):
+                self.table.item(r, 0).setCheckState(Qt.CheckState.Checked)
+
+    def picked(self) -> list[dict[str, Any]]:
+        out = [row for r, row in enumerate(self.rows)
+               if self.table.item(r, 0).checkState() == Qt.CheckState.Checked]
+        if not out:
+            # OK on a highlighted row takes that one, as the legacy does.
+            sel = self.table.selectionModel().selectedRows()
+            out = [self.rows[x.row()] for x in sel if not self.table.isRowHidden(x.row())]
+        return out
+
+
 def breakup_widget(result: mfg_pricing.TransferPrice | None, stones: list[dict],
                    rows: list[tuple[str, str, str]]) -> QWidget:
     """The cost break-up pop-up: components, then the stones."""
@@ -1299,9 +1414,15 @@ class ProcessVoucherWidget(_Screen):
         self.vr_ref = QLineEdit()
         self.vr_ref.setPlaceholderText("RefNo")
         self.vr_ref.setMaximumWidth(110)
+        self.job_box = QLineEdit()
+        self.job_box.setPlaceholderText("Job No")
+        self.job_box.setMaximumWidth(90)
+        self.job_box.setToolTip("Type a job number and press Enter - it joins the voucher "
+                                "if it is pending at this process")
+        self.job_box.returnPressed.connect(self.add_job_no)
         for w in (QLabel("Vr No"), self.vr, QLabel("Date"), self.date, self.time,
                   QLabel("Process"), self.process, QLabel("Account"), self.worker,
-                  self.mt_bal, self.vr_ref):
+                  self.mt_bal, self.vr_ref, QLabel("Job No"), self.job_box):
             self.toolbar.addWidget(w)
         self.toolbar.addStretch(1)
         self.photo = QLabel("no photo")
@@ -1458,49 +1579,50 @@ class ProcessVoucherWidget(_Screen):
         self.grid.editItem(self.grid.item(r, c))
 
     # -- lines ----------------------------------------------------------
-    def show_pending(self) -> None:
-        if self._editing_blocked():
-            return
+    def _pending_rows(self) -> list[dict[str, Any]]:
         with SessionLocal() as s:
             rows = production.pending_steps(s, self.kind, self.process.currentData(),
                                             worker_id=self.worker.currentData()
                                             if self.kind == "receive" else None)
         have = {l["_job_id"] for l in self.lines}
-        rows = [r for r in rows if r["_job_id"] not in have]
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Show Pending — {self.h1.text()}")
-        dlg.setMinimumSize(760, 400)
-        lay = QVBoxLayout(dlg)
-        note = QLabel(f"{len(rows)} job(s) pending for this process." if rows else
-                      "Nothing is pending for this process - it shows here as soon as it is.")
-        note.setObjectName("Muted")
-        lay.addWidget(note)
-        lst = QListWidget()
+        return [r for r in rows if r["_job_id"] not in have]
+
+    def _take(self, rows: list[dict[str, Any]]) -> None:
         for r in rows:
-            it = QListWidgetItem(
-                f"{r['job_no']}   {r['sku']}   {r['metal']}   {r['pcs']} pc   "
-                + (f"N {r['net']} g   " if r["net"] is not None else "")
-                + (f"with {r['worker']}   " if r["worker"] else "") + r["client"])
-            it.setData(Qt.ItemDataRole.UserRole, r)
-            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            it.setCheckState(Qt.CheckState.Checked)
-            lst.addItem(it)
-        lay.addWidget(lst, 1)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
-                              | QDialogButtonBox.StandardButton.Cancel)
-        bb.accepted.connect(dlg.accept)
-        bb.rejected.connect(dlg.reject)
-        lay.addWidget(bb)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        for i in range(lst.count()):
-            if lst.item(i).checkState() == Qt.CheckState.Checked:
-                r = dict(lst.item(i).data(Qt.ItemDataRole.UserRole))
-                if self.kind == "receive":
-                    r["gross"] = r["net"] = r["mt_amt"] = None     # typed from the scale
-                r["stones"], r["metal_lines"] = {}, []
-                self.lines.append(r)
+            r = dict(r)
+            if self.kind == "receive":
+                r["gross"] = r["net"] = r["mt_amt"] = None     # typed from the scale
+            r["stones"], r["metal_lines"] = {}, []
+            self.lines.append(r)
         self._render()
+
+    def add_job_no(self) -> None:
+        """Job No box (5 Nov T-07): the job joins the voucher if it is pending
+        at this process; otherwise the reason is shown."""
+        text = self.job_box.text().strip()
+        if self._editing_blocked() or not text.isdigit():
+            return
+        rows = [r for r in self._pending_rows() if str(r["job_no"]) == text]
+        if rows:
+            self._take(rows)
+            self.job_box.clear()
+            return
+        if any(str(l["job_no"]) == text for l in self.lines):
+            _info(self, "Job No", f"Job {text} is already on this voucher.")
+            return
+        with SessionLocal() as s:
+            job = s.scalar(select(Job).where(Job.job_no == int(text)))
+            why = (production.why_not_pending(s, job, self.kind, self.process.currentData())
+                   if job else f"Job {text} does not exist.")
+        _warn(self, "Job No", why)
+
+    def show_pending(self) -> None:
+        if self._editing_blocked():
+            return
+        rows = self._pending_rows()
+        dlg = PendingForDialog(self.process.currentText() or "all processes", rows, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._take(dlg.picked())
 
     # -- Add / Edit / Delete a saved voucher (28 Sept §4.4) -----------
     def _editing_blocked(self) -> bool:
