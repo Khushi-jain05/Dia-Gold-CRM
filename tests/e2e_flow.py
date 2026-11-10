@@ -734,6 +734,21 @@ with SessionLocal() as s:
     check("the step's 0.200 balance moves from CHAND to RAHUL", (D(str(c0 - c1)).quantize(D("0.001")), D(str(r1 - r0)).quantize(D("0.001"))), (D("0.200"), D("0.200")))
     s.rollback()
 
+    print("\n== N17. Net = Gross - stones in the piece / 5 (5 Nov T-02)")
+    oB = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(oB); s.flush(); s.add(OrderLine(order_id=oB.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(oB)
+    _v, mkB = P.explode_orders(s, [{"order_id": oB.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+    jB = s.scalar(select(Job).where(Job.job_no == mkB[0]))
+    siB = StoneIssue(vr_no=P.next_number(s, StoneIssue.vr_no), job_id=jB.id, vr_date=T); s.add(siB); s.flush()
+    s.add(StoneIssueLine(issue_id=siB.id, sno=1, location_id=prim.id, stone_sku_id=polki.id, size=polki.size or "", pcs=20, weight=D("14.890"), s_type="Polki"))
+    s.flush(); s.refresh(siB); P.apply_stone_issue(s, siB)
+    blB = next(l for l in s.scalars(select(JobBagLine).where(JobBagLine.job_id == jB.id)) if l.stone_sku_id == polki.id)
+    check("stones still in the bag, not in the piece: net = gross", P.net_for_gross(s, jB, D("20"), "issue"), D("20.000"))
+    P.bag_move(s, blB, "iss", 20, D("14.890"), worker_id=chand.id)
+    check("legacy job 29677: 14.890 issued, 0.600 back, 0.010 broken -> 14.805 gives 11.949",
+          P.net_for_gross(s, jB, D("14.805"), "receive", {blB.id: {"pcs": 1, "wt": D("0.600"), "break_pcs": 1, "break_wt": D("0.010")}}), D("11.949"))
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

@@ -1153,6 +1153,22 @@ def _fill_family_from_item(dialog, item_id) -> None:
         family_editor.setCurrentIndex(idx)
 
 
+def _sku_net_from_gross(dialog, gross) -> None:
+    """Net Wt = Gross Wt - the SKU's stone carats / 5 (5 Nov T-02), as the
+    gross is typed. Typed over by hand afterwards, it stays."""
+    net_ed = dialog.editors.get("net_weight")
+    grid = dialog.child_editors.get("stones")
+    if net_ed is None:
+        return
+    ct = Decimal("0")
+    if grid is not None:
+        for r in grid.rows():
+            ct += Decimal(str(r.get("weight_cts") or 0))
+    g = Decimal(str(gross or 0))
+    if g > 0:
+        net_ed.setValue(float(max(g - ct * Decimal("0.2"), Decimal("0")).quantize(Decimal("0.0001"))))
+
+
 def _show_metal_fineness(dialog, metal_id) -> None:
     """Put the chosen head's fineness beside the metal, as the legacy form does.
 
@@ -1201,6 +1217,12 @@ def _price_product_sku(values: dict, children: dict, session) -> None:
     Runs on every save so the stored figures always match the lines that
     produced them. Manual Price % is left alone - it is a separate override.
     """
+    gross = Decimal(str(values.get("gross_weight") or 0))
+    if gross > 0 and not Decimal(str(values.get("net_weight") or 0)):
+        # Net never left at 0 (5 Nov: Gross 3.0000, Net 0.0000): gross less stones / 5.
+        ct = sum((Decimal(str(r.get("weight_cts") or 0)) for r in children.get("stones", [])),
+                 Decimal("0"))
+        values["net_weight"] = max(gross - ct * Decimal("0.2"), Decimal("0"))
     metal = session.get(Metal, values.get("metal_id")) if values.get("metal_id") else None
     rate_info = None
     if metal is not None:
@@ -1280,9 +1302,10 @@ _register(CrudSpec(
               in_list=False,
               help_text="From the chosen metal head. Costing reads the master, "
                         "never this copy."),
-        Field("gross_weight", "Gross Wt", type="float", decimals=4),
+        Field("gross_weight", "Gross Wt", type="float", decimals=4,
+              on_change=_sku_net_from_gross),
         Field("net_weight", "Net Wt", type="float", decimals=4,
-              help_text="Metal is costed on net weight, not gross."),
+              help_text="Gross less the stones / 5; can be typed over."),
         Field("is_active", "Active", type="bool", default=True),
 
         # -- money: derived, shown but never typed ----------------------

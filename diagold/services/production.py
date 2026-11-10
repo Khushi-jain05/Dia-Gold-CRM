@@ -1979,6 +1979,24 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
 CT_TO_GRAM = Decimal("0.2")
 
 
+def net_for_gross(session: Session, job: Job, gross: Any, kind: str = "receive",
+                  stones: dict | None = None) -> Decimal | None:
+    """Net weight for a gross typed on a voucher (5 Nov T-02, the client's
+    rule): Net = Gross - stones in the piece / 5 (1 ct = 0.2 g), 3 decimals.
+    On a receipt the F3 stones handed back now (returned, broken, lost) are
+    no longer in the piece. Every stone counts, whatever its Add In NetWt -
+    to confirm (C-02). None when no gross is typed."""
+    g = _dec(gross)
+    if g <= 0:
+        return None
+    ct = piece_stone_ct(session, job)
+    if kind == "receive" and stones:
+        for sp in stones.values():
+            sp = stone_spec(sp)
+            ct -= sp["wt"] + sp["break_wt"] + sp["lost_wt"]
+    return max(g - max(ct, ZERO) * CT_TO_GRAM, ZERO).quantize(D3)
+
+
 def stone_spec(value: Any) -> dict[str, Any]:
     """An F3 entry: whole pieces (the old shape), (pcs, weight), or a dict
     with pcs / wt / break_pcs / break_wt / lost_pcs / lost_wt."""

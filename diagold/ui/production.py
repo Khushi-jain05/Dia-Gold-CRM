@@ -811,6 +811,12 @@ class VoucherDialog(QDialog):
         self.pcs.setValue(1)
         self.gross = self._wt()
         self.net = self._wt()
+        # Net follows Gross - stones in the piece / 5 (5 Nov T-02) until it is
+        # typed over by hand.
+        self._net_by_hand = False
+        self._setting_net = False
+        self.gross.valueChanged.connect(lambda _v: self._net_from_gross())
+        self.net.valueChanged.connect(self._net_typed)
         # Allowed loss % (28 Sept R5): starts on the process master's figure
         # (a receive on its issue's) and can be changed for this line.
         self.allow = QDoubleSpinBox()
@@ -921,8 +927,10 @@ class VoucherDialog(QDialog):
             # new gross / net by itself).
             with SessionLocal() as s:
                 gross, net = production.last_weights(s, s.get(Job, self.job_id))
+            self._setting_net = True       # the carried-forward pair, as weighed
             self.gross.setValue(float(gross or 0))
             self.net.setValue(float(net or 0))
+            self._setting_net = False
         self.hint.setText(
             "Loss is derived from what comes back: issued net − received net − scrap − dust. "
             "The karigar is allowed Allow Loss % of the net weight received back."
@@ -951,6 +959,21 @@ class VoucherDialog(QDialog):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.stone_moves = dlg.values
             self._show_picked()
+            self._net_from_gross()
+
+    def _net_typed(self, _v) -> None:
+        if not self._setting_net:
+            self._net_by_hand = True
+
+    def _net_from_gross(self) -> None:
+        if self._net_by_hand or self._setting_net or not self.gross.isEnabled():
+            return
+        with SessionLocal() as s:
+            net = production.net_for_gross(s, s.get(Job, self.job_id), self.gross.value(),
+                                           self.kind, self.stone_moves)
+        self._setting_net = True
+        self.net.setValue(float(net or 0))
+        self._setting_net = False
 
     def _metal(self) -> None:
         dlg = MetalLinesDialog(self.metal_lines, self)

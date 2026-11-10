@@ -1705,6 +1705,16 @@ class ProcessVoucherWidget(_Screen):
             ln[key] = it.text().strip()
         else:
             ln[key] = _num(text)
+        if key == "net":
+            ln["_net_by_hand"] = True
+        if key == "gross" and not ln.get("_net_by_hand") and ln.get("_job_id"):
+            # Net = Gross - stones in the piece / 5 (5 Nov T-02) until typed over.
+            with SessionLocal() as s:
+                net = production.net_for_gross(s, s.get(Job, ln["_job_id"]), ln.get("gross"),
+                                               self.kind, ln.get("stones"))
+            if net is not None:
+                ln["net"] = net
+                key = "net"
         # Amounts follow the net weight and the price, as on the legacy grid.
         if key in ("net", "mt_price", "manual_price"):
             net = Decimal(str(ln.get("net") or 0))
@@ -1743,6 +1753,12 @@ class ProcessVoucherWidget(_Screen):
         dlg = StoneBagDialog(ln["_job_id"], self.kind, worker, ln.get("stones") or {}, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             ln["stones"] = dlg.values
+            if ln.get("gross") and not ln.get("_net_by_hand"):
+                with SessionLocal() as s:
+                    net = production.net_for_gross(s, s.get(Job, ln["_job_id"]), ln["gross"],
+                                                   self.kind, ln["stones"])
+                if net is not None:
+                    ln["net"] = net
             self._render()
 
     def f5(self) -> None:
