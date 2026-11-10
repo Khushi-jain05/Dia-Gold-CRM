@@ -2127,10 +2127,17 @@ def _voucher_image(v: JobVoucher) -> dict[str, Any]:
 def update_voucher(session: Session, vr_no: int, lines: dict[int, dict[str, Any]], *,
                    vr_date: date | None = None, vr_time: str | None = None,
                    ref_no: str | None = None, remark: str | None = None,
-                   user_id: int | None = None) -> list[JobVoucher]:
+                   user_id: int | None = None,
+                   worker_id: int | None = None) -> list[JobVoucher]:
     """Save changes typed over a saved voucher: its date / time / RefNo /
     narration and, per line ({voucher id: {field: value}}), the weights and
-    prices. Loss and setting labour are worked out again from the new figures."""
+    prices. Loss and setting labour are worked out again from the new figures.
+
+    ``worker_id`` puts the voucher on another karigar (5 Nov T-04: "it went
+    against the wrong worker and that can't be changed"): the issue and its
+    receipt move together - a step is always issued to and received from the
+    same karigar - with the stones that went with them, so both karigars'
+    ledgers and bags follow."""
     rows = voucher_lines(session, vr_no)
     if not rows:
         raise ProductionError(f"Voucher {vr_no} does not exist.")
@@ -2141,6 +2148,12 @@ def update_voucher(session: Session, vr_no: int, lines: dict[int, dict[str, Any]
                 f"Job {job.job_no} is already in ready stock - delete its stock item in "
                 "Item Search before changing this voucher.")
     before = [_voucher_image(v) for v in rows]
+    if worker_id is not None:
+        if session.get(Account, worker_id) is None:
+            raise ProductionError("The worker is not on the Account master.")
+        for v in rows:
+            if v.worker_id != worker_id:
+                _move_to_worker(session, v, worker_id)
     for v in rows:
         step = session.get(JobStep, v.step_id)
         job = session.get(Job, v.job_id)
@@ -2192,6 +2205,25 @@ def update_voucher(session: Session, vr_no: int, lines: dict[int, dict[str, Any]
                             before_json=json.dumps({"lines": before}, default=str)))
     session.flush()
     return rows
+
+
+def _move_to_worker(session: Session, v: JobVoucher, worker_id: int) -> None:
+    """Put one issue / receive pair, and the stones that went with it, on
+    ``worker_id``."""
+    issue = v if v.kind == "issue" else (session.get(JobVoucher, v.issue_id)
+                                         if v.issue_id else None)
+    pair = [v]
+    if issue is not None:
+        pair = [issue] + list(session.scalars(select(JobVoucher).where(
+            JobVoucher.kind == "receive", JobVoucher.issue_id == issue.id)))
+    for x in pair:
+        x.worker_id = worker_id
+    ids = [x.id for x in pair]
+    for m in session.scalars(select(JobBagMovement).where(
+            JobBagMovement.ref_kind == VOUCHER_REF, JobBagMovement.ref_id.in_(ids))):
+        if m.worker_id is not None:
+            m.worker_id = worker_id
+    session.flush()
 
 
 def _later_vouchers(session: Session, v: JobVoucher) -> bool:

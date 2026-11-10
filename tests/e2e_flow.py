@@ -714,6 +714,26 @@ with SessionLocal() as s:
     check("a used size cannot be removed", bool(SM.size_in_use(s, polki)), True)
     s.rollback()
 
+    print("\n== N16. Receipt on the wrong karigar: Edit moves the pair (5 Nov T-04)")
+    oA = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(oA); s.flush(); s.add(OrderLine(order_id=oA.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(oA)
+    _v, mkA = P.explode_orders(s, [{"order_id": oA.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+    jA = s.scalar(select(Job).where(Job.job_no == mkA[0])); P.map_job(s, jA, "Default", T)
+    def goA(kind, w, g=None):
+        r = [x for x in P.pending_steps(s, kind) if x["_job_id"] == jA.id][0]
+        return P.post_multi_voucher(s, kind, w.id, [{"job_id": jA.id, "step_id": r["_step_id"], "gross": g, "net": g}], vr_date=T)
+    for _ in range(3):
+        goA("issue", chand); goA("receive", chand)
+    goA("issue", chand, D("10")); vrA = goA("receive", chand, D("9.800"))
+    c0, r0 = P.worker_metal_balance(s, chand.id, T)[0], P.worker_metal_balance(s, rahul.id, T)[0]
+    P.update_voucher(s, vrA, {}, worker_id=rahul.id)
+    rcvA = s.scalar(select(JobVoucher).where(JobVoucher.vr_no == vrA))
+    issA = s.get(JobVoucher, rcvA.issue_id)
+    check("receipt and its issue now on RAHUL", (rcvA.worker_id, issA.worker_id), (rahul.id, rahul.id))
+    c1, r1 = P.worker_metal_balance(s, chand.id, T)[0], P.worker_metal_balance(s, rahul.id, T)[0]
+    check("the step's 0.200 balance moves from CHAND to RAHUL", (D(str(c0 - c1)).quantize(D("0.001")), D(str(r1 - r0)).quantize(D("0.001"))), (D("0.200"), D("0.200")))
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

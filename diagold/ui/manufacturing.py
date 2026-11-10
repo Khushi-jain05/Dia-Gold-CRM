@@ -1599,10 +1599,12 @@ class ProcessVoucherWidget(_Screen):
         i = self.process.findData(first["process_id"])
         if i >= 0:
             self.process.setCurrentIndex(i)
-        if self.kind == "issue":
-            i = self.worker.findData(first["worker_id"])
-            if i >= 0:
-                self.worker.setCurrentIndex(i)
+        # The karigar the voucher is on - change it here to correct a wrong
+        # worker (5 Nov T-04); a receipt shows its own karigar too.
+        i = self.worker.findData(first["worker_id"])
+        if i >= 0:
+            self.worker.setCurrentIndex(i)
+        self._edit_worker = first["worker_id"]
         self.date.setDate(_qdate(first["vr_date"]))
         self.time.setText(first["vr_time"] or "")
         self.vr_ref.setText(first["vr_ref"] or "")
@@ -1819,11 +1821,14 @@ class ProcessVoucherWidget(_Screen):
             changes[ln["_voucher_id"]] = ch
         with SessionLocal() as s:
             try:
+                new_worker = self.worker.currentData()
                 production.update_voucher(
                     s, vr, changes, vr_date=_pydate(self.date),
                     vr_time=self.time.text().strip(), ref_no=self.vr_ref.text().strip(),
                     remark=self.narration.text().strip(),
-                    user_id=getattr(self.user, "id", None))
+                    user_id=getattr(self.user, "id", None),
+                    worker_id=new_worker if new_worker and new_worker != getattr(
+                        self, "_edit_worker", None) else None)
                 s.commit()
             except ProductionError as exc:
                 s.rollback()
