@@ -1495,6 +1495,21 @@ def _validate_order(values: dict, children: dict[str, list[dict]]) -> str | None
     return None
 
 
+def _warn_order(values: dict, children: dict, _session) -> str | None:
+    """A delivery date before the order date (5 Nov R23: order 2026-10-10,
+    delivery 2024-10-10 went through) - asked, not refused."""
+    od = values.get("order_date")
+    bad = []
+    if od and values.get("delivery_date") and values["delivery_date"] < od:
+        bad.append(f"Delivery Date {values['delivery_date']:%d-%m-%Y}")
+    for n, r in enumerate(children.get("lines", []), start=1):
+        if od and r.get("delivery_date") and r["delivery_date"] < od:
+            bad.append(f"line {n} Del Dt {r['delivery_date']:%d-%m-%Y}")
+    if not bad:
+        return None
+    return f"{', '.join(bad)} is before the order date {od:%d-%m-%Y}."
+
+
 def _prepare_order(values: dict, children: dict, session) -> None:
     if not values.get("order_no"):
         values["order_no"] = production.next_number(session, Order.order_no)
@@ -1668,6 +1683,7 @@ _register(CrudSpec(
     date_field="order_date",
     search_hint="Search by ref, terms, remark…",
     validate=_validate_order,
+    warn=_warn_order,
     before_save=_prepare_order,
     after_save=_order_saved,
     before_delete=_order_delete,
