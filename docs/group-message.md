@@ -195,4 +195,12 @@ Before the questions, the follow-up from 9 Oct (T-01):
 123. Ready Closing Stock now shows DIA / POL / CS weight (carats). Do you want pieces (pcs) too? *(19 Oct)*
 124. Every inventory voucher (Metal Issue, Purchase, Receipt...) can now be edited. Should editing need a User Right, like Delete? *(19 Oct)*
 
+125. Stone size data (C-01): please send each stone's sizes - Stone SKU, size, Wt/Pcs, cost, sale - or a legacy export. You mentioned a size chart; what does it contain? We now keep one Stone SKU with its sizes inside, as your screen. *(5 Nov)*
+126. Net weight (C-02): we use Net = Gross - stones / 5. (a) Do all stones count, or does "Add In NetWt" change it? (b) Stones not in carats (pearls by gram)? (c) May the user type over the net? (we allow it). *(5 Nov)*
+127. Allowance (C-03): where does Allow Loss % come from - per karigar, per process or per job? MANIK JI is 3.5%. Please share the list. And is it on the weight issued or received back? ABHIJEET DAS's ledger worked on issued, MANIK JI's on received. *(5 Nov)*
+128. Screen resolution (C-04): what resolution and scaling do the office PCs use? We fitted Job History to 1366 px wide. *(5 Nov)*
+129. The 3 Nov Worker Metal Ledger screenshot with a box drawn on it (C-05): what should change there? *(5 Nov)*
+130. "Diwali ke baad" - is that the date to complete, or the next meeting? *(5 Nov Q1)*
+131. Deleting a voucher when later steps exist: today we refuse and name the later voucher. OK? *(5 Nov Q5)*
+
 Thank you!
