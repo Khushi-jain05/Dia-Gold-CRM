@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from diagold.db.models import (
+from diagold.db.models import (StoneMaster, 
     Complaint,
     ComplaintLine,
     GatePass,
@@ -917,55 +917,87 @@ _register(CrudSpec(
 
 
 # --- Stone SKU catalogue (Harshit's flat model) --------------------------
+def _stone_sizes_summary(rows: list[dict]) -> str:
+    sizes = [r for r in rows if (r.get("size") or r.get("range_label") or "").strip()]
+    return f"{len(sizes)} size(s)"
+
+
+def _stone_master_saved(master, _children, session) -> None:
+    from diagold.services import stone_master
+    session.refresh(master)
+    stone_master.sync_sizes(session, master)
+
+
+def _stone_master_delete(master, session) -> None:
+    from diagold.services import stone_master
+    for sku in list(master.sizes):
+        why = stone_master.size_in_use(session, sku)
+        if why:
+            raise ValueError(why)
+        session.delete(sku)
+    session.flush()
+
+
+def _stone_size_guard(sku, session) -> str | None:
+    from diagold.services import stone_master
+    return stone_master.size_in_use(session, sku)
+
+
+def _stone_master_validate(values: dict, children: dict) -> str | None:
+    seen = set()
+    for n, r in enumerate(children.get("sizes", []), start=1):
+        key = ((r.get("size") or "").strip().upper(), (r.get("range_label") or "").strip().upper())
+        if not any(key):
+            continue
+        if key in seen:
+            return f"Size row {n} repeats a size already on this stone."
+        seen.add(key)
+    return None
+
+
 _register(CrudSpec(
     key="sku.stone_sku",
-    # The legacy screen shows the selected stone's details right under the
-    # list, split the same two ways: what the stone is, and what it costs.
-    detail_panels=[
-        ("Stone SKU", ["sku_code", "description", "mrp", "stone", "shape",
-                       "stone_type", "quality", "color"]),
-        ("Range / Size Info", ["range_label", "cost_price", "sale_price", "per",
-                               "size", "wt_per_pcs", "min_wt"]),
-    ],
+    # One Stone SKU holds all its sizes, as the legacy screen (5 Nov T-01):
+    # the stone's details above, the Range / Size Info grid below.
+    detail_panels=[("Stone SKU", ["name", "description", "mrp", "shape", "stone_type",
+                                  "quality", "color"])],
     copyable=True,
     title="Stone SKUs",
-    model=StoneSku,
-    order_by="sku_code",
+    singular_title="Stone SKU",
+    model=StoneMaster,
+    order_by="name",
     search_hint="Search by Stone SKU, shape, quality, colour…",
+    validate=_stone_master_validate,
+    after_save=_stone_master_saved,
+    before_delete=_stone_master_delete,
+    form_width=980,
     fields=[
-        Field("sku_code", "Stone Sku", required=True,
-              on_change=_stone_sku_autofill),
-        Field("mrp", "MRP", in_list=False,
-              help_text="Kept as free text: the requirements read this as a "
-                        "Yes/No flag, but amounts are being typed into it. "
-                        "Awaiting the client before it is constrained."),
+        Field("name", "Stone Sku", required=True),
         Field("description", "Description", in_list=False),
-        Field("stone", "Stone", required=True, in_list=False,
-              help_text="Defaults to the Stone Sku text - type over it if the "
-                        "stone name should differ."),
-        Field("shape", "Shape", in_list=False),
-        Field("stone_type", "Type", in_list=False),
-        Field("quality", "Quality", in_list=False),
+        Field("mrp", "MRP", in_list=False),
+        Field("shape", "Shape"),
+        Field("stone_type", "Type"),
+        Field("quality", "Quality"),
         Field("color", "Color", in_list=False),
         Field("shelf_no", "Shelf No.", in_list=False),
         Field("rfid", "RFID#", in_list=False),
-        Field("range_label", "Range", in_list=False),
-        Field("cost_price", "Cost Price", type="float", in_list=False),
-        Field("sale_price", "Sale Price", type="float", in_list=False),
-        Field("per", "Per", in_list=False),
-        Field("size", "Size", in_list=False),
-        Field("wt_per_pcs", "Wt/Pcs", type="float", decimals=4, in_list=False),
-        Field("min_wt", "Min.Wt", type="float", decimals=4, in_list=False),
-        Field("add_in_netwt", "Add In NetWt", type="bool", in_list=False,
-              help_text="Whether this stone's weight counts toward the piece's "
-                        "net weight."),
-        Field("is_active", "Active", type="bool", default=True, in_list=False),
-        Field("vendors", "Vendor List", type="child", in_list=False,
+        Field("add_in_netwt", "Add In NetWt", type="bool", in_list=False),
+        Field("is_active", "Active", type="bool", default=True),
+        Field("sizes", "Range / Size Info", type="child",
               child=ChildSpec(
-                  model=StoneSkuVendor, fk_attr="stone_sku_id", order_by="id",
-                  height=90,
-                  fields=[Field("account_id", "Vendor", type="fk", fk_model=Account,
-                                fk_label=_account_label)],
+                  model=StoneSku, fk_attr="master_id", order_by="id", height=230,
+                  keep_ids=True, row_delete_guard=_stone_size_guard,
+                  summary=_stone_sizes_summary,
+                  row_template={"per": "Cts"},
+                  fields=[
+                      Field("range_label", "Range"),
+                      Field("cost_price", "Cost Price", type="float"),
+                      Field("sale_price", "Sale Price", type="float"),
+                      Field("per", "Per", type="choice", choices=["Cts", "Pcs", "Gms"]),
+                      Field("size", "Size"),
+                      Field("wt_per_pcs", "Wt/Pcs", type="float", decimals=4),
+                      Field("min_wt", "Min.Wt", type="float", decimals=4),
+                  ],
               )),
     ],
 ))

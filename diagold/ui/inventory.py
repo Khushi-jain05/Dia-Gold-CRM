@@ -108,9 +108,10 @@ def voucher_spec(vr_type: str) -> CrudSpec:
             line_fields += [Field("job_no", "Job No", type="int")]
     else:
         line_fields += [
-            Field("stone_sku_id", "SSKU", type="fk", fk_model=StoneSku, fk_label=_stone_label),
+            # SSKU = the stone's name, Size = its sizes (5 Nov T-01).
+            Field("stone_sku_id", "SSKU", type="stone_sku", fk_model=StoneSku),
+            Field("size", "Size", type="stone_size"),
             Field("particulars", "Particulars"),
-            Field("size", "Size"),
             Field("pcs", "Pcs", type="int", on_change=_fill_weight_amount),
             Field("weight", "Weight (ct)", type="float", decimals=3,
                   on_change=_fill_weight_amount),

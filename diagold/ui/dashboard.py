@@ -23,7 +23,7 @@ from diagold.db.models import (
     Metal,
     Order,
     ProductSku,
-    StoneSku,
+    StoneMaster, StoneSku,
     User,
 )
 from diagold.db.session import SessionLocal
@@ -104,7 +104,7 @@ class DashboardWidget(QWidget):
                 ("Jobs in production", wip, "production_planning.job_history"),
                 ("Orders", _count(s, Order), "production_planning.order"),
                 ("Product SKUs", _count(s, ProductSku), "sku.product_sku_master"),
-                ("Stone SKUs", _count(s, StoneSku), "sku.stone_sku"),
+                ("Stone SKUs", _count(s, StoneMaster), "sku.stone_sku"),
                 ("Accounts", _count(s, Account), "master.account"),
                 ("Metals", _count(s, Metal), "master.metal"),
                 ("Users", _count(s, User), "master.user_right"),

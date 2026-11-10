@@ -149,6 +149,12 @@ class ChildSpec:
     # never rewritten, only added to.
     append_only: bool = False
     height: int = 150
+    # Rows other records point at (a stone's size rows): saved in place by
+    # id - changed rows updated, new ones added, removed ones deleted only if
+    # ``row_delete_guard(row, session)`` returns None (else that sentence is
+    # the refusal). Never the wholesale replace.
+    keep_ids: bool = False
+    row_delete_guard: Callable[[Any, Any], str | None] | None = None
 
 
 @dataclass
@@ -327,6 +333,7 @@ class ChildTableEditor(QWidget):
         self.spec = spec
         self._locked = 0
         self._fk_cache: dict[str, list[tuple[Any, str]]] = {}
+        self._row_ids: list[Any] = []     # keep_ids: the saved row behind each grid row
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -374,6 +381,7 @@ class ChildTableEditor(QWidget):
         values = values or {}
         r = self.table.rowCount()
         self.table.insertRow(r)
+        self._row_ids.insert(r, values.get("id"))
         self.table.setRowHeight(r, ROW_HEIGHT)
         for c, f in enumerate(self.spec.fields):
             value = values.get(f.name)
@@ -393,20 +401,20 @@ class ChildTableEditor(QWidget):
     # stone's sizes; the pair is the Stone SKU the line stores.
     def _stone_index(self) -> dict[str, list[tuple[str, int]]]:
         if "__stones__" not in self._fk_cache:
-            from diagold.db.models import StoneSku
+            from diagold.db.models import StoneMaster
+            from diagold.services.stone_master import group_stone_skus, size_label
             idx: dict[str, list[tuple[str, int]]] = {}
             real: dict[int, str] = {}
             with SessionLocal() as session:
-                for k in session.scalars(select(StoneSku).where(StoneSku.is_active.is_(True))
-                                         .order_by(StoneSku.sku_code)):
-                    name = (k.stone or k.sku_code or "").strip()
-                    size = (k.size or "").strip()
-                    if not size and k.stone and k.sku_code.upper().startswith(k.stone.upper()):
-                        # No size on the master (POLKI U, POLKI 24): the rest
-                        # of the SKU code tells them apart in the list.
-                        size = k.sku_code[len(k.stone):].strip()
-                    idx.setdefault(name, []).append((size, k.id))
-                    real[k.id] = (k.size or "").strip()
+                if group_stone_skus(session):   # a size made elsewhere since start-up
+                    session.commit()
+                for m in session.scalars(select(StoneMaster).where(
+                        StoneMaster.is_active.is_(True)).order_by(StoneMaster.name)):
+                    for k in m.sizes:
+                        if not k.is_active:
+                            continue
+                        idx.setdefault(m.name, []).append((size_label(k), k.id))
+                        real[k.id] = (k.size or "").strip()
             self._fk_cache["__stones__"] = idx
             self._fk_cache["__stone_size__"] = real
         return self._fk_cache["__stones__"]
@@ -610,10 +618,13 @@ class ChildTableEditor(QWidget):
             return  # saved history is never removed
         if r >= 0:
             self.table.removeRow(r)
+            if r < len(self._row_ids):
+                self._row_ids.pop(r)
             self._refresh_summary()
 
     def set_rows(self, rows: list[dict]) -> None:
         self.table.setRowCount(0)
+        self._row_ids = []
         for row in rows:
             self.add_row(row)
         if self.spec.append_only:
@@ -633,10 +644,10 @@ class ChildTableEditor(QWidget):
     def rows(self) -> list[dict]:
         out: list[dict] = []
         for r in range(self.table.rowCount()):
-            out.append({
-                f.name: self._cell_value(r, c, f)
-                for c, f in enumerate(self.spec.fields)
-            })
+            row = {f.name: self._cell_value(r, c, f) for c, f in enumerate(self.spec.fields)}
+            if self.spec.keep_ids:
+                row["id"] = self._row_ids[r] if r < len(self._row_ids) else None
+            out.append(row)
         return out
 
     def _refresh_summary(self, *_) -> None:
@@ -986,6 +997,7 @@ class FormDialog(QDialog):
             stmt = stmt.order_by(getattr(child.model, child.order_by))
         editor.set_rows([
             {cf.name: getattr(row, cf.name, None) for cf in child.fields}
+            | ({"id": row.id} if child.keep_ids else {})
             for row in self.session.scalars(stmt)
         ])
 
@@ -1170,6 +1182,31 @@ class FormDialog(QDialog):
             return
         self.accept()
 
+    def _save_children_in_place(self, obj: Any, child: "ChildSpec", fk, rows) -> None:
+        existing = {r.id: r for r in self.session.scalars(
+            select(child.model).where(fk == obj.id))}
+        kept: set[Any] = set()
+        for row in rows:
+            row = dict(row)
+            rid = row.pop("id", None)
+            if not any(str(v).strip() for v in row.values() if v is not None):
+                continue
+            if rid in existing:
+                for k, v in row.items():
+                    setattr(existing[rid], k, v)
+                kept.add(rid)
+            else:
+                self.session.add(child.model(**{child.fk_attr: obj.id}, **row))
+        for rid, stale in existing.items():
+            if rid in kept:
+                continue
+            if child.row_delete_guard is not None:
+                why = child.row_delete_guard(stale, self.session)
+                if why:
+                    raise ValueError(why)
+            self.session.delete(stale)
+        self.session.flush()
+
     def _save_children(self, obj: Any, children: dict[str, list[dict]]) -> None:
         """Replace each child grid's rows wholesale - simple and correct."""
         for f in self.spec.fields:
@@ -1178,6 +1215,9 @@ class FormDialog(QDialog):
             child = f.child
             fk = getattr(child.model, child.fk_attr)
             rows = children.get(f.name, [])
+            if child.keep_ids:
+                self._save_children_in_place(obj, child, fk, rows)
+                continue
             if child.append_only:
                 # Never touch what is already saved; only add what is new.
                 editor = self.child_editors.get(f.name)
@@ -1603,10 +1643,17 @@ class CrudWidget(QWidget):
                     continue
                 child = f.child
                 fk = getattr(child.model, child.fk_attr)
+                uniq = [c.name for c in inspect(child.model).columns
+                        if c.unique and c.name not in (child.fk_attr, "id")]
                 for row in session.scalars(select(child.model).where(fk == source.id)):
-                    session.add(child.model(**{child.fk_attr: clone.id}, **{
-                        cf.name: getattr(row, cf.name) for cf in child.fields
-                    }))
+                    data = {cf.name: getattr(row, cf.name) for cf in child.fields}
+                    for u in uniq:      # a size row's own code must not clash
+                        data[u] = f"{getattr(row, u)} (copy)"
+                    session.add(child.model(**{child.fk_attr: clone.id}, **data))
+            if self.spec.after_save is not None:
+                session.flush()
+                session.refresh(clone)
+                self.spec.after_save(clone, {}, session)
             session.commit()
             fresh = session.get(self.spec.model, clone.id)
             dlg = FormDialog(self.spec, fresh, session, self, rights=self.rights)

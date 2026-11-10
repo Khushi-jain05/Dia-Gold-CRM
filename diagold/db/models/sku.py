@@ -14,6 +14,7 @@ prefixes used elsewhere.
 from __future__ import annotations
 
 from datetime import date
+from uuid import uuid4
 
 from sqlalchemy import (Boolean, Date, ForeignKey, Numeric, String, Text,
                         UniqueConstraint)
@@ -80,6 +81,33 @@ class ItemPriceRange(Base, PKMixin):
 # ---------------------------------------------------------------------------
 # Stone SKU (T-20)
 # ---------------------------------------------------------------------------
+class StoneMaster(Base, PKMixin, TimestampMixin):
+    """One stone with all its sizes (5 Nov, T-01): "one name, and the sizes
+    come inside it", as the legacy Stone SKU screen. Each size is a StoneSku
+    row under it (Range / Size Info grid); transactions keep pointing at that
+    size row, so stock, bags and vouchers are unchanged."""
+
+    __tablename__ = "stone_masters"
+
+    name: Mapped[str] = mapped_column(String(80), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    mrp: Mapped[str] = mapped_column(String(16), default="")
+    shape: Mapped[str] = mapped_column(String(32), default="")
+    stone_type: Mapped[str] = mapped_column(String(32), default="")
+    quality: Mapped[str] = mapped_column(String(32), default="")
+    color: Mapped[str] = mapped_column(String(32), default="")
+    shelf_no: Mapped[str] = mapped_column(String(24), default="")
+    rfid: Mapped[str] = mapped_column(String(40), default="")
+    add_in_netwt: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    sizes: Mapped[list["StoneSku"]] = relationship(
+        back_populates="master", order_by="StoneSku.id", lazy="selectin")
+
+    def __str__(self) -> str:  # pragma: no cover
+        return self.name
+
+
 class StoneSku(Base, PKMixin, TimestampMixin):
     """A catalogue Stone SKU - the client's legacy "Stone SKU" master screen.
 
@@ -91,7 +119,10 @@ class StoneSku(Base, PKMixin, TimestampMixin):
 
     __tablename__ = "stone_skus"
 
-    sku_code: Mapped[str] = mapped_column(String(64), unique=True)
+    # A size row added on the Stone SKU screen gets a stand-in code until the
+    # save names it "<stone> <size>" (services/stone_master.sync_sizes).
+    sku_code: Mapped[str] = mapped_column(
+        String(64), unique=True, default=lambda: f"__new_{uuid4().hex[:12]}")
     mrp: Mapped[str] = mapped_column(String(16), default="")
     description: Mapped[str] = mapped_column(Text, default="")
     stone: Mapped[str] = mapped_column(String(80), default="")
@@ -114,6 +145,12 @@ class StoneSku(Base, PKMixin, TimestampMixin):
     size: Mapped[str] = mapped_column(String(24), default="")
     wt_per_pcs: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
     min_wt: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
+
+    # The stone this size belongs to (T-01); every size row has one after the
+    # start-up grouping (services/stone_master.py).
+    master_id: Mapped[int | None] = mapped_column(ForeignKey("stone_masters.id"),
+                                                  nullable=True, index=True)
+    master: Mapped["StoneMaster | None"] = relationship(back_populates="sizes")
 
     vendors: Mapped[list["StoneSkuVendor"]] = relationship(
         back_populates="stone_sku", cascade="all, delete-orphan", lazy="selectin"

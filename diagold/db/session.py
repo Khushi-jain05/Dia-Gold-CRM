@@ -54,4 +54,6 @@ def init_db() -> None:
         seed_workers(session)         # the client's karigars by department (9 Oct)
         from diagold.services.price_charts import seed_default_charts
         seed_default_charts(session)  # price type "A" with the client's stone chart
+        from diagold.services.stone_master import group_stone_skus
+        group_stone_skus(session)     # one Stone SKU with its sizes inside (5 Nov T-01)
         session.commit()

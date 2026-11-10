@@ -700,6 +700,20 @@ with SessionLocal() as s:
     check("deleted: stock back where it was", P.stock_balance(s, prim.id, "stone", polki.id, polki.size or ""), stock0)
     s.rollback()
 
+    print("\n== N15. Stone SKU = one stone with its sizes (5 Nov T-01)")
+    from diagold.db.models import StoneMaster
+    from diagold.services import stone_master as SM
+    check("every size row has its stone", s.scalar(select(func.count()).select_from(StoneSku).where(StoneSku.master_id.is_(None))), 0)
+    pm = s.scalar(select(StoneMaster).where(StoneMaster.name == "POLKI"))
+    check("POLKI 12-14 sits under POLKI", polki.master_id, pm.id if pm else None)
+    lc = StoneMaster(name="LABGROWN CUSHION"); s.add(lc); s.flush()
+    for z in ("8MM", "9*11", "9*12", "9*13", "9*14", "9.5*11.5", "9MM", "MIX"):
+        s.add(StoneSku(master_id=lc.id, size=z, per="Cts"))
+    s.flush(); s.refresh(lc); SM.sync_sizes(s, lc)
+    check("LABGROWN CUSHION: 8 sizes, codes from name + size", (len(lc.sizes), sorted(k.sku_code for k in lc.sizes)[0]), (8, "LABGROWN CUSHION 8MM"))
+    check("a used size cannot be removed", bool(SM.size_in_use(s, polki)), True)
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])
