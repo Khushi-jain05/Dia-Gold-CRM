@@ -392,6 +392,8 @@ class JobHeaderCard(QFrame):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(4)
         self.values: dict[str, QLabel] = {}
+        self._grid = grid
+        self._labels: dict[str, QLabel] = {}
         for i, (key, label) in enumerate(self.FIELDS):
             r, c = divmod(i, 3)
             k = QLabel(label)
@@ -407,6 +409,7 @@ class JobHeaderCard(QFrame):
                 f.setBold(True)
                 v.setFont(f)
             self.values[key] = v
+            self._labels[key] = k
             grid.addWidget(k, r, c * 2)
             grid.addWidget(v, r, c * 2 + 1)
         for c in range(3):
@@ -420,6 +423,27 @@ class JobHeaderCard(QFrame):
         # The product photo enlarges on click, as on the legacy screens (UX5).
         self.photo.mousePressEvent = lambda _e: self._enlarge()
         lay.addWidget(self.photo)
+
+    def set_compact(self) -> None:
+        """Two lines and a small photo (5 Nov T-10: Job History on one screen)."""
+        g = self._grid
+        for key, _l in self.FIELDS:
+            g.removeWidget(self._labels[key])
+            g.removeWidget(self.values[key])
+        per_row = (len(self.FIELDS) + 1) // 2
+        for i, (key, _l) in enumerate(self.FIELDS):
+            r, c = divmod(i, per_row)
+            g.addWidget(self._labels[key], r, c * 2)
+            g.addWidget(self.values[key], r, c * 2 + 1)
+            self.values[key].setWordWrap(key == "route")   # a long route wraps, never cut
+        for c in range(per_row):
+            g.setColumnStretch(c * 2 + 1, 1)
+        g.setVerticalSpacing(2)
+        self.layout().setContentsMargins(12, 6, 12, 6)
+        self._photo_size = 48
+        self.photo.setFixedSize(48, 48)
+        if not self._photo_path:
+            self.photo.setText("—")
 
     def _enlarge(self) -> None:
         if not self._photo_path:
@@ -469,7 +493,8 @@ class JobHeaderCard(QFrame):
         self.photo.setToolTip("Click to enlarge" if self._photo_path else "")
         if not pix.isNull():
             self.photo.setText("")
-            self.photo.setPixmap(pix.scaled(96, 96, Qt.AspectRatioMode.KeepAspectRatio,
+            n = getattr(self, "_photo_size", 96)
+            self.photo.setPixmap(pix.scaled(n, n, Qt.AspectRatioMode.KeepAspectRatio,
                                             Qt.TransformationMode.SmoothTransformation))
         else:
             self.photo.setPixmap(QPixmap())
@@ -1425,26 +1450,38 @@ class JobHistoryWidget(_Screen):
     def __init__(self, user=None, parent=None):
         super().__init__("Job History", parent=parent, scroll=True)
         self.user = user
+        # One compact row (5 Nov T-10): the everyday actions as buttons, the
+        # rest under More.
         self.button("+ Issue", lambda: self._voucher("issue"), primary=True)
         self.button("+ Receive", lambda: self._voucher("receive"))
         self.button("Show Pending", self._show_pending)
-        self.button("WIP Costing", self._wip)
-        self.button("Setting Labour", self._setting_labour, secondary=True)
-        self.button("MFG Price", self._mfg_price, secondary=True)
-        self.button("Print", self._print, secondary=True)
-        self.button("Stone Dtls", lambda: self.stones.setFocus(), secondary=True)
-        self.button("Link", self._link, secondary=True)
-        self.button("Stone Bag", lambda: self.open_requested.emit("production_planning.stone_issue"),
-                    secondary=True)
-        self.button("Job Bag", lambda: self.open_requested.emit("production_planning.job_card_bag"),
-                    secondary=True)
-        self.button("Add Comments", self._add_comment, secondary=True)
-        self.button("Stone Return",
-                    lambda: self.open_requested.emit("production_planning.inv_return"),
-                    secondary=True)
-        self.button("Update", lambda: self.open_requested.emit("production_planning.job_mapping"),
-                    secondary=True)
-        self.button("Exit", self.close_requested.emit, secondary=True)
+        self.button("Job Bag", lambda: self.open_requested.emit("production_planning.job_card_bag"))
+        self.button("Update", lambda: self.open_requested.emit("production_planning.job_mapping"))
+        self.button("Print", self._print)
+        from PySide6.QtWidgets import QMenu, QToolButton
+        more = QToolButton()
+        more.setText("More ▾")
+        more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(more)
+        for label, slot in (
+                ("WIP Costing", self._wip), ("Setting Labour", self._setting_labour),
+                ("MFG Price", self._mfg_price), ("Stone Dtls", lambda: self.stones.setFocus()),
+                ("Link", self._link),
+                ("Stone Bag", lambda: self.open_requested.emit("production_planning.stone_issue")),
+                ("Add Comments", self._add_comment),
+                ("Stone Return", lambda: self.open_requested.emit(
+                    "production_planning.inv_return")),
+                ("Exit", self.close_requested.emit)):
+            menu.addAction(label, slot)
+        more.setMenu(menu)
+        self.toolbar.addWidget(more)
+        self.compact = QCheckBox("Compact")
+        self.compact.setChecked(True)
+        self.compact.setToolTip("Hide the columns rarely filled (Time, Extra, Finding, Mould, "
+                                "WIP Value, Del-Date, Rej, Scrap, Dust)")
+        self.compact.toggled.connect(lambda _on: self._apply_compact())
+        self.toolbar.addWidget(self.compact)
+        self.header.set_compact()
 
         legend = QLabel("A step can be split across karigars: + Issue with a Split share "
                         "(0.4 pc, then 0.1 pc); each receives his own share back. "
@@ -1466,6 +1503,7 @@ class JobHistoryWidget(_Screen):
                    + [f"Iss\n{l}" for _, l in ISSUE_COLS]
                    + [f"Rcv\n{l}" for _, l in RECEIVE_COLS])
         self.grid = _table(headers, ledger=True)
+        self.grid.verticalHeader().setDefaultSectionSize(24)     # tighter rows (T-10)
         # Every step and every stone line is in view at once: both grids are
         # as tall as their rows and the page itself scrolls (29 Sept - an
         # inner scroll area nobody noticed hid the stone lines).
@@ -1491,20 +1529,36 @@ class JobHistoryWidget(_Screen):
         self.remark.setWordWrap(True)
         self.remark.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.remark.hide()
-        self.outer.addWidget(self.remark)
         self.outer.addWidget(self.grid)
         self.outer.addWidget(self.stone_box)
 
+        # Status summary with the Order Remark beside it (T-10).
+        foot = QHBoxLayout()
         self.summary = QLabel("")
         self.summary.setObjectName("Muted")
         self.summary.setWordWrap(True)
-        self.outer.addWidget(self.summary)
+        foot.addWidget(self.summary, 1)
+        foot.addWidget(self.remark, 1)
+        self.outer.addLayout(foot)
         self.comments = QLabel("")
         self.comments.setObjectName("Muted")
         self.comments.setWordWrap(True)
         self.outer.addWidget(self.comments)
         self.outer.addStretch(1)
         self.refresh()
+
+    # Columns rarely filled, hidden while Compact is ticked (5 Nov T-10).
+    _RARE_ISSUE = {"vr_time", "extra", "finding", "mould", "wip_value"}
+    _RARE_RECEIVE = {"del_date", "vr_time", "rej_pcs", "rej_wt", "scrap", "dust"}
+
+    def _apply_compact(self) -> None:
+        on = self.compact.isChecked()
+        base = 4
+        for n, (k, _l) in enumerate(ISSUE_COLS):
+            self.grid.setColumnHidden(base + n, on and k in self._RARE_ISSUE)
+        base += len(ISSUE_COLS)
+        for n, (k, _l) in enumerate(RECEIVE_COLS):
+            self.grid.setColumnHidden(base + n, on and k in self._RARE_RECEIVE)
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
         super().resizeEvent(event)
@@ -1577,7 +1631,8 @@ class JobHistoryWidget(_Screen):
                 per = (rc_wt / rc_pcs).quantize(Decimal("0.0001")) if rc_pcs else ""
                 vals = [loc.name if loc else "", sku.sku_code if sku else "",
                         b.line.particulars, b.line.size, "", per, rc_pcs, rc_wt,
-                        f"{b['rtn'][0]} / {b['rtn'][1]}", f"{b['break'][0]} / {b['break'][1]}",
+                        # Rtn = handed back whole by the karigars (5 Nov R4).
+                        f"{b['ret'][0]} / {b['ret'][1]}", f"{b['break'][0]} / {b['break'][1]}",
                         f"{b['lost'][0]} / {b['lost'][1]}", b.line.s_type, ""]
                 for c, v in enumerate(vals):
                     self.stones.setItem(r, c, _item(v, right=c in (5, 6, 7)))
@@ -1651,6 +1706,7 @@ class JobHistoryWidget(_Screen):
 
     def _fit_stones(self) -> None:
         """Steps and stones show every row; the page scrolls if they are long."""
+        self._apply_compact()
         self._fit_height(self.grid, 3)
         n = self.stones.rowCount()
         self._fit_height(self.stones, 1)
@@ -1959,11 +2015,10 @@ class JobBagWidget(_Screen):
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setVisible(False)
         self.outer.addWidget(self.empty, 1)
-        legend = QLabel("Bal = Rcvd − Iss + Return − Rtn − Break − Lost − Back.  Iss = issued to "
-                        "the karigars; Return = handed back by them (on the receipt's stone grid or "
-                        "Return from Worker) — broken / lost ones then leave as Break / Lost; "
-                        "Rtn = returned to stock; Back = out of the bag to the party.  Tints: "
-                        "Iss yellow, Return blue, Break pink, Lost red, Bal green.")
+        legend = QLabel("Bal = Rcvd − Iss + Return − Rtn − Back − Break / Lost in the bag.  "
+                        "Return = handed back whole by the karigars; stones broken or lost at "
+                        "a karigar's bench show in Break / Lost but leave the piece, not the "
+                        "bag.  Tints: Iss yellow, Return blue, Break pink, Lost red, Bal green.")
         legend.setObjectName("Muted")
         legend.setWordWrap(True)
         self.outer.addWidget(legend)

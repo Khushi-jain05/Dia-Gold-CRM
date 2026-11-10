@@ -203,6 +203,9 @@ with SessionLocal() as s:
     check("N-Wt = G-Wt - set stones x 0.2", D(str(last("receive").net_wt)), D("47.784"))
     check("final setting loss %", loss_pct(), D("2.68"))
     check("stones in the piece 51.580 ct", P.piece_stone_ct(s, job), D("51.580"))
+    pk = next(r for r in P.bag_ledger(s, job) if r.line.particulars == "POLKI" and r.line.size == "12-14")
+    check("POLKI 12-14: Return 4 whole, Break 1 (5 Nov R4)", (pk["ret"], pk["break"]),
+          ((4, D("0.210")), (1, D("0.050"))))
 
     print("\n== 7. Vr 14801 pearls by weight (111.400 ct), Meena, Puwai with 1.5 g wire")
     si2 = StoneIssue(vr_no=P.next_number(s, StoneIssue.vr_no), job_id=job.id, vr_date=ON)

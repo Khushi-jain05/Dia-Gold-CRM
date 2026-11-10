@@ -1289,7 +1289,7 @@ class BagRow:
 
 # The Job Card Bag's columns (19 Oct formula; 6 Nov: the stones a karigar
 # hands back must show in the bag, not vanish into a net Iss):
-#   Bal = Rcvd - Iss + Return - Rtn - Break - Lost - Back
+#   Bal = Rcvd - Iss + Return - Rtn - Back - Break / Lost in the bag
 # Iss    = issued to the karigars;
 # Return = handed back by them on a receipt (F3) or Return from Worker - whole,
 #          broken or lost; the broken / lost ones then leave as Break / Lost
@@ -1326,7 +1326,16 @@ def bag_row(line: JobBagLine) -> BagRow:
     wt["pnd"] = max(wt["req"] - wt["rcvd"], ZERO)
     pcs["iss_net"] = pcs["iss"] - pcs["back"]
     wt["iss_net"] = wt["iss"] - wt["back"]
-    pcs["ret"], wt["ret"] = pcs["back"], wt["back"]
+    # Return = the stones a karigar handed back WHOLE (legacy Rtn: job 29677
+    # 14.890 issued - 0.600 returned - 0.010 broken). Broken / lost on a
+    # receipt come back into the bag and leave as Break / Lost the same
+    # moment (remark "... by the karigar"), so they are not returns.
+    kb_pcs, kb_wt = 0, ZERO
+    for m in line.movements:
+        if m.kind in ("break", "lost") and (m.remark or "").endswith("by the karigar"):
+            kb_pcs += int(m.pcs or 0)
+            kb_wt += _dec(m.weight)
+    pcs["ret"], wt["ret"] = pcs["back"] - kb_pcs, wt["back"] - kb_wt
     pcs["bal"] = (pcs["rcvd"] - pcs["iss_net"] - pcs["rtn"] - pcs["break"] - pcs["lost"]
                   - pcs["out"])
     wt["bal"] = wt["rcvd"] - wt["iss_net"] - wt["rtn"] - wt["break"] - wt["lost"] - wt["out"]
