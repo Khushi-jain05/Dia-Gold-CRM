@@ -339,9 +339,14 @@ def _type_to_pick(w: QComboBox) -> None:
     def _snap() -> None:
         # Typed text that names a choice selects it; anything else falls back
         # to the chosen item.
-        i = w.findText(w.currentText(), Qt.MatchFlag.MatchFixedString)
+        typed = w.currentText().strip()
+        i = w.findText(typed, Qt.MatchFlag.MatchFixedString)
+        if i < 0 and typed:
+            # "camm" + Enter takes the first choice that contains it (CAMMING).
+            i = w.findText(typed, Qt.MatchFlag.MatchContains)
         if i >= 0:
             w.setCurrentIndex(i)
+            w.setEditText(w.itemText(i))
         else:
             w.setEditText(w.itemText(w.currentIndex()))
     w.lineEdit().editingFinished.connect(_snap)

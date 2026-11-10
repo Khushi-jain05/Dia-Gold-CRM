@@ -36,6 +36,8 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -2412,27 +2414,40 @@ class JobMappingWidget(_Screen):
     """Pending queue as a first-class list (UX4), then the route per job."""
 
     def __init__(self, user=None, parent=None):
-        super().__init__("Job Mapping", with_picker=False, parent=parent)
+        super().__init__("Job Mapping", with_picker=False, parent=parent, scroll=True)
         self.user = user
+        # Edit JobNo (5 Nov T-06): find any job and see whether it is mapped.
+        self.job_box = QLineEdit()
+        self.job_box.setPlaceholderText("Job No")
+        self.job_box.setMaximumWidth(110)
+        self.job_box.returnPressed.connect(self._find_job)
+        self.toolbar.addWidget(QLabel("Job No"))
+        self.toolbar.addWidget(self.job_box)
+        self.button("Find", self._find_job)
         self.show_all = QCheckBox("Show Jobs (mapped too)")
         self.show_all.toggled.connect(self.refresh)
         self.toolbar.addWidget(self.show_all)
         self.toolbar.addStretch(1)
         self.button("Refresh", self.refresh)
         self.button("Print", self._print)
+        self.found = QLabel("")
+        self.found.setWordWrap(True)
+        self.outer.addWidget(self.found)
 
-        # The header card is not useful before a job is picked; it sits below.
+        # One line for the picked job instead of the big header card: the
+        # pending list and the whole route fit on one screen (T-06).
         self.outer.removeWidget(self.header)
+        self.header.hide()
 
-        queue_box = QGroupBox("Pending Jobs For Definition")
-        ql = QVBoxLayout(queue_box)
+        self.queue_box = QGroupBox("Pending Jobs For Definition")
+        ql = QVBoxLayout(self.queue_box)
         self.queue = _table(["Ord No", "Date", "Ref No", "C-Code", "SKU", "C-Ref", "Metal",
                              "Col", "Job No", "Pcs", "Status", "Image"])
         self.queue.itemSelectionChanged.connect(self._pick_from_queue)
+        # At least 8 rows without scrolling inside the list.
+        self.queue.setMinimumHeight(ROW_HEIGHT * 8 + 34)
         ql.addWidget(self.queue)
-        self.outer.addWidget(queue_box, 2)
-
-        self.outer.addWidget(self.header)
+        self.outer.addWidget(self.queue_box)
 
         split = QSplitter(Qt.Orientation.Horizontal)
         left = QGroupBox("Jobs of this order")
@@ -2465,6 +2480,8 @@ class JobMappingWidget(_Screen):
         self.steps.verticalHeader().setDefaultSectionSize(ROW_HEIGHT)
         self.steps.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.steps.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        # Every step of a route at once - the Default group has 11.
+        self.steps.setMinimumHeight(ROW_HEIGHT * 12 + 34)
         rl.addWidget(self.steps)
         bar2 = QHBoxLayout()
         for label, slot, primary in (("Add Step", self._add_step, False),
@@ -2479,7 +2496,15 @@ class JobMappingWidget(_Screen):
         bar2.addStretch(1)
         rl.addLayout(bar2)
         split.addWidget(right)
-        split.setSizes([480, 640])
+        # List of Process beside the route, as the legacy: double-click adds
+        # that process as a step (or puts it on the selected step).
+        procs = QGroupBox("List of Process")
+        pl = QVBoxLayout(procs)
+        self.proc_list = QListWidget()
+        self.proc_list.itemDoubleClicked.connect(self._process_picked)
+        pl.addWidget(self.proc_list)
+        split.addWidget(procs)
+        split.setSizes([420, 560, 200])
         self.outer.addWidget(split, 3)
 
         self._processes: list[tuple[int, str]] = []
@@ -2493,6 +2518,11 @@ class JobMappingWidget(_Screen):
             self._processes = [(p.id, p.name) for p in s.scalars(
                 select(ManufacturingProcess).where(ManufacturingProcess.is_active.is_(True))
                 .order_by(ManufacturingProcess.sequence, ManufacturingProcess.name))]
+            self.proc_list.clear()
+            for pid, name in self._processes:
+                it = QListWidgetItem(name)
+                it.setData(Qt.ItemDataRole.UserRole, pid)
+                self.proc_list.addItem(it)
             self.group.blockSignals(True)
             self.group.clear()
             self.group.addItems(production.group_names(s))
@@ -2519,6 +2549,9 @@ class JobMappingWidget(_Screen):
                     self.queue.setItem(r, c, _item(v, right=c in (0, 8, 9)))
                 self._queue_ids.append(job.id)
             self.queue.resizeColumnsToContents()
+            self.queue_box.setTitle(
+                ("Jobs" if self.show_all.isChecked() else "Pending Jobs For Definition")
+                + f"  ({len(self._queue_ids)})")
         if self.job_id and self.job_id in self._queue_ids:
             self.queue.selectRow(self._queue_ids.index(self.job_id))
         elif self._queue_ids:
@@ -2579,6 +2612,36 @@ class JobMappingWidget(_Screen):
             if job.prod_date:
                 self.start.setDate(_qdate(job.prod_date))
 
+    def _process_picked(self, item) -> None:
+        pid = item.data(Qt.ItemDataRole.UserRole)
+        rows = self.steps.selectionModel().selectedRows()
+        if rows:
+            combo = self.steps.cellWidget(rows[0].row(), 1)
+            combo.setCurrentIndex(max(combo.findData(pid), 0))
+        else:
+            self._add_step(pid)
+
+    def _find_job(self) -> None:
+        """Job No box: open the job and say whether it is mapped, and how."""
+        text = self.job_box.text().strip()
+        if not text.isdigit():
+            return
+        with SessionLocal() as s:
+            job = s.scalar(select(Job).where(Job.job_no == int(text)))
+            if job is None:
+                self.found.setText(f"<b>Job {text}</b> does not exist.")
+                return
+            route = production.route_string(s, job)
+            mapped = job.status not in ("pending", "cancelled") and bool(route)
+            self.found.setText(
+                f"<b>Job {job.job_no}</b> — "
+                + (f"<span style='color:#0E6B54'><b>Mapped</b></span>: {route}" if mapped
+                   else "<span style='color:#B3261E'><b>Not mapped</b></span>"
+                   + (" (cancelled)" if job.status == "cancelled" else "")))
+            jid, cancelled = job.id, job.status == "cancelled"
+        if not cancelled:
+            self.show_job(jid)
+
     def show_job(self, job_id: int) -> None:
         """Land on a given job - from Job History's Update button, or a report."""
         with SessionLocal() as s:
@@ -2602,6 +2665,8 @@ class JobMappingWidget(_Screen):
         if process_id:
             i = combo.findData(process_id)
             combo.setCurrentIndex(max(i, 0))
+        from diagold.ui.crud import _type_to_pick
+        _type_to_pick(combo)          # type "camm", Enter (5 Nov T-06)
         self.steps.setCellWidget(r, 1, combo)
         d = QDateEdit(_qdate(due))
         d.setCalendarPopup(True)
