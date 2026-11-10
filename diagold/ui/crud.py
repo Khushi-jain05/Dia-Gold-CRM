@@ -337,12 +337,17 @@ def _type_to_pick(w: QComboBox) -> None:
         c.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
 
     def _snap() -> None:
-        # Text typed that is not a choice falls back to the chosen item.
+        # Typed text that names a choice selects it; anything else falls back
+        # to the chosen item.
         i = w.findText(w.currentText(), Qt.MatchFlag.MatchFixedString)
-        if i < 0:
-            w.setCurrentIndex(w.currentIndex())
+        if i >= 0:
+            w.setCurrentIndex(i)
+        else:
             w.setEditText(w.itemText(w.currentIndex()))
     w.lineEdit().editingFinished.connect(_snap)
+    w.currentTextChanged.connect(
+        lambda t: w.setCurrentIndex(i) if (i := w.findText(t, Qt.MatchFlag.MatchFixedString)) >= 0
+        and i != w.currentIndex() else None)
 
 
 class ChildTableEditor(QWidget):
@@ -492,7 +497,9 @@ class ChildTableEditor(QWidget):
             if f_sku.on_change is not None:
                 f_sku.on_change(self, r, self._resolve_stone(r))
             self._refresh_summary()
-        name_w.setCurrentText(name)
+        name_w.blockSignals(True)
+        name_w.setCurrentIndex(max(name_w.findText(name), 0))
+        name_w.blockSignals(False)
         fill_sizes(fire=False)     # loading a saved line changes nothing on it
         size_w.blockSignals(True)
         size_w.setCurrentText(size)
@@ -540,7 +547,7 @@ class ChildTableEditor(QWidget):
                     w.setCurrentIndex(idx)
             elif f.type == "stone_sku":
                 name, size = self._sku_name_size(value)
-                w.setCurrentText(name)
+                w.setCurrentIndex(max(w.findText(name), 0))
                 cols = self._stone_cols()
                 if cols and size:
                     self.table.cellWidget(row, cols[1]).setCurrentText(size)
