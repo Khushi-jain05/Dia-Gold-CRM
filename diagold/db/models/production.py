@@ -79,10 +79,14 @@ class OrderLine(Base, PKMixin):
     )
     sku_desc: Mapped[str] = mapped_column(String(200), default="")
     c_ref: Mapped[str] = mapped_column(String(64), default="")   # customer's reference
+    # The legacy line's Line P.O. and Loss % (5 Nov T-05); G-Wt / Pcs beside N-Wt / Pcs.
+    line_po: Mapped[str] = mapped_column(String(40), default="")
     metal_id: Mapped[int | None] = mapped_column(ForeignKey("metals.id"), nullable=True)
+    loss_pct: Mapped[float] = mapped_column(Numeric(8, 3), default=0)
     colour: Mapped[str] = mapped_column(String(16), default="")
     size: Mapped[str] = mapped_column(String(32), default="")
     pcs: Mapped[int] = mapped_column(default=1)
+    gwt_per_pcs: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
     net_wt_per_pcs: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
     tot_gross_wt: Mapped[float] = mapped_column(Numeric(12, 3), default=0)
     metal_rate_unit: Mapped[str] = mapped_column(String(16), default="")

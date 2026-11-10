@@ -1446,9 +1446,25 @@ def _fill_order_line_from_sku(grid, row: int, sku_id) -> None:
         grid.set_cell_value(row, "metal_id", sku.metal_id)
     if not grid.cell_value(row, "net_wt_per_pcs"):
         grid.set_cell_value(row, "net_wt_per_pcs", sku.net_weight)
+    if not grid.cell_value(row, "gwt_per_pcs"):
+        grid.set_cell_value(row, "gwt_per_pcs", sku.gross_weight)
+    if not grid.cell_value(row, "loss_pct") and getattr(sku, "mt_loss_pct", None):
+        grid.set_cell_value(row, "loss_pct", sku.mt_loss_pct)
     if not grid.cell_value(row, "tot_gross_wt"):
         pcs = grid.cell_value(row, "pcs") or 1
         grid.set_cell_value(row, "tot_gross_wt", Decimal(str(sku.gross_weight or 0)) * pcs)
+
+
+def _order_line_guard(line, session) -> str | None:
+    """A line a sale was made against cannot be removed from the order."""
+    from diagold.db.models import ReadyVoucher, ReadyVoucherLine
+    hit = session.execute(select(ReadyVoucher.vr_no).join(
+        ReadyVoucherLine, ReadyVoucherLine.voucher_id == ReadyVoucher.id).where(
+        ReadyVoucherLine.order_line_id == line.id).limit(1)).first()
+    if hit:
+        return (f"Line {line.sno} was sold against (sale Vr {hit[0]}) - it cannot be "
+                "removed from the order.")
+    return None
 
 
 def _order_lines_summary(rows: list[dict]) -> str:
@@ -1651,7 +1667,7 @@ _register(CrudSpec(
     after_save=_order_saved,
     before_delete=_order_delete,
     after_accept=_order_after_save,
-    form_width=1180,
+    form_width=1180, form_maximized=True,
     extra_buttons=[("Print", _order_print), ("Shipping Details", _order_shipping),
                    ("Requirement Sheet", _order_requirement_sheet),
                    ("Day Book", _order_day_book), ("Repair List", _order_repair_list)],
@@ -1684,6 +1700,9 @@ _register(CrudSpec(
                         "lost - defaults here are unconfirmed (C-05).",
               child=ChildSpec(
                   model=OrderLine, fk_attr="order_id", order_by="sno",
+                  # Saved in place: a sale points at its order line (5 Nov -
+                  # editing a sold order failed on the wholesale replace).
+                  keep_ids=True, row_delete_guard=_order_line_guard,
                   summary=_order_lines_summary, height=190,
                   fields=[
                       Field("sno", "Sno", type="int", default=1),
@@ -1691,11 +1710,14 @@ _register(CrudSpec(
                             fk_label=_sku_label, on_change=_fill_order_line_from_sku),
                       Field("sku_desc", "SKU Desc"),
                       Field("c_ref", "C-Ref"),
+                      Field("line_po", "Line P.O."),
                       Field("metal_id", "Metal", type="fk", fk_model=Metal,
                             fk_label=_metal_label),
+                      Field("loss_pct", "Loss%", type="float", decimals=3),
                       Field("colour", "Col", type="choice", choices=["Y", "W", "R", ""]),
                       Field("size", "Size"),
                       Field("pcs", "Pcs", type="int", default=1),
+                      Field("gwt_per_pcs", "G-Wt/Pcs", type="float", decimals=3),
                       Field("net_wt_per_pcs", "N-Wt/Pcs", type="float", decimals=3),
                       Field("tot_gross_wt", "Tot GWt", type="float", decimals=3),
                       Field("metal_rate_unit", "Metal Rate Unit"),

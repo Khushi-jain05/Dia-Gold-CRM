@@ -203,6 +203,9 @@ class CrudSpec:
         default_factory=list)
     # A wide detail grid (an order's 15-column lines) needs a wider form.
     form_width: int = 0
+    # Open the form over the whole screen (5 Nov T-05: the order's lines were
+    # squeezed in a dialog).
+    form_maximized: bool = False
     # A date column to filter the list by From/To - the legacy "Edit List"
     # lookup staff rely on for orders and vouchers (UX5). Defaults to the
     # current financial year.
@@ -319,6 +322,27 @@ class ImageSlot(QWidget):
                                    Qt.TransformationMode.SmoothTransformation))
         lay.addWidget(label)
         dlg.exec()
+
+
+def _type_to_pick(w: QComboBox) -> None:
+    """Type to narrow, Enter to accept, the list still there (5 Nov UX4): an
+    editable box whose completer matches anywhere in the text; it never adds
+    what was typed as a new choice."""
+    w.setEditable(True)
+    w.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+    c = w.completer()
+    if c is not None:
+        c.setCompletionMode(c.CompletionMode.PopupCompletion)
+        c.setFilterMode(Qt.MatchFlag.MatchContains)
+        c.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+
+    def _snap() -> None:
+        # Text typed that is not a choice falls back to the chosen item.
+        i = w.findText(w.currentText(), Qt.MatchFlag.MatchFixedString)
+        if i < 0:
+            w.setCurrentIndex(w.currentIndex())
+            w.setEditText(w.itemText(w.currentIndex()))
+    w.lineEdit().editingFinished.connect(_snap)
 
 
 class ChildTableEditor(QWidget):
@@ -473,7 +497,8 @@ class ChildTableEditor(QWidget):
         size_w.blockSignals(True)
         size_w.setCurrentText(size)
         size_w.blockSignals(False)
-        name_w.currentTextChanged.connect(fill_sizes)
+        # A chosen stone, not every keystroke of the typed search.
+        name_w.currentIndexChanged.connect(lambda _i: fill_sizes())
         size_w.currentTextChanged.connect(changed)
 
     def _wire_cell_change(self, f: Field, widget: QWidget, row: int) -> None:
@@ -559,6 +584,7 @@ class ChildTableEditor(QWidget):
             w = QComboBox()
             w.addItem("")
             w.addItems(sorted(self._stone_index(), key=str.lower))
+            _type_to_pick(w)
             return w
         if f.type == "stone_size":
             w = QComboBox()
@@ -571,6 +597,7 @@ class ChildTableEditor(QWidget):
                 w.addItem(text, obj_id)
             idx = w.findData(value)
             w.setCurrentIndex(idx if idx >= 0 else 0)
+            _type_to_pick(w)
             return w
         w = QLineEdit("" if value is None else str(value))
         w.textChanged.connect(self._refresh_summary)
@@ -835,6 +862,8 @@ class FormDialog(QDialog):
         from diagold.ui.declutter import declutter
         declutter(self)          # field notes off, shortcut keys kept (6 Nov)
         self._fit_to_screen(body)
+        if spec.form_maximized:
+            self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
 
     def _build_shortcut_panel(self, body_layout) -> None:
         """List the shortcuts on the screen and bind every one of them."""
@@ -939,6 +968,7 @@ class FormDialog(QDialog):
             w.addItem("— none —", None)
             for obj_id, text in options:
                 w.addItem(text, obj_id)
+            _type_to_pick(w)
             return w
         return QLineEdit()
 
