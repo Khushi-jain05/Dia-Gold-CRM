@@ -1255,6 +1255,11 @@ _register(CrudSpec(
     order_by="sku_code",
     search_hint="Search by SKU, description, design no, style…",
     before_save=_price_product_sku,
+    # One screen, not several scrolls (5 Nov T-11): sections side by side.
+    form_columns=3,
+    form_sections={"sku_code": "Identity", "metal_id": "Metal & Weight",
+                   "stone_amount": "Pricing", "remark": "Classification",
+                   "mt_plt_col": "Physical", "is_rubber": "Flags & Refs"},
     # The eleven shortcuts listed down the right of the legacy screen. The
     # client uses them by reflex, so they are bound and shown. Those whose
     # panel belongs to a module that is not built yet say so rather than

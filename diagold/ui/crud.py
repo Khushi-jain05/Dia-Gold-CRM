@@ -206,6 +206,11 @@ class CrudSpec:
     # Open the form over the whole screen (5 Nov T-05: the order's lines were
     # squeezed in a dialog).
     form_maximized: bool = False
+    # Lay the fields out in this many side-by-side columns (5 Nov T-11: the
+    # Product SKU form took several scrolls in one long column). Sections
+    # start a new group box: {"field name that starts it": "Title"}.
+    form_columns: int = 1
+    form_sections: dict[str, str] = field(default_factory=dict)
     # A date column to filter the list by From/To - the legacy "Edit List"
     # lookup staff rely on for orders and vouchers (UX5). Defaults to the
     # current financial year.
@@ -775,15 +780,52 @@ class FormDialog(QDialog):
         body_layout.setContentsMargins(18, 16, 18, 8)
         body_layout.setSpacing(10)
 
-        form = QFormLayout()
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(8)
+        def new_form() -> QFormLayout:
+            fl = QFormLayout()
+            fl.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            fl.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            fl.setHorizontalSpacing(14)
+            fl.setVerticalSpacing(8 if spec.form_columns == 1 else 5)
+            return fl
 
-        for f in spec.fields:
-            if f.type in ("child", "image"):
-                continue  # rendered in their own blocks below
+        plain = [f for f in spec.fields if f.type not in ("child", "image")]
+        cols = max(1, spec.form_columns)
+        if cols == 1 and not spec.form_sections:
+            form = new_form()
+            body_layout.addLayout(form)
+            forms = {f.name: form for f in plain}
+        else:
+            # Sections in boxes, the boxes flowing down `cols` columns.
+            sections: list[tuple[str, list]] = []
+            for f in plain:
+                if not sections or f.name in spec.form_sections:
+                    sections.append((spec.form_sections.get(f.name, ""), []))
+                sections[-1][1].append(f)
+            row = QHBoxLayout()
+            row.setSpacing(12)
+            columns = []
+            for _c in range(cols):
+                v = QVBoxLayout()
+                v.setSpacing(8)
+                row.addLayout(v, 1)
+                columns.append(v)
+            heights = [0] * cols
+            forms = {}
+            for title, fields_ in sections:
+                c = heights.index(min(heights))
+                box = QGroupBox(title.replace("&", "&&")) if title else QWidget()
+                fl = new_form()
+                box.setLayout(fl)
+                columns[c].addWidget(box)
+                heights[c] += max(1, len(fields_)) + 1
+                for f in fields_:
+                    forms[f.name] = fl
+            for v in columns:
+                v.addStretch(1)
+            body_layout.addLayout(row)
+
+        for f in plain:
+            form = forms[f.name]
             editor = self._build_editor(f)
             if f.readonly:
                 editor.setEnabled(False)
@@ -798,8 +840,6 @@ class FormDialog(QDialog):
                 hint.setStyleSheet("color: gray; font-size: 11px;")
                 hint.setWordWrap(True)  # long guidance must not clip
                 form.addRow("", hint)
-
-        body_layout.addLayout(form)
 
         # Images sit together in a row of slots, above the child grids.
         self.image_slots: dict[str, ImageSlot] = {}
