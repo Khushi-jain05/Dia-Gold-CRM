@@ -49,10 +49,17 @@ def main() -> int:
                 load_demo(session)      # idempotent: only the first run adds it
                 session.commit()
     except Exception as exc:  # noqa: BLE001 - the user sees this, not a traceback
-        from diagold.config import DB_PATH
+        from diagold.config import DB_LABEL, IS_SERVER
+        if IS_SERVER:
+            QMessageBox.critical(
+                None, f"{APP_NAME} — could not reach the database server",
+                f"{exc}\n\nThe server is:\n{DB_LABEL}  (server.ini)\n\nCheck the "
+                "server is on and this PC is on the office network, then try again. "
+                "Nothing has been changed.")
+            return 1
         QMessageBox.critical(
             None, f"{APP_NAME} — could not open the data file",
-            f"{exc}\n\nThe file is:\n{DB_PATH}\n\nNothing has been changed. Send "
+            f"{exc}\n\nThe file is:\n{DB_LABEL}\n\nNothing has been changed. Send "
             "this message to the developer; a copy of that file lets us fix it.")
         return 1
 

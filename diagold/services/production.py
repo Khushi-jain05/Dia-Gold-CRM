@@ -96,6 +96,8 @@ def next_number(session: Session, column) -> int:
     A stray text value in the column would otherwise restart the sequence at
     1 and collide with everything, so those are skipped.
     """
+    from diagold.db.session import number_lock
+    number_lock(session, f"{column.class_.__tablename__}.{column.key}")
     current = session.scalar(select(func.max(column)))
     try:
         return int(current or 0) + 1
@@ -456,7 +458,7 @@ def seed_bag_requirements(session: Session, job: Job) -> None:
 # --------------------------------------------------------------------------
 def group_names(session: Session) -> list[str]:
     names = session.scalars(
-        select(DefaultProcessStep.group_name).where(DefaultProcessStep.is_active.is_(True))
+        select(DefaultProcessStep.group_name).where(DefaultProcessStep.is_active == True)
         .distinct().order_by(DefaultProcessStep.group_name)
     ).all()
     names = [n or "Default" for n in names]
@@ -470,7 +472,7 @@ def group_steps(session: Session, group_name: str) -> list[ManufacturingProcess]
     rows = session.scalars(
         select(DefaultProcessStep)
         .where(DefaultProcessStep.group_name == group_name,
-               DefaultProcessStep.is_active.is_(True))
+               DefaultProcessStep.is_active == True)
         .order_by(DefaultProcessStep.step_no)
     ).all()
     out = []
@@ -1531,7 +1533,7 @@ def setting_rate(session: Session, setting_type_id: int | None,
         select(SettingLabourRate)
         .where(SettingLabourRate.setting_type_id == setting_type_id,
                SettingLabourRate.sku_id.is_(None),
-               SettingLabourRate.is_active.is_(True),
+               SettingLabourRate.is_active == True,
                SettingLabourRate.effective_from <= on_date)
         .order_by(SettingLabourRate.effective_from.desc(), SettingLabourRate.id.desc())
     ).first()
@@ -1572,7 +1574,7 @@ def default_setting_type_id(session: Session, line: JobBagLine) -> int | None:
     want = _GROUP_SETTING.get(block)
     if not want:
         return None
-    for st in session.scalars(select(SettingType).where(SettingType.is_active.is_(True))
+    for st in session.scalars(select(SettingType).where(SettingType.is_active == True)
                               .order_by(SettingType.id)):
         if (st.name or "").strip().lower().startswith(want):
             return st.id
@@ -2361,6 +2363,10 @@ def delete_job_voucher(session: Session, vr_no: int, *, user_id: int | None = No
                     row.pcs = int(row.pcs) - int(m.pcs)
                     row.weight = (_dec(row.weight) - _dec(m.weight)).quantize(D4)
                 session.delete(m)
+        # Receipts against this issue lose the link here, not by the foreign
+        # key: SQL Server cannot SET NULL on a self-reference.
+        for r in session.scalars(select(JobVoucher).where(JobVoucher.issue_id == v.id)):
+            r.issue_id = None
         session.delete(v)
         session.flush()
         if job.status == "complete":

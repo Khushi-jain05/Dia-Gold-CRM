@@ -612,6 +612,8 @@ def party_closing(session: Session, party_id: int | None) -> tuple[Decimal, str]
 # Voucher Entry: Receipt / Payment / Journal / Contra (T-01, T-04)
 # --------------------------------------------------------------------------
 def next_vr_no(session: Session, vr_type: str) -> int:
+    from diagold.db.session import number_lock
+    number_lock(session, f"account_vouchers.{vr_type}")
     return (session.scalar(select(func.max(AccountVoucher.vr_no)).where(
         AccountVoucher.vr_type == vr_type)) or 0) + 1
 

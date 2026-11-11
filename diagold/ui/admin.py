@@ -437,9 +437,15 @@ class BackupWidget(_Screen):
         self.outer.addWidget(self.where)
         self.grid = _table(["File", "Taken", "Size (KB)"])
         self.outer.addWidget(self.grid, 1)
-        note = QLabel("A dated copy of the whole database. The folder is Backup Path in Tools ▸ "
-                      "Option ▸ Settings ▸ Others. To restore, close the app and put the copy "
-                      "back in place of diagold.sqlite3 (or ask us).")
+        from diagold.config import IS_SERVER
+        note = QLabel(
+            "A dated copy of the whole database, written by the SQL Server itself. Backup "
+            "Path (Tools ▸ Option ▸ Settings ▸ Others) is a folder ON THE SERVER; blank uses "
+            "the server's own backup folder. Restore is done on the server (ask us)."
+            if IS_SERVER else
+            "A dated copy of the whole database. The folder is Backup Path in Tools ▸ "
+            "Option ▸ Settings ▸ Others. To restore, close the app and put the copy "
+            "back in place of diagold.sqlite3 (or ask us).")
         note.setObjectName("Muted")
         note.setWordWrap(True)
         self.outer.addWidget(note)

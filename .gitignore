@@ -8,3 +8,5 @@ _smoke/
 build/
 dist/
 .DS_Store
+# the shared-server login: one per install, never in git
+server.ini

@@ -93,6 +93,8 @@ def negative_mode(session: Session) -> str:
 
 
 def next_vr_no(session: Session, vr_type: str) -> int:
+    from diagold.db.session import number_lock
+    number_lock(session, f"inv_vouchers.{vr_type}")
     nos = session.scalars(select(InvVoucher.vr_no).where(InvVoucher.vr_type == vr_type)).all()
     return (max(nos) + 1) if nos else 1
 

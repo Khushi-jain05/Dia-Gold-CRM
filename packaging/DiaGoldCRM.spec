@@ -30,6 +30,7 @@ hiddenimports = (
     + collect_submodules("sqlalchemy")
     + collect_submodules("openpyxl")      # Excel exports / invoice
     + ["PIL.Image", "PIL.PngImagePlugin", "PIL.JpegImagePlugin"]   # photos in Excel
+    + collect_submodules("pymssql") + ["_decimal", "uuid"]   # SQL Server (server.ini)
 )
 
 a = Analysis(

@@ -54,6 +54,8 @@ def _dec(v: Any) -> Decimal:
 
 
 def next_vr_no(session: Session) -> int:
+    from diagold.db.session import number_lock
+    number_lock(session, "stock_transfers.vr_no")
     return (session.scalar(select(func.max(StockTransfer.vr_no))) or 0) + 1
 
 

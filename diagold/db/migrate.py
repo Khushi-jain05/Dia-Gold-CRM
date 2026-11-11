@@ -1,4 +1,8 @@
-"""Lightweight, non-destructive schema sync for the SQLite database.
+"""Lightweight, non-destructive schema sync for the database.
+
+On SQL Server (server.ini, 11 Nov go-live) the database is created by this
+build, so only step 1 below applies - see ``_sync_server``. The rest repairs
+SQLite files made by older builds.
 
 ``Base.metadata.create_all()`` creates missing *tables* but never alters an
 existing one, so a model that gains or loses a column leaves older database
@@ -68,6 +72,8 @@ def _default_literal(column) -> str | None:
 
 def sync_schema(engine: Engine) -> list[str]:
     """Reconcile the database file with the models. Returns what changed."""
+    if engine.dialect.name != "sqlite":
+        return _sync_server(engine)
     changes: list[str] = []
     inspector = inspect(engine)
     existing = set(inspector.get_table_names())
@@ -93,6 +99,37 @@ def sync_schema(engine: Engine) -> list[str]:
         print(f"[db] could not mend voucher numbers: {exc}")
 
     return changes
+
+
+def _sync_server(engine: Engine) -> list[str]:
+    """Columns a later build added, on the shared SQL Server database.
+
+    The column type and default come from the model, compiled for SQL Server;
+    a NOT NULL column lands with a default so the rows already there pass.
+    """
+    from sqlalchemy.schema import CreateColumn
+
+    added: list[str] = []
+    inspector = inspect(engine)
+    existing = set(inspector.get_table_names())
+    prep = engine.dialect.identifier_preparer
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in existing:
+                continue
+            present = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in present:
+                    continue
+                spec = str(CreateColumn(column).compile(dialect=engine.dialect))
+                literal = _default_literal(column)
+                if literal is not None and " DEFAULT " not in spec:
+                    spec += f" DEFAULT {literal}"
+                conn.execute(text(f"ALTER TABLE {prep.quote(table.name)} ADD {spec}"))
+                added.append(f"+{table.name}.{column.name}")
+    for line in added:
+        print(f"[db] added column {line[1:]}")
+    return added
 
 
 # Numbers the client's own system owns: job, order and voucher numbers, which

@@ -108,6 +108,8 @@ STATE_LABEL = {"in_stock": "in stock", "sold": "sold", "on_approval": "out on ap
 
 
 def next_vr_no(session: Session, vr_type: str) -> int:
+    from diagold.db.session import number_lock
+    number_lock(session, f"ready_vouchers.{vr_type}")
     n = session.scalar(select(func.max(ReadyVoucher.vr_no)).where(
         ReadyVoucher.vr_type == vr_type))
     return (n or 0) + 1
@@ -306,7 +308,7 @@ def pending_orders(session: Session, account_id: int | None,
     on_invoice = on_invoice or {}
     rows = []
     # A repair order's lines are the customer's own pieces, not goods to ship.
-    q = select(OrderLine, Order).join(Order).where(Order.is_repair.is_(False)).order_by(
+    q = select(OrderLine, Order).join(Order).where(Order.is_repair == False).order_by(
         Order.order_no, OrderLine.sno)
     if account_id:
         q = q.where(Order.account_id == account_id)

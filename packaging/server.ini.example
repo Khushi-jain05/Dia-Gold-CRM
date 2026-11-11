@@ -1,0 +1,11 @@
+; Dia Gold CRM - shared SQL Server database.
+; Copy this file next to DiaGoldCRM.exe as server.ini and fill it in.
+; Without server.ini the app keeps its data in a local file on this PC only.
+[Database]
+; host, or host\instance - the same server as the legacy Path.ini
+Server=SERVER2\ERP
+; only for a fixed TCP port instead of the instance name (SQL Browser)
+Port=
+DatabaseName=DiaGoldCRM
+UID=diagold_app
+PWD=

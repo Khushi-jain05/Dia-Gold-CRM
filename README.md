@@ -1,8 +1,9 @@
 # Dia Gold CRM
 
 Cross-platform (macOS + Windows) desktop ERP/CRM for **Dia Gold**, a jewellery
-manufacturer. Built with **PySide6** (Qt) and **SQLAlchemy** on **SQLite**
-(swappable to PostgreSQL later).
+manufacturer. Built with **PySide6** (Qt) and **SQLAlchemy**. The data lives on
+the office **SQL Server** (one database every PC shares, set in `server.ini`), or
+in a local **SQLite** file when there is no `server.ini` (demo, testing).
 
 The menu structure is taken directly from the client design workbook
 `HEADING OR SUB HEADING.xlsx` — 14 main headings, each with its sub-tabs.
@@ -139,11 +140,36 @@ and permissions are enforced automatically from the menu key.
 5. **Sale** & **Account** (vouchers, ledger, trial balance)
 6. **Reports** across all modules
 
-## Moving to PostgreSQL later
+## Shared database on SQL Server (go-live)
 
-Change `DATABASE_URL` in `diagold/config.py` (or via env var) to a
-`postgresql+psycopg://…` URL and `pip install psycopg[binary]`. Models are
-backend-agnostic; use Alembic for migrations once the schema stabilises.
+Put a `server.ini` next to `DiaGoldCRM.exe` (or in the data folder) - copy
+`packaging/server.ini.example`:
+
+```ini
+[Database]
+Server=SERVER2\ERP          ; host or host\instance, as in the legacy Path.ini
+Port=                       ; only for a fixed port instead of the instance name
+DatabaseName=DiaGoldCRM
+UID=diagold_app
+PWD=...
+```
+
+On the server, once: create an empty database `DiaGoldCRM` and a login that
+owns it (`db_owner`; `db_backupoperator` is enough for Backup Now once the
+tables exist). The first start creates every table and loads the masters; a
+later build adds its new columns on start-up. Driver: `pymssql` (bundled in
+the exe, no ODBC install). Without `server.ini` - or with
+`DIAGOLD_LOCAL_DB=1` - the app uses the local SQLite file as before.
+
+On SQL Server the app keeps SQLite's behaviour: text columns are NVARCHAR
+(450 when indexed, 4000 otherwise), a voucher / job number is taken under an
+application lock so two PCs saving together never get the same one, and the
+one ON DELETE path SQL Server refuses (job_vouchers via job_steps, and its
+self-reference) is NO ACTION with the code doing that step itself.
+
+Testing on a Mac: `colima start --arch aarch64 --vm-type=vz --vz-rosetta`, then
+`docker run --platform linux/amd64 -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD=... -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest`,
+and point `DIAGOLD_SERVER_INI` at an ini for it. The test suites run unchanged.
 
 ## Packaging to a native app (optional)
 

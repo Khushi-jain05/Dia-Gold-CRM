@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import json
 import shutil
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from diagold.db.models import (Account, AuditLog, Colour, FamilyCategory, Job, Metal,
@@ -60,8 +60,10 @@ def audit(session: Session, kind: str, ref: str, before: dict, after: dict, reas
 
 
 def audit_rows(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
-    q = select(AuditLog).where(func.date(AuditLog.at) >= date_from.isoformat(),
-                               func.date(AuditLog.at) <= date_to.isoformat()
+    # A time range rather than DATE(at), which SQL Server does not have.
+    q = select(AuditLog).where(AuditLog.at >= datetime.combine(date_from, time.min),
+                               AuditLog.at < datetime.combine(date_to + timedelta(days=1),
+                                                              time.min)
                                ).order_by(AuditLog.at.desc())
     return [{"at": a.at.strftime("%d-%m-%Y %H:%M"), "user": a.user_name, "kind": a.kind,
              "ref": a.ref, "reason": a.reason,
@@ -329,7 +331,7 @@ def layout_for(session: Session, doc: str, account_id: int | None) -> tuple[str,
 def masters_lists(session: Session) -> dict[str, list[str]]:
     names = lambda model: [n for n in session.scalars(  # noqa: E731
         select(model.name).order_by(model.name)) if n]
-    party = list(session.scalars(select(Account).where(Account.is_active.is_(True))
+    party = list(session.scalars(select(Account).where(Account.is_active == True)
                                  .order_by(Account.name)))
     vendor_groups = ("Sundry Creditors", "Accounts Payable")
     return {
@@ -373,10 +375,17 @@ def backup_dir(session: Session | None = None) -> Path:
 
 
 def backup_now(session: Session | None = None) -> Path:
-    """A consistent copy of the database (SQLite online backup) named by date."""
+    """A consistent copy of the database (SQLite online backup) named by date.
+
+    On SQL Server it is a BACKUP DATABASE that the server itself writes, so
+    Backup Path is a folder on the server (blank: the server's own backup
+    folder) and the login needs db_backupoperator.
+    """
     import sqlite3
 
-    from diagold.config import DB_PATH
+    from diagold.config import DB_PATH, IS_SERVER
+    if IS_SERVER:
+        return _server_backup(session)
     out = backup_dir(session)
     out.mkdir(parents=True, exist_ok=True)
     dest = out / f"diagold_{datetime.now():%Y%m%d_%H%M%S}.sqlite3"
@@ -391,7 +400,45 @@ def backup_now(session: Session | None = None) -> Path:
     return dest
 
 
+def _server_backup(session: Session | None) -> Path:
+    from diagold.db.session import engine
+    db = engine.url.database
+    folder = settings.opt("opt.backup_path", session).strip()
+    name = f"{db}_{datetime.now():%Y%m%d_%H%M%S}.bak"
+    # BACKUP cannot run inside a transaction, hence AUTOCOMMIT.
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        if not folder:
+            folder = conn.execute(text(
+                "SELECT CAST(SERVERPROPERTY('InstanceDefaultBackupPath') AS nvarchar(400))"
+            )).scalar() or ""
+        sep = "/" if folder.startswith("/") else "\\"
+        dest = folder.rstrip("/\\") + sep + name if folder else name
+        conn.exec_driver_sql(
+            f"BACKUP DATABASE [{db}] TO DISK = N'{dest.replace(chr(39), chr(39) * 2)}' "
+            f"WITH COPY_ONLY, INIT, NAME = N'Dia Gold CRM backup'")
+    return Path(dest)
+
+
+def _server_backups() -> list[dict[str, Any]]:
+    from diagold.db.session import engine
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT TOP 50 m.physical_device_name, b.backup_finish_date, b.backup_size "
+                "FROM msdb.dbo.backupset b JOIN msdb.dbo.backupmediafamily m "
+                "ON m.media_set_id = b.media_set_id WHERE b.database_name = :db "
+                "ORDER BY b.backup_finish_date DESC"), {"db": engine.url.database}).fetchall()
+    except Exception:  # noqa: BLE001 - no rights on msdb: show none rather than fail
+        return []
+    return [{"file": str(r[0]).replace("\\", "/").rsplit("/", 1)[-1], "path": str(r[0]),
+             "size_kb": round((r[2] or 0) / 1024), "at": r[1].strftime("%d-%m-%Y %H:%M")}
+            for r in rows]
+
+
 def backups(session: Session | None = None) -> list[dict[str, Any]]:
+    from diagold.config import IS_SERVER
+    if IS_SERVER:
+        return _server_backups()
     d = backup_dir(session)
     if not d.is_dir():
         return []

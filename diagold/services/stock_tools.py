@@ -331,6 +331,8 @@ def create_image_folder(rows: list[dict[str, Any]], folder: str) -> int:
 # --------------------------------------------------------------------------
 def new_recon(session: Session, on_date: date, location_id: int | None = None,
               remark: str = "", user_id: int | None = None) -> StockRecon:
+    from diagold.db.session import number_lock
+    number_lock(session, "stock_recons.recon_no")
     no = (session.scalar(select(func.max(StockRecon.recon_no))) or 0) + 1
     r = StockRecon(recon_no=no, recon_date=on_date, location_id=location_id, remark=remark,
                    user_id=user_id)

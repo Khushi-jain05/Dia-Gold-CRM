@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from diagold import APP_NAME, __version__
-from diagold.config import COMPANY_DISPLAY_NAME, DB_PATH
+from diagold.config import COMPANY_DISPLAY_NAME, DB_LABEL
 from diagold.db.session import SessionLocal
 from diagold.menu import ITEM_BY_KEY, MENU
 from diagold.services import settings
@@ -454,7 +454,7 @@ class MainWindow(QMainWindow):
     def _build_statusbar(self) -> None:
         role = self.user.role_name or ("Superuser" if self.user.is_superuser else "No role")
         self.statusBar().showMessage(
-            f"v{__version__}  ·  {self.user.username} ({role})  ·  DB: {DB_PATH}"
+            f"v{__version__}  ·  {self.user.username} ({role})  ·  DB: {DB_LABEL}"
         )
 
     def _change_password(self) -> None:

@@ -44,6 +44,8 @@ def _money(v: Decimal) -> Decimal:
 
 
 def next_no(session: Session) -> int:
+    from diagold.db.session import number_lock
+    number_lock(session, "quotations.quot_no")
     return (session.scalar(select(func.max(Quotation.quot_no))) or 0) + 1
 
 
