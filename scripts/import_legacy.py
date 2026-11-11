@@ -8,7 +8,8 @@ Server, else the local file.
     python scripts/import_legacy.py --server 127.0.0.1 --port 1433 --database Diagold26 \\
         --user sa --password ... --dry-run
 
---dry-run rolls everything back and only prints the report. Safe to run again:
+--dry-run rolls everything back and only prints the report. --openings 01-04-2026
+also loads the opening stock (run it on the backup taken at cut-over). Safe to run again:
 what an earlier run loaded is matched, not added twice. The report is also
 saved as legacy_import_<date>.txt in the app's data folder.
 """
@@ -31,6 +32,9 @@ def main() -> int:
     ap.add_argument("--user", default="")
     ap.add_argument("--password", default="")
     ap.add_argument("--dry-run", action="store_true", help="report only, change nothing")
+    ap.add_argument("--openings", metavar="DD-MM-YYYY", default=None,
+                    help="also load the opening stock (ready pieces, stones, metal) as on this "
+                         "date - only on the backup taken at cut-over")
     a = ap.parse_args()
 
     from diagold.config import DATA_DIR, DB_LABEL
@@ -42,7 +46,9 @@ def main() -> int:
     legacy = LI.Legacy(a.server, a.database, a.user, a.password, a.port)
     try:
         with SessionLocal() as s:
-            report = LI.import_all(s, legacy)
+            as_of = (datetime.strptime(a.openings, "%d-%m-%Y").date()
+                     if a.openings else None)
+            report = LI.import_all(s, legacy, as_of)
             if a.dry_run:
                 s.rollback()
             else:

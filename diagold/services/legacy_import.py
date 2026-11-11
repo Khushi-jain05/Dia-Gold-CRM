@@ -275,10 +275,13 @@ class Importer:
             self.s.flush()
         return self.report
 
-    def run_all(self) -> Report:
+    def run_all(self, openings_as_of=None) -> Report:
         self.run_masters()
         self.product_skus()
         self.s.flush()
+        if openings_as_of is not None:
+            _OpeningStep.run(self, openings_as_of)
+            self.s.flush()
         return self.report
 
     def product_skus(self) -> None:
@@ -810,6 +813,231 @@ class _SkuStep:
             "Price % (217 on ER-1337's screen) - not loaded, asked the client what it holds.")
 
 
+class _OpeningStep:
+    """Opening stock on the cut-over date - only when asked for (--openings).
+
+    What the legacy database holds is its state when the backup was taken
+    (dg_new.bak: 31 Mar 2026), so this is run on the backup taken AT
+    cut-over. Ready pieces keep their legacy Stock ID (JewelleryID) as their
+    Stock No, so tags already printed still scan.
+    """
+
+    @staticmethod
+    def run(imp: "Importer", as_of) -> None:
+        from diagold.services import settings
+        # A legacy piece priced 0 is real stock: the "TAG 0" guard is for new
+        # entries, so it is off while the opening loads and put back after.
+        guard = settings.opt("stock.refuse_tag_zero", imp.s)
+        settings.set_setting(imp.s, "stock.refuse_tag_zero", "0")
+        try:
+            _OpeningStep.ready_stock(imp, as_of)
+        finally:
+            settings.set_setting(imp.s, "stock.refuse_tag_zero", guard)
+        _OpeningStep.stones(imp, as_of)
+        _OpeningStep.metals(imp, as_of)
+        _OpeningStep.parties(imp)
+
+    @staticmethod
+    def ready_stock(imp: "Importer", as_of) -> None:
+        from diagold.db.models import StockItem
+        from diagold.services import sales
+        from diagold.services.production import ProductionError
+        L, s = imp.L, imp.s
+        names = {t: {r[c]: text(r[n]) for r in L.table(t)} for t, c, n in (
+            ("ColorMaster", "ColorID", "ColorCode"), ("ItemSizeMaster", "ItemSizeID", "ItemSizeName"),
+            ("SizeMaster", "SizeID", "SizeName"), ("UnitMaster", "UnitID", "UnitName"),
+            ("StoneSkuMaster", "StoneskuID", "StoneSkuName"))}
+        in_stock = {r["JID"] for r in L.table("ReadyIds")}
+        pieces: dict[Any, list[dict]] = {}
+        for r in L.table("888888812", order="MasterID, RowID"):
+            if r["JewelleryID"] in in_stock:
+                pieces.setdefault(r["MasterID"], []).append(r)
+        stones: dict[Any, list[dict]] = {}
+        for r in L.table("888888813", order="JewelleryID, SrlNo"):
+            stones.setdefault(r["JewelleryID"], []).append(r)
+        vouchers = [v for v in L.table("888888811", "FOT = 'RO'", order="MasterID")
+                    if v["MasterID"] in pieces]
+        res = imp._res("888888811/12/13 (opening ready stock)",
+                       [p for v in vouchers for p in pieces[v["MasterID"]]])
+        locs, metals = imp.ids.get("location", {}), imp.ids.get("metal", {})
+        skus = {int(lid): t for (k, lid), t in imp._links.items() if k == "sku"}
+        taken = {n for (n,) in s.execute(select(StockItem.stock_no))}
+        for v in vouchers:
+            if imp._links.get(("ready_opening", str(v["MasterID"]))):
+                res.matched += len(pieces[v["MasterID"]])
+                continue
+            lines = []
+            for r in pieces[v["MasterID"]]:
+                loc, metal = locs.get(r["LocationID"]), metals.get(r["MetalID"])
+                lines.append({
+                    "location_id": loc.id if loc else None,
+                    "product_sku_id": skus.get(int(r["SkuID"])),
+                    "metal_id": metal.id if metal else None,
+                    "colour": names["ColorMaster"].get(r["ColorID"], ""),
+                    "size": names["ItemSizeMaster"].get(r["ItemSizeID"], ""),
+                    "c_ref": text(r["Cref"]), "pcs": whole(r["Pcs"]) or 1,
+                    "gross_wt": num(r["GrossWt"]), "net_wt": num(r["NetWt"]),
+                    "fine_wt": num(r["FineWt"]), "metal_rate": num(r["MetalRate"]),
+                    "metal_amount": num(r["MetalAmount"]), "stone_amount": num(r["StoneAmount"]),
+                    "setting_amount": num(r["SettingAmount"]), "labour": num(r["Labour"]),
+                    "total": num(r["TotalValue"]), "price": num(r["TotalValue"]),
+                    "huid": text(r["HMID"]), "cert_no": text(r["ItemCertNo"]),
+                    "remark": f"Legacy Stock ID {r['JewelleryID']}"
+                              + (f", job {r['Jobno']}" if r["Jobno"] else ""),
+                    "stones": [{"label": " ".join(x for x in (
+                                    names["StoneSkuMaster"].get(st["StoneSkuID"], ""),
+                                    names["SizeMaster"].get(st["SizeID"], "")) if x),
+                                "size": names["SizeMaster"].get(st["SizeID"], ""),
+                                "pcs": whole(st["Pcs"]), "weight": num(st["Weight"]),
+                                "unit": names["UnitMaster"].get(st["UnitID"], "") or "Cts",
+                                "price": num(st["Price"])}
+                               for st in stones.get(r["JewelleryID"], [])],
+                    "_jid": int(r["JewelleryID"]),
+                })
+            try:
+                with s.begin_nested():
+                    vr = sales.post_ready(s, "rp_opening", {
+                        "vr_date": as_of, "ref_no": f"Legacy RO {v['VrNo']}",
+                        "remark": text(v["Remark"]) or "Opening from the legacy system"},
+                        [{k: x for k, x in ln.items() if k != "_jid"} for ln in lines])
+            except ProductionError as exc:
+                res.skipped.append(f"RO {v['VrNo']}: {exc}")
+                continue
+            items = [s.get(StockItem, line.stock_item_id) for line in vr.lines]
+            for item in items:          # off the numbers post_ready gave, first
+                item.stock_no = -item.id
+            s.flush()
+            for item, ln in zip(items, lines):
+                no = ln["_jid"]
+                if no in taken:
+                    no = max(taken) + 1
+                    res.partial.append(f"Stock ID {ln['_jid']}: number in use, "
+                                       f"given Stock No {no}")
+                item.stock_no = no
+                taken.add(no)
+                imp.link("stock_item", ln["_jid"], item)
+            imp.link("ready_opening", v["MasterID"], vr)
+            res.added += len(lines)
+            s.flush()
+
+    @staticmethod
+    def stones(imp: "Importer", as_of) -> None:
+        from diagold.services.production import post_opening_stock
+        L, s = imp.L, imp.s
+        rows = L.table("StoneBalanceClosing", order="LocationID, SskuID, SizeID")
+        res = imp._res("StoneBalanceClosing (opening stones)", rows)
+        size_name = {r["SizeID"]: text(r["SizeName"]) for r in L.table("SizeMaster")}
+        masters, locs = imp.ids.get("stone_sku", {}), imp.ids.get("location", {})
+        rows_by_size = {}
+        for lid, row in imp.ids.get("stone_size_row", {}).items():
+            ssku, size_id, _ = lid.split(":", 2)
+            rows_by_size.setdefault((ssku, size_id), row)
+        skipped_wt: dict[str, Decimal] = {}
+        for r in rows:
+            kind = text(r["Type"]) or "(blank)"
+            wt, pcs = num(r["ClWeight"]), whole(r["ClPcs"])
+            if kind != "Actual" or wt < 0 or pcs < 0 or (not wt and not pcs):
+                why = kind if kind != "Actual" else ("negative" if wt < 0 or pcs < 0 else "zero")
+                skipped_wt[why] = skipped_wt.get(why, ZERO) + wt
+                if why != "zero":
+                    res.skipped.append(f"{why}: Stone SKU {r['SskuID']} size "
+                                       f"{size_name.get(r['SizeID'], r['SizeID'])} at location "
+                                       f"{r['LocationID']} {wt} ct / {pcs} pcs")
+                continue
+            lid = f"{r['SskuID']}:{r['SizeID']}:{r['LocationID']}:{text(r['LotNo'])}"
+            if imp._links.get(("stone_opening", lid)):
+                res.matched += 1
+                continue
+            m, loc = masters.get(r["SskuID"]), locs.get(r["LocationID"])
+            row = rows_by_size.get((str(int(r["SskuID"])), str(int(r["SizeID"]))))
+            if row is None and m is not None:
+                row = next((x for x in m.sizes
+                            if key(x.size) == key(size_name.get(r["SizeID"], ""))), None)
+            if loc is None:
+                res.skipped.append(f"location {r['LocationID']} not loaded")
+                continue
+            mv = post_opening_stock(
+                s, loc.id, row.id if row else None, pcs, wt, as_of=as_of,
+                group="" if row else "Other", value=num(r["clvalue"]) or None,
+                remark=f"Legacy closing, Stone SKU {r['SskuID']}" + (
+                    "" if row else " (not in the Stone SKU master)"))
+            imp.link("stone_opening", lid, mv)
+            res.added += 1
+        if skipped_wt:
+            imp.report.notes.append(
+                "Opening stones not loaded: " + ", ".join(
+                    f"{k} {v} ct" for k, v in sorted(skipped_wt.items()) if k != "zero")
+                + " - a negative or Breakage / Loss closing is not stock; the legacy figures "
+                  "need clearing first (Q69).")
+
+    @staticmethod
+    def metals(imp: "Importer", as_of) -> None:
+        from diagold.db.models import InvVoucher, InvVoucherLine
+        from diagold.services import inventory as INV
+        L, s = imp.L, imp.s
+        rows = L.table("MetalBalanceClosing", order="LocationID, MetalID")
+        res = imp._res("MetalBalanceClosing (opening metal)", rows)
+        metals, locs = imp.ids.get("metal", {}), imp.ids.get("location", {})
+        colour = {r["ColorID"]: text(r["ColorCode"]) for r in L.table("ColorMaster")}
+        per_loc: dict[Any, list[dict]] = {}
+        for r in rows:
+            kind, wt = text(r["MtType"]) or "(blank)", num(r["ClWeight"])
+            if kind != "Actual" or wt <= 0:
+                if wt:
+                    res.skipped.append(f"{kind if kind != 'Actual' else 'negative'}: metal "
+                                       f"{r['MetalID']} at location {r['LocationID']} {wt} g")
+                continue
+            per_loc.setdefault(r["LocationID"], []).append(r)
+        for loc_id, lines in per_loc.items():
+            if imp._links.get(("metal_opening", str(loc_id))):
+                res.matched += len(lines)
+                continue
+            loc = locs.get(loc_id)
+            if loc is None:
+                res.skipped.append(f"location {loc_id} not loaded")
+                continue
+            v = InvVoucher(vr_type="metal_opening", vr_no=INV.next_vr_no(s, "metal_opening"),
+                           vr_date=as_of, is_opening=True, ref_no="Legacy closing",
+                           remark="Opening from the legacy system")
+            s.add(v)
+            s.flush()
+            for n, r in enumerate(lines, start=1):
+                metal = metals.get(r["MetalID"])
+                if metal is None:
+                    res.skipped.append(f"metal {r['MetalID']} not loaded")
+                    continue
+                ln = {"location_id": loc.id, "metal_id": metal.id, "weight": num(r["ClWeight"]),
+                      "colour": colour.get(r["ColorID"], ""), "amount": num(r["clvalue"])}
+                INV.fill_line(s, "metal_opening", ln)
+                s.add(InvVoucherLine(voucher_id=v.id, sno=n, **ln))
+                res.added += 1
+            s.flush()
+            s.refresh(v)
+            INV.post_voucher(s, v)
+            imp.link("metal_opening", loc_id, v)
+
+    @staticmethod
+    def parties(imp: "Importer") -> None:
+        """Party balances are money: shown for checking, never posted here (Q69)."""
+        rows = imp.L.rows(
+            "SELECT LedgerID, SUM(ISNULL(InGold,0) - ISNULL(OutGold,0)) gold, "
+            "SUM(ISNULL(inAmount,0) - ISNULL(OutAmount,0)) amt, COUNT(*) n, "
+            "MIN(VrDate) d0, MAX(VrDate) d1 FROM ClientBalance GROUP BY LedgerID "
+            "HAVING SUM(ISNULL(InGold,0) - ISNULL(OutGold,0)) <> 0 "
+            "OR SUM(ISNULL(inAmount,0) - ISNULL(OutAmount,0)) <> 0 ORDER BY LedgerID")
+        names = {r["AccountID"]: text(r["AccountName"])
+                 for r in imp.L.table("999999911")}
+        res = imp._res("ClientBalance (party balances - NOT posted)", rows)
+        for r in rows:
+            res.partial.append(f"{names.get(r['LedgerID'], r['LedgerID'])}: fine gold "
+                               f"{num(r['gold']):.3f} g, amount {num(r['amt']):.2f} "
+                               f"({r['n']} entries {r['d0']}..{r['d1']})")
+        imp.report.notes.append(
+            "Party opening balances are listed under ClientBalance for checking against the "
+            "legacy Trial Balance - post them once the client confirms the cut-over figures "
+            "(Q69).")
+
+
 def _same_purity(k: str, a: Any, b: Any) -> bool:
     """Purity 76, 760 and 0.76 are the same figure in three notations."""
     if k != "purity_fineness":
@@ -835,6 +1063,7 @@ def import_masters(session: Session, legacy: Legacy) -> Report:
 
 
 
-def import_all(session: Session, legacy: Legacy) -> Report:
-    """Everything the legacy database holds that this app keeps, in order."""
-    return Importer(session, legacy).run_all()
+def import_all(session: Session, legacy: Legacy, openings_as_of=None) -> Report:
+    """Everything the legacy database holds that this app keeps, in order.
+    With a date, the opening stock too (run on the cut-over backup)."""
+    return Importer(session, legacy).run_all(openings_as_of)
