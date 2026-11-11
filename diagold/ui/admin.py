@@ -375,6 +375,11 @@ class AdvanceOptionsWidget(_Screen):
                        "Vendor and Client not in the system yet (nothing is changed or removed).")
         imp.clicked.connect(self._import_masters)
         lay.addWidget(imp)
+        st = QPushButton("Import Stone SKU List")
+        st.setToolTip("The legacy Stone SKU List (SSKU, STONE, SHAPE, C PRICE, SIZE): adds every "
+                      "Stone SKU and size not in the system yet (nothing is changed or removed).")
+        st.clicked.connect(self._import_stone_list)
+        lay.addWidget(st)
         lay.addStretch(1)
         return w
 
@@ -403,6 +408,21 @@ class AdvanceOptionsWidget(_Screen):
         _info(self, "Import Masters Excel", "Added: " + ", ".join(
             f"{k} {v}" for k, v in added.items() if k != "Location") +
             "\nAlready there: skipped.")
+
+    def _import_stone_list(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import Stone SKU List", "", "Excel (*.xlsx)")
+        if not path:
+            return
+        from diagold.services import stone_master as SM
+        with SessionLocal() as s:
+            try:
+                added = SM.import_stone_list(s, path)
+                s.commit()
+            except Exception as exc:  # noqa: BLE001 - a wrong file; shown to the user
+                _warn(self, "Import Stone SKU List", f"Could not read the sheet: {exc}")
+                return
+        _info(self, "Import Stone SKU List", "Added: " + ", ".join(
+            f"{k} {v}" for k, v in added.items()) + "\nAlready there: skipped.")
 
 
 class BackupWidget(_Screen):

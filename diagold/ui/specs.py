@@ -959,7 +959,7 @@ _register(CrudSpec(
     key="sku.stone_sku",
     # One Stone SKU holds all its sizes, as the legacy screen (5 Nov T-01):
     # the stone's details above, the Range / Size Info grid below.
-    detail_panels=[("Stone SKU", ["name", "description", "mrp", "shape", "stone_type",
+    detail_panels=[("Stone SKU", ["name", "stone", "description", "mrp", "shape", "stone_type",
                                   "quality", "color"])],
     copyable=True,
     title="Stone SKUs",
@@ -973,6 +973,7 @@ _register(CrudSpec(
     form_width=980,
     fields=[
         Field("name", "Stone Sku", required=True),
+        Field("stone", "Stone"),
         Field("description", "Description", in_list=False),
         Field("mrp", "MRP", in_list=False),
         Field("shape", "Shape"),

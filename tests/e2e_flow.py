@@ -706,12 +706,22 @@ with SessionLocal() as s:
     check("every size row has its stone", s.scalar(select(func.count()).select_from(StoneSku).where(StoneSku.master_id.is_(None))), 0)
     pm = s.scalar(select(StoneMaster).where(StoneMaster.name == "POLKI"))
     check("POLKI 12-14 sits under POLKI", polki.master_id, pm.id if pm else None)
-    lc = StoneMaster(name="LABGROWN CUSHION"); s.add(lc); s.flush()
+    lc = StoneMaster(name="TEST CUSHION"); s.add(lc); s.flush()
     for z in ("8MM", "9*11", "9*12", "9*13", "9*14", "9.5*11.5", "9MM", "MIX"):
         s.add(StoneSku(master_id=lc.id, size=z, per="Cts"))
     s.flush(); s.refresh(lc); SM.sync_sizes(s, lc)
-    check("LABGROWN CUSHION: 8 sizes, codes from name + size", (len(lc.sizes), sorted(k.sku_code for k in lc.sizes)[0]), (8, "LABGROWN CUSHION 8MM"))
+    check("TEST CUSHION: 8 sizes, codes from name + size", (len(lc.sizes), sorted(k.sku_code for k in lc.sizes)[0]), (8, "TEST CUSHION 8MM"))
     check("a used size cannot be removed", bool(SM.size_in_use(s, polki)), True)
+    s.rollback()
+
+    print("\n== N15b. The client's Stone SKU List loaded on first start (11 Nov)")
+    lp = s.scalar(select(StoneMaster).where(StoneMaster.name == "LABGROWN PEAR"))
+    check("LABGROWN PEAR with its 84 sizes", len(lp.sizes) if lp else 0, 84)
+    dia = s.scalar(select(StoneMaster).where(StoneMaster.name == "DIA."))
+    d2 = [k for k in dia.sizes if k.size == "2"][0] if dia else None
+    check("DIA. 2: Stone Diamond, shape ROUND, cost 13500 / Cts", (dia.stone, dia.shape, d2.sku_code, float(d2.cost_price), d2.per) if d2 else None, ("Diamond", "ROUND", "DIA. 2", 13500.0, "Cts"))
+    check("RUBY  ROUND (two spaces) is RUBY ROUND", s.scalar(select(func.count()).select_from(StoneMaster).where(StoneMaster.name.in_(("RUBY ROUND", "RUBY  ROUND")))), 1)
+    check("the same list again adds nothing", SM.import_stone_list(s, SM.__file__.rsplit("/services", 1)[0] + "/data/" + SM.STONE_LIST_FILE), {"Stone SKU": 0, "Size": 0})
     s.rollback()
 
     print("\n== N16. Receipt on the wrong karigar: Edit moves the pair (5 Nov T-04)")

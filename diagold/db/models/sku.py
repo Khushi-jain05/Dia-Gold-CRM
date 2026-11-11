@@ -90,6 +90,9 @@ class StoneMaster(Base, PKMixin, TimestampMixin):
     __tablename__ = "stone_masters"
 
     name: Mapped[str] = mapped_column(String(80), unique=True)
+    # The legacy list's STONE column: the stone the SKU is filed under
+    # ("COLOR STONE", "Diamond", or the SKU's own name).
+    stone: Mapped[str] = mapped_column(String(80), default="")
     description: Mapped[str] = mapped_column(Text, default="")
     mrp: Mapped[str] = mapped_column(String(16), default="")
     shape: Mapped[str] = mapped_column(String(32), default="")
