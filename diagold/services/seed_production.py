@@ -92,13 +92,17 @@ def seed_production(session: Session) -> None:
     _seed_parties(session)
     documents.seed_templates(session)
     session.flush()
-    _seed_opening_stock(session)
+    from diagold.config import SAMPLE_DATA
+    if SAMPLE_DATA:
+        _seed_opening_stock(session)
     _backfill_opening_movements(session)
-    _seed_sample_jobs(session)
-    _seed_report_samples(session)
+    if SAMPLE_DATA:
+        _seed_sample_jobs(session)
+        _seed_report_samples(session)
     _seed_setting_prices(session)
     _seed_inventory_metals(session)
-    _seed_bang577(session)
+    if SAMPLE_DATA:
+        _seed_bang577(session)
     session.flush()
 
 
@@ -131,12 +135,14 @@ def _seed_default_group(session: Session) -> None:
 
 
 def _seed_parties(session: Session) -> None:
+    from diagold.config import SAMPLE_DATA
     existing = {c for c in session.scalars(select(Account.code)).all() if c}
-    for code, name in _WORKERS:
+    # Only the Office on a live database: the rest are the sample jobs' parties.
+    for code, name in _WORKERS if SAMPLE_DATA else _WORKERS[:1]:
         if code not in existing:
             session.add(Account(code=code, name=name, account_type="Worker",
                                 group_name="Accounts Payable"))
-    for code, name in _CLIENTS:
+    for code, name in _CLIENTS if SAMPLE_DATA else ():
         if code not in existing:
             session.add(Account(code=code, name=name, account_type="Client",
                                 group_name="Sundry Debtors"))

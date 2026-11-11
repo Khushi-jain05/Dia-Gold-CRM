@@ -49,6 +49,18 @@ def _server_ini() -> Path | None:
     return None
 
 
+def _ini_value(name: str) -> str:
+    ini = _server_ini()
+    if ini is None:
+        return ""
+    import configparser
+    cp = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+    cp.optionxform = str
+    cp.read(ini, encoding="utf-8-sig")
+    db = {k.lower(): v.strip().rstrip(";").strip() for k, v in cp["Database"].items()}
+    return db.get(name.lower(), "")
+
+
 def _database_url():
     """SQL Server from server.ini when there is one, else the local SQLite file.
 
@@ -64,13 +76,8 @@ def _database_url():
     ini = _server_ini()
     if ini is None or os.environ.get("DIAGOLD_LOCAL_DB") == "1":
         return f"sqlite:///{DB_PATH}"
-    import configparser
-
     from sqlalchemy.engine import URL
-    cp = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
-    cp.optionxform = str
-    cp.read(ini, encoding="utf-8-sig")
-    db = {k.lower(): v.strip().rstrip(";").strip() for k, v in cp["Database"].items()}
+    db = {k: _ini_value(k) for k in ("uid", "pwd", "server", "port", "databasename")}
     return URL.create(
         "mssql+pymssql",
         username=db.get("uid") or None, password=db.get("pwd") or None,
@@ -80,6 +87,10 @@ def _database_url():
 
 DATABASE_URL = _database_url()
 IS_SERVER: bool = not str(DATABASE_URL).startswith("sqlite")
+# The worked examples (sample SKU ER-1337, the 11 Sept sample jobs, opening
+# stone stock at Primary, job 28853) - on the local / demo file, never on the
+# client's live server database unless server.ini says SampleData=Yes.
+SAMPLE_DATA: bool = (not IS_SERVER) or _ini_value("SampleData").lower() in ("yes", "1", "true")
 # What the status bar and error messages call the database.
 DB_LABEL: str = (f"{DATABASE_URL.host}/{DATABASE_URL.database}" if IS_SERVER
                  else str(DB_PATH))
