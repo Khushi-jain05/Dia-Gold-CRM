@@ -203,4 +203,17 @@ Before the questions, the follow-up from 9 Oct (T-01):
 130. "Diwali ke baad" - is that the date to complete, or the next meeting? *(5 Nov Q1)*
 131. Deleting a voucher when later steps exist: today we refuse and name the later voucher. OK? *(5 Nov Q5)*
 
+**Go-live on your server (11 Nov) - thank you for the database backup (dg_new.bak). Q55 and Q125 are answered by it.**
+
+132. Server: our app keeps its data in a NEW database "DiaGoldCRM" on SERVER2\ERP, next to Diagold26 (we never touch Diagold26). Please create a login for it (not sa) - or tell us who on your side can, and when we can be on the office network to set it up. *(11 Nov)*
+133. Which PCs will run the app, and is SQL Server reachable from them (SQL Browser on, or a fixed port; firewall)? Will anyone work from outside the office (that needs a VPN - we will not open SQL Server to the internet)? *(11 Nov)*
+134. Backups: SERVER2 should back up DiaGoldCRM daily. Who does that today for Diagold26, and to which folder? (Tools > Backup in our app can also take one on demand.) *(11 Nov)*
+135. The backup is dated 31 Mar 2026. Masters and the 10,517 SKUs are loaded from it. Opening stock (ready pieces, stones, metal) must come from a backup taken ON the cut-over day - please send a fresh one then. Which date is cut-over? *(11 Nov)*
+136. Stone and metal closing balances in the backup are negative in many places (stones total -22,302 ct "Actual"; 18KT CASTING 76 -292 g and 14KT CASTING 59.50 -696 g at Primary). We load only positive balances and list the rest. Please clear them (with Q69) before cut-over, or tell us how to treat them. *(11 Nov)*
+137. Metal purity: we now use your master's figures (18KT Gold 76.0, 14KT Gold 60.0, 9KT 39.25, 12KT 50.5, 14KT CASTING 590 = 59.0). Our earlier figures were read off the names. Please confirm these are the ones you weigh fine metal by. *(11 Nov)*
+138. Stone prices: your 11 Nov Stone SKU List and the database differ on 24 sizes (e.g. DIA. MIX cost 13,500 vs 18,000; RUBY ROUND 4,000 vs 350). We kept the 11 Nov list. Right? *(11 Nov)*
+139. 1,584 SKUs carry a loss % / labour per process (the SKU's process grid). Is that still used? We have not loaded it yet. And "ManualPrice" on the SKU (106 on ER-1337, up to 1,97,237 on others) - what is it? It is not the Manual Price % (217) we saw on ER-1337's screen. *(11 Nov)*
+140. The legacy logins (ST1, PP1, HM1, STONE, STOCK ...) are added with their old passwords and no rights. Please tell us which screens each person may use, or set them in Master > User Right. *(11 Nov)*
+141. Design images: the legacy keeps photos in \\Server2\d\JewelleryER_25\DesignImages (ER-1337.jpg ...). Can our app read that folder too, so every SKU shows its photo? *(11 Nov)*
+
 Thank you!
