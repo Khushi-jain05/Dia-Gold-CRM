@@ -36,7 +36,7 @@ from diagold.db.models import (Account, AccountGroup, Colour, Company, Currency,
                                Metal, MetalRatio, PartMould, SettingType, StoneGroup,
                                StoneInfo, StoneKind, StoneQuality, StoneShape, StoneSize,
                                User)
-from diagold.db.models.sku import Item, StoneMaster, StoneSku
+from diagold.db.models.sku import Item, ProductSku, ProductSkuStone, StoneMaster, StoneSku
 
 ZERO = Decimal("0")
 
@@ -124,6 +124,7 @@ class Result:
     skipped: list[str] = field(default_factory=list)
     differs: list[str] = field(default_factory=list)
     changed: list[str] = field(default_factory=list)
+    partial: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -140,6 +141,8 @@ class Report:
         for r in self.results:
             if r.skipped:
                 out += ["", f"{r.table} - skipped:"] + [f"  {s}" for s in r.skipped]
+            if r.partial:
+                out += ["", f"{r.table} - loaded, but:"] + [f"  {p}" for p in r.partial]
             if r.changed:
                 out += ["", f"{r.table} - changed to the legacy value:"] + [f"  {c}" for c in r.changed]
             if r.differs:
@@ -274,7 +277,12 @@ class Importer:
 
     def run_all(self) -> Report:
         self.run_masters()
+        self.product_skus()
+        self.s.flush()
         return self.report
+
+    def product_skus(self) -> None:
+        _SkuStep.run(self)
 
     def _res(self, table: str, rows: list) -> Result:
         r = Result(table, source=len(rows))
@@ -635,6 +643,171 @@ class Importer:
                 f"{res.added} legacy login(s) added with their legacy password and NO rights - "
                 "give each its rights in Master > User Right (the legacy form numbers do not "
                 "map to our screens).")
+
+
+class _SkuStep:
+    """Product SKUs with their stones (999999991 + 999999992)."""
+
+    @staticmethod
+    def run(imp: "Importer") -> None:
+        from diagold.services.stone_master import sync_sizes
+        L, s = imp.L, imp.s
+        names = {t: {r[c]: text(r[n]) for r in L.table(t)} for t, c, n in (
+            ("SubItemMaster", "SubItemID", "SubItemName"),
+            ("SKUCategoryMaster", "SKUCategoryID", "SKUCategoryName"),
+            ("StyleMaster", "StyleID", "StyleName"),
+            ("ItemSizeMaster", "ItemSizeID", "ItemSizeName"),
+            ("ChainTypeMaster", "ChainTypeID", "ChainTypeName"),
+            ("InscriptionMaster", "InscriptionID", "InscriptionName"),
+            ("ColorMaster", "ColorID", "ColorCode"),
+            ("SizeMaster", "SizeID", "SizeName"),
+            ("UnitMaster", "UnitID", "UnitName"))}
+        items, families = imp.ids.get("item", {}), imp.ids.get("family", {})
+        metals, masters = imp.ids.get("metal", {}), imp.ids.get("stone_sku", {})
+        sizes, settings = imp.ids.get("stone_size", {}), imp.ids.get("setting_type", {})
+
+        rows = L.table("999999991", order="SKUID")
+        res = imp._res("999999991 (Product SKUs)", rows)
+        stones_by_sku: dict[Any, list[dict]] = {}
+        for r in L.table("999999992", order="SkuID, SrlNo"):
+            stones_by_sku.setdefault(r["SkuID"], []).append(r)
+        sres = imp._res("999999992 (SKU stones)", [x for v in stones_by_sku.values() for x in v])
+        nres = imp._res("SKU stone sizes not in StoneSkuSizeDetail", [])
+
+        # A size row by (legacy Stone SKU, legacy size): the ones linked when the
+        # sizes loaded, then any of the master's rows of that size.
+        by_size: dict[tuple[Any, Any], StoneSku] = {}
+        for lid, row in imp.ids.get("stone_size_row", {}).items():
+            ssku, size_id, _rng = lid.split(":", 2)
+            by_size.setdefault((ssku, size_id), row)
+        touched: dict[int, StoneMaster] = {}
+
+        def size_row(r) -> StoneSku | None:
+            m = masters.get(r["SSKUID"])
+            if m is None:
+                return None
+            k = (str(int(r["SSKUID"])), str(int(r["SizeID"])))
+            row = by_size.get(k)
+            if row is None:
+                label = names["SizeMaster"].get(int(r["SizeID"]), "")
+                row = next((x for x in m.sizes if key(x.size) == key(label)), None)
+                if row is None:      # the SKU uses a size the stone's list lacks
+                    row = StoneSku(master_id=m.id, stone=m.name, size=label,
+                                   cost_price=num(r["BasePrice"]), sale_price=num(r["Price"]),
+                                   per=names["UnitMaster"].get(r["UnitID"], "") or "Cts")
+                    m.sizes.append(row)
+                    s.flush()
+                    nres.added += 1
+                    nres.source += 1
+                    touched[m.id] = m
+                by_size[k] = row
+            return row
+
+        # SKU codes differing only in inner spaces are separate legacy SKUs, so
+        # these match on the exact code (case aside), not on key().
+        def ck(c: str) -> str:
+            return (c or "").strip().upper()
+        have_codes = {ck(c): i for i, c in s.execute(select(ProductSku.id, ProductSku.sku_code))}
+        for n, r in enumerate(rows, start=1):
+            code = (r["SkuName"] or "").strip()
+            if not code:
+                res.skipped.append(f"SKU {r['SKUID']}: no name")
+                continue
+            metal = metals.get(r["MetalID"])
+            item, fam = items.get(r["ItemID"]), families.get(r["FamilyID"])
+            vals = {
+                "sku_code": code, "description": text(r["Description"]),
+                "remark": text(r["ProdDesc"]),
+                # What the legacy screen prints under the SKU is its ID (6200 on
+                # ER-1337) - C-14 answered by the data.
+                "tag_price": num(r["SKUID"]),
+                "item_id": item.id if item else None,
+                "family_id": fam.id if fam else (item.family_id if item else None),
+                "metal_id": metal.id if metal else None,
+                "metal_fineness": num(metal.purity_fineness) if metal else ZERO,
+                "s_item": names["SubItemMaster"].get(r["SubItemID"], ""),
+                "category": names["SKUCategoryMaster"].get(r["SKUCategoryID"], ""),
+                "style": names["StyleMaster"].get(r["Style2ID"], ""),
+                "jewelry_size": names["ItemSizeMaster"].get(r["ItemSizeID"], ""),
+                "chain_type": names["ChainTypeMaster"].get(r["ChainTypeID"], ""),
+                "inscription": names["InscriptionMaster"].get(r["InscriptionID"], ""),
+                "mt_plt_col": names["ColorMaster"].get(r["ColorID"], ""),
+                "enamal_col": names["ColorMaster"].get(r["EColorID"], ""),
+                "item_pcs": whole(r["TotItemPcs"]) or 1, "design_no": text(r["DesignNo"]),
+                "length": text(r["ItemLength"]),
+                "mt_loss_pct": num(r["MetalLossP"]), "avg_loss_pct": num(r["AvgLoss"]),
+                "gross_weight": num(r["GrossWt"]), "net_weight": num(r["NetWt"]),
+                "stamp": text(r["Stamp"]), "snap": text(r["Snap"]),
+                "is_rubber": bool(r["ISrubber"]), "is_master": bool(r["ISMaster"]),
+                "is_cad": bool(r["ISCAD"]), "is_sizable": bool(r["isResizable"]),
+                "upc": text(r["UPC"]), "link_cert": text(r["CERTLink"]),
+                "master_sku": text(r["MasterSKU"]), "sku_ref": text(r["RefCode"]),
+                "hu_id": text(r["HMID"]), "min_pcs": whole(r["minPcs"]),
+                "image_finished": text(r["PictureName"]),
+                "cad_stl_file": text(r["CADFileName"]),
+                "labour_amount": num(r["LabourTotal"]),
+                "finding_labour": num(r["FindingTotal"]),
+                "setting_amount": num(r["SettingTotal"]), "extra_amount": num(r["ExtraTotal"]),
+                "stone_amount": num(r["StoneTotal"]), "total_rs": num(r["TOTAL"]),
+                "is_active": yes(r["IsActive"]),
+            }
+            sku = imp.linked(ProductSku, "sku", r["SKUID"])
+            if sku is None and ck(code) in have_codes:
+                sku = s.get(ProductSku, have_codes[ck(code)])
+            if sku is None:
+                sku = ProductSku(**vals)
+                s.add(sku)
+                s.flush()
+                have_codes[ck(code)] = sku.id
+                res.added += 1
+            else:
+                res.matched += 1
+                filled = False
+                for k, v in vals.items():
+                    if k != "sku_code" and _blank(getattr(sku, k)) and not _blank(v):
+                        setattr(sku, k, v)
+                        filled = True
+                res.filled += filled
+            imp.link("sku", r["SKUID"], sku)
+
+            lines = stones_by_sku.get(r["SKUID"], [])
+            if lines and sku.stones:
+                sres.matched += len(lines)      # its stones are already here
+                continue
+            for st in lines:
+                row = size_row(st)
+                if row is None:
+                    sres.partial.append(f"{code} line {st['SrlNo']}: no stone link - Stone SKU "
+                                        f"{st['SSKUID']} is not in the legacy Stone SKU master")
+                size = sizes.get(int(st["SizeID"]))
+                stype = settings.get(st["STypeID"])
+                sku.stones.append(ProductSkuStone(
+                    stone_sku_id=row.id if row else None,
+                    description=(f"{row.stone} {row.size}".strip() if row
+                                 else f"legacy Stone SKU {st['SSKUID']}"),
+                    size_id=size.id if size else None,
+                    wt_per_pcs=num(st["WtPerPcs"]), min_wt=num(st["MinWt"]),
+                    pieces=whole(st["Pcs"]), weight_cts=num(st["Weight"]),
+                    brk_wt_pct=num(st["BreakP"]), cost_price=num(st["BasePrice"]),
+                    sale_price=num(st["Price"]),
+                    per=names["UnitMaster"].get(st["UnitID"], "") or "Cts",
+                    amount=num(st["Amount"]),
+                    setting_type_id=stype.id if stype else None))
+                sres.added += 1
+            if n % 500 == 0:
+                s.flush()
+        s.flush()
+        for m in touched.values():
+            sync_sizes(s, m)
+        process = L.rows("SELECT COUNT(DISTINCT SkuID) n FROM [999999996] "
+                         "WHERE LossP <> 0 OR Labour <> 0")[0]["n"]
+        imp.report.notes.append(
+            f"{process} SKUs carry a loss % / labour per process (legacy table 999999996). "
+            "There is no per-SKU process table here yet - asked the client whether it is "
+            "still used; nothing from it is loaded.")
+        imp.report.notes.append(
+            "Legacy ManualPrice (106 on ER-1337, up to 1,97,237 elsewhere) is not our Manual "
+            "Price % (217 on ER-1337's screen) - not loaded, asked the client what it holds.")
 
 
 def _same_purity(k: str, a: Any, b: Any) -> bool:
