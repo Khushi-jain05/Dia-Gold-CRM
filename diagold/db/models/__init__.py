@@ -52,7 +52,7 @@ from diagold.db.models.accounts import (AccountGroup, AccountVoucher, AccountVou
 from diagold.db.models.pricing import (PriceChart, PriceChartLabour, PriceChartSetting,
                                         PriceChartStone)
 from diagold.db.models.stock_tools import StockRecon, StockReconScan
-from diagold.db.models.admin import AuditLog
+from diagold.db.models.admin import AuditLog, LegacyLink
 from diagold.db.models.service import Complaint, ComplaintLine, GatePass
 from diagold.db.models.messaging import WhatsAppMessage
 from diagold.db.models.quotation import Quotation, QuotationLine
@@ -97,6 +97,7 @@ __all__ = [
     "WhatsAppMessage", "Quotation", "QuotationLine",
     "Complaint", "ComplaintLine", "GatePass",
     "AuditLog",
+    "LegacyLink",
     "StockRecon", "StockReconScan",
     "PriceChart", "PriceChartLabour", "PriceChartSetting", "PriceChartStone",
     "Base",
