@@ -321,7 +321,7 @@ def _guard_user_delete(user, session) -> str | None:
     if user is None:
         return None
     if user.is_superuser and session.scalar(
-        select(func.count()).select_from(User).where(User.is_superuser.is_(True))
+        select(func.count()).select_from(User).where(User.is_superuser == True)
     ) <= 1:
         return ("This is the only superuser. Give another user the Superuser "
                 "flag first, or nobody can administer the system.")

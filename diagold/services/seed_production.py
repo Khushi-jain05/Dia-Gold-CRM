@@ -152,7 +152,7 @@ def _seed_opening_stock(session: Session) -> None:
     if primary is None:
         return
     fy_start = date(date.today().year if date.today().month >= 4 else date.today().year - 1, 4, 1)
-    for sku in session.scalars(select(StoneSku).where(StoneSku.is_active.is_(True))):
+    for sku in session.scalars(select(StoneSku).where(StoneSku.is_active == True)):
         per = Decimal(str(sku.wt_per_pcs or 0))
         weight = (per * 100) if per > 0 else Decimal("25.000")
         production.post_opening_stock(session, primary.id, sku.id, 100, weight,

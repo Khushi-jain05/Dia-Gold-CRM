@@ -126,7 +126,7 @@ def load_demo(s: Session) -> str:
                                  pure_rate_per_gram=FINE_RATE, remark="demo: 24K fine rate"))
     s.add(LabourRate(metal_id=metal.id, karat="14KT", rate=LABOUR_RATE, unit="Per Gram",
                      weight_basis="Net Weight", effective_from=date(2026, 9, 1)))
-    if not s.scalar(select(MarginSet).where(MarginSet.tagprice_margin.is_(True))):
+    if not s.scalar(select(MarginSet).where(MarginSet.tagprice_margin == True)):
         s.add(MarginSet(margin_key="DEMO TAG 50", tagprice_margin=True,
                         tag_margin_percent=MARGIN_PCT, overall_percent=MARGIN_PCT))
     shrikant = _account(s, "SHRIKANT", "SHRIKANT", "Supplier", "Sundry Creditors")

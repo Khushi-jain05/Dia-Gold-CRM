@@ -34,7 +34,7 @@ def department_pending(session: Session, date_to: date) -> dict[str, Any]:
     """{"by_process": [(process, pcs, grams)], "by_date": [(date, pcs)],
     "total_pcs", "total_wt"} - every process on the master, in its order."""
     acc: dict[str, list] = {p.name: [0, ZERO] for p in session.scalars(
-        select(ManufacturingProcess).where(ManufacturingProcess.is_active.is_(True))
+        select(ManufacturingProcess).where(ManufacturingProcess.is_active == True)
         .order_by(ManufacturingProcess.id))}
     by_date: dict[date, int] = defaultdict(int)
     for r in registers.wip_register(session, date(2000, 1, 1), date_to):

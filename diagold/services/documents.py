@@ -128,7 +128,7 @@ def job_context(session: Session, job: Job, user_name: str = "") -> dict[str, An
 def templates_for(session: Session, kind: str) -> list[PrintTemplate]:
     return list(session.scalars(
         select(PrintTemplate).where(PrintTemplate.kind == kind,
-                                    PrintTemplate.is_active.is_(True))
+                                    PrintTemplate.is_active == True)
         .order_by(PrintTemplate.is_placeholder, PrintTemplate.name)
     ))
 

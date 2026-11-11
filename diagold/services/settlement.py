@@ -46,7 +46,7 @@ def rate_for(session: Session, stone_group: str, on_date: date, *,
     base = select(SettingLabourRate).where(
         SettingLabourRate.stone_group == stone_group,
         SettingLabourRate.effective_from <= on_date,
-        SettingLabourRate.is_active.is_(True),
+        SettingLabourRate.is_active == True,
     ).order_by(SettingLabourRate.effective_from.desc())
 
     for narrowing in (

@@ -100,7 +100,7 @@ def _seed_roles_and_admin(session: Session) -> None:
     # superuser that has no grants yet, including one created by an older
     # build. grant_all() skips masters already granted, so this is idempotent.
     session.flush()
-    for su in session.scalars(select(User).where(User.is_superuser.is_(True))):
+    for su in session.scalars(select(User).where(User.is_superuser == True)):
         grant_all(session, su.id)
 
 

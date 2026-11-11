@@ -244,7 +244,7 @@ def wip_process_summary(session: Session, date_from: date, date_to: date) -> lis
     acc: dict[str, dict[str, Any]] = {}
     workers: dict[str, set[str]] = defaultdict(set)
     for p in session.scalars(select(ManufacturingProcess).where(
-            ManufacturingProcess.is_active.is_(True)).order_by(ManufacturingProcess.id)):
+            ManufacturingProcess.is_active == True).order_by(ManufacturingProcess.id)):
         acc.setdefault(p.name, {})
     for r in wip_register(session, date_from, date_to):
         a = acc.setdefault(r["process"], {})

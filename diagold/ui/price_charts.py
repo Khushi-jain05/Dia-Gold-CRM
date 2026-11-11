@@ -255,7 +255,7 @@ class PriceChartWidget(_Screen):
         have = {self.grid.item(r, 6).text() for r in range(self.grid.rowCount())
                 if self.grid.item(r, 6)}
         with SessionLocal() as s:
-            for k in s.scalars(select(StoneSku).where(StoneSku.is_active.is_(True))
+            for k in s.scalars(select(StoneSku).where(StoneSku.is_active == True)
                                .order_by(StoneSku.sku_code)):
                 if k.sku_code in have:
                     continue

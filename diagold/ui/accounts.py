@@ -149,7 +149,7 @@ def group_spec() -> CrudSpec:
 # --------------------------------------------------------------------------
 def _parties(s) -> list[tuple[Any, str]]:
     return [(a.id, a.name) for a in s.scalars(select(Account).where(
-        Account.is_active.is_(True)).order_by(Account.name))]
+        Account.is_active == True).order_by(Account.name))]
 
 
 def _modes(_s) -> list[tuple[Any, str]]:
@@ -318,13 +318,13 @@ class AccountVoucherWidget(_Screen):
         self._last_id: int | None = None
         with SessionLocal() as s:
             self._accounts = [(a.id, a.name, a.group_name) for a in s.scalars(
-                select(Account).where(Account.is_active.is_(True)).order_by(Account.name))]
+                select(Account).where(Account.is_active == True).order_by(Account.name))]
             self._metals = [(m.id, m.name) for m in s.scalars(select(Metal).order_by(Metal.name))]
             self._locs = [(l.id, l.name) for l in s.scalars(select(Location).order_by(Location.name))]
             A.nominal(s, "Cash"), A.nominal(s, "Bank")
             s.commit()
             self._accounts = [(a.id, a.name, a.group_name) for a in s.scalars(
-                select(Account).where(Account.is_active.is_(True)).order_by(Account.name))]
+                select(Account).where(Account.is_active == True).order_by(Account.name))]
         if vr_type in ("receipt", "payment"):
             self._build_party()
         else:

@@ -227,7 +227,7 @@ def labour_rate_for(session: Session, metal_id: int | None,
     STD on NSE-2495 was 1,200.00 per g."""
     row = session.scalars(
         select(LabourRate)
-        .where(LabourRate.metal_id == metal_id, LabourRate.is_active.is_(True),
+        .where(LabourRate.metal_id == metal_id, LabourRate.is_active == True,
                LabourRate.effective_from <= on_date)
         .order_by(LabourRate.effective_from.desc(), LabourRate.id.desc())
     ).first()
@@ -240,7 +240,7 @@ def margin_for(session: Session) -> tuple[Decimal, str]:
     """Tag mark-up % from the Margin master: the active set marked for tag
     price, else the first active set. Live screen: 50 (Q1: the "20%" heard
     is taken to be the customer discount, not this figure)."""
-    sets = session.scalars(select(MarginSet).where(MarginSet.is_active.is_(True))
+    sets = session.scalars(select(MarginSet).where(MarginSet.is_active == True)
                            .order_by(MarginSet.id)).all()
     pick = next((m for m in sets if m.tagprice_margin), None) or (sets[0] if sets else None)
     if pick is None:

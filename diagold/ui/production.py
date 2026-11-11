@@ -242,7 +242,7 @@ def _info(parent: QWidget, title: str, text: str) -> None:
 def _workers(session) -> list[Account]:
     rows = list(session.scalars(
         select(Account).where(Account.account_type == "Worker",
-                              Account.is_active.is_(True)).order_by(Account.name)))
+                              Account.is_active == True).order_by(Account.name)))
     if rows:
         return rows
     return list(session.scalars(select(Account).order_by(Account.name)))
@@ -737,10 +737,10 @@ class MetalLinesDialog(QDialog):
         self.location = QComboBox()
         self.metal = QComboBox()
         with SessionLocal() as s:
-            for l in s.scalars(select(Location).where(Location.is_active.is_(True))
+            for l in s.scalars(select(Location).where(Location.is_active == True)
                                .order_by(Location.name)):
                 self.location.addItem(l.name, l.id)
-            for m in s.scalars(select(Metal).where(Metal.is_active.is_(True))
+            for m in s.scalars(select(Metal).where(Metal.is_active == True)
                                .order_by(Metal.name)):
                 self.metal.addItem(m.name, m.id)
         self.weight = QDoubleSpinBox()
@@ -1254,7 +1254,7 @@ class PendingVoucherDialog(QDialog):
         self.worker = QComboBox()
         with SessionLocal() as s:
             for p in s.scalars(select(ManufacturingProcess).where(
-                    ManufacturingProcess.is_active.is_(True)).order_by(ManufacturingProcess.name)):
+                    ManufacturingProcess.is_active == True).order_by(ManufacturingProcess.name)):
                 self.process.addItem(p.name, p.id)
             for w in _workers(s):
                 self.worker.addItem(w.name, w.id)
@@ -2098,7 +2098,7 @@ class JobBagWidget(_Screen):
         if row is None:
             return
         with SessionLocal() as s:
-            types = list(s.scalars(select(SettingType).where(SettingType.is_active.is_(True))
+            types = list(s.scalars(select(SettingType).where(SettingType.is_active == True)
                                    .order_by(SettingType.name)))
         labels = ["(none - no setting labour)"] + [f"{t.name}  ·  {t.price}/pc" for t in types]
         current = next((i + 1 for i, t in enumerate(types)
@@ -2571,7 +2571,7 @@ class JobMappingWidget(_Screen):
     def refresh(self) -> None:
         with SessionLocal() as s:
             self._processes = [(p.id, p.name) for p in s.scalars(
-                select(ManufacturingProcess).where(ManufacturingProcess.is_active.is_(True))
+                select(ManufacturingProcess).where(ManufacturingProcess.is_active == True)
                 .order_by(ManufacturingProcess.sequence, ManufacturingProcess.name))]
             self.proc_list.clear()
             for pid, name in self._processes:
@@ -3475,7 +3475,7 @@ class OpeningStockWidget(QWidget):
         with SessionLocal() as s:
             for l in s.scalars(select(Location).order_by(Location.name)):
                 self.location.addItem(l.name, l.id)
-            for k in s.scalars(select(StoneSku).where(StoneSku.is_active.is_(True))
+            for k in s.scalars(select(StoneSku).where(StoneSku.is_active == True)
                                .order_by(StoneSku.sku_code)):
                 self.sku.addItem(k.sku_code, k.id)
         for combo in (self.location, self.sku, self.group):

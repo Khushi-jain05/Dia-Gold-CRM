@@ -1666,7 +1666,7 @@ def _ledger_workers(s) -> list[tuple[Any, str]]:
     from diagold.db.models import Account as _A
     return [("", "(all workers)")] + [
         (a.id, a.name) for a in s.scalars(select(_A).where(_A.account_type == "Worker",
-                                                          _A.is_active.is_(True))
+                                                          _A.is_active == True)
                                          .order_by(_A.name))]
 
 

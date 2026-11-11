@@ -791,7 +791,7 @@ def shipping_pending(session: Session, date_from: date, date_to: date) -> list[d
     to ship, and the days since the order on the To date."""
     rows = []
     q = (select(OrderLine, Order).join(Order)
-         .where(Order.is_repair.is_(False), Order.order_date >= date_from,
+         .where(Order.is_repair == False, Order.order_date >= date_from,
                 Order.order_date <= date_to)
          .order_by(Order.order_date, Order.order_no, OrderLine.sno))
     for ol, o in session.execute(q):

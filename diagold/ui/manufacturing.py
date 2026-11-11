@@ -1397,7 +1397,7 @@ class ProcessVoucherWidget(_Screen):
         self.worker = QComboBox()
         with SessionLocal() as s:
             for p in s.scalars(select(ManufacturingProcess).where(
-                    ManufacturingProcess.is_active.is_(True)).order_by(ManufacturingProcess.name)):
+                    ManufacturingProcess.is_active == True).order_by(ManufacturingProcess.name)):
                 self.process.addItem(p.name, p.id)
             for w in s.scalars(select(Account).where(Account.account_type == "Worker")
                                .order_by(Account.name)):

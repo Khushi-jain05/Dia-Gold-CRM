@@ -448,7 +448,7 @@ class ChildTableEditor(QWidget):
                 if group_stone_skus(session):   # a size made elsewhere since start-up
                     session.commit()
                 for m in session.scalars(select(StoneMaster).where(
-                        StoneMaster.is_active.is_(True)).order_by(StoneMaster.name)):
+                        StoneMaster.is_active == True).order_by(StoneMaster.name)):
                     for k in m.sizes:
                         if not k.is_active:
                             continue
