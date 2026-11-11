@@ -54,9 +54,10 @@ def _fit_types_for_sql_server(metadata) -> None:
     SQLite never enforced a VARCHAR length, so values longer than the model's
     String(n) are saved every day; SQL Server would refuse them. Text becomes
     NVARCHAR (Unicode whatever the server's collation): 450 where an index or
-    key covers it (the 900-byte key limit), 4000 elsewhere.
+    key covers it (the 900-byte key limit), 4000 elsewhere. Numbers keep their
+    scale and get at least 18 digits before the point.
     """
-    from sqlalchemy import String, Text, Unicode, UnicodeText
+    from sqlalchemy import Numeric, String, Text, Unicode, UnicodeText
 
     for table in metadata.sorted_tables:
         keyed = {c.name for c in table.primary_key.columns}
@@ -66,7 +67,11 @@ def _fit_types_for_sql_server(metadata) -> None:
         for con in table.constraints:
             keyed |= {c.name for c in getattr(con, "columns", ())}
         for col in table.columns:
-            if isinstance(col.type, Text):
+            if isinstance(col.type, Numeric) and col.type.precision:
+                # Nor did SQLite enforce a precision: keep the scale, allow the digits.
+                col.type = Numeric(min(38, max(col.type.precision, 18 + (col.type.scale or 0))),
+                                   col.type.scale, asdecimal=col.type.asdecimal)
+            elif isinstance(col.type, Text):
                 col.type = UnicodeText()
             elif isinstance(col.type, String) and not col.type.__class__.__name__.startswith("Enum"):
                 wide = 450 if (col.name in keyed or col.unique or col.index) else 4000
