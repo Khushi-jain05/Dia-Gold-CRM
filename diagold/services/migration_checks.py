@@ -87,10 +87,11 @@ def run(session: Session, on_date: date | None = None) -> list[dict[str, Any]]:
             add("tag_zero", it.stock_no, f"{sku.sku_code if sku else ''} net {_dec(it.price):,.2f}",
                 it.job_id)
     # I3 / I4
+    items = {i.id: i for i in session.scalars(select(Item))}
     for sku in session.scalars(select(ProductSku)):
         if not sku.item_id:
             add("blank_item", sku.sku_code, "SKU has no Item")
-        itm = session.get(Item, sku.item_id) if sku.item_id else None
+        itm = items.get(sku.item_id) if sku.item_id else None
         if not (sku.family_id or (itm.family_id if itm else None)):
             add("blank_family", sku.sku_code, "no family on the SKU or its item")
     for itm in session.scalars(select(Item)):

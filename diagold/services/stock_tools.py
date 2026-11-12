@@ -29,6 +29,7 @@ from diagold.db.models import (Account, FamilyCategory, Job, Location, Metal, Mf
                                StockReconScan)
 from diagold.db.models.sku import Item
 from diagold.services import costing, production
+from diagold.services.rowcache import OneRow, RowCache as _Cache
 
 ZERO = Decimal("0")
 D3 = Decimal("0.001")
@@ -45,28 +46,15 @@ def _dec(v: Any) -> Decimal:
     return v if isinstance(v, Decimal) else Decimal(str(v))
 
 
-class _Cache:
-    def __init__(self, session: Session):
-        self.s = session
-        self._d: dict[tuple, Any] = {}
-
-    def get(self, model, pk):
-        if not pk:
-            return None
-        key = (model, pk)
-        if key not in self._d:
-            self._d[key] = self.s.get(model, pk)
-        return self._d[key]
-
-
-def stones_of(session: Session, item: StockItem) -> list[dict]:
+def stones_of(session: Session, item: StockItem, c: Any = None) -> list[dict]:
+    c = c or OneRow(session)
     if item.line_id:
-        line = session.get(MfgTransferLine, item.line_id)
+        line = c.get(MfgTransferLine, item.line_id)
         if line is not None:
             return json.loads(line.stones_json or "[]")
     if item.in_line_id:
         from diagold.db.models import ReadyVoucherLine
-        src = session.get(ReadyVoucherLine, item.in_line_id)
+        src = c.get(ReadyVoucherLine, item.in_line_id)
         if src is not None:
             return json.loads(src.stones_json or "[]")
     return []
@@ -75,7 +63,7 @@ def stones_of(session: Session, item: StockItem) -> list[dict]:
 def piece_row(session: Session, item: StockItem, c: _Cache | None = None,
               on_date: date | None = None) -> dict[str, Any]:
     """One piece, every column the stock tools show."""
-    c = c or _Cache(session)
+    c = c or OneRow(session)
     job = c.get(Job, item.job_id)
     sku = c.get(ProductSku, item.product_sku_id)
     fam = c.get(FamilyCategory, sku.family_id) if sku else None
@@ -88,7 +76,7 @@ def piece_row(session: Session, item: StockItem, c: _Cache | None = None,
     client = c.get(Account, job.account_id) if job else None
     holder = c.get(Account, item.holder_account_id)
     net, gross = _dec(item.net_wt), _dec(item.gross_wt)
-    stones = stones_of(session, item)
+    stones = stones_of(session, item, c)
     st_wt = sum((_dec(s.get("weight")) for s in stones), ZERO)
     from diagold.services import sales
     groups = {"DIAMOND": ZERO, "POLKI": ZERO, "COLOR STONE": ZERO}
@@ -97,7 +85,10 @@ def piece_row(session: Session, item: StockItem, c: _Cache | None = None,
     for st in stones:
         groups[sales.stone_block(st)] += sales.stone_amount(st)
         grp_wt[sales.stone_block(st)] += _dec(st.get("weight"))
-    rate = production.metal_price(session, metal_id, on_date or date.today())
+    day = on_date or date.today()
+    if (metal_id, day) not in c.memo:    # one rate per metal, not one per piece
+        c.memo[(metal_id, day)] = production.metal_price(session, metal_id, day)
+    rate = c.memo[(metal_id, day)]
     pcs = int(item.pcs or 1)
     return {
         "_id": item.id, "_job_id": job.id if job else None, "_stones": stones,

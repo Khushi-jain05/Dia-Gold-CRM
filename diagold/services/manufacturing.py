@@ -455,18 +455,20 @@ def transfer_day_book(session: Session, date_from: date, date_to: date) -> list[
 def ready_stock(session: Session, date_to: date) -> list[dict[str, Any]]:
     """Ready Stock (28 Sept §4.15): every finished piece in stock on a date -
     where it sits, what it cost, its price and tag."""
+    from diagold.services.rowcache import RowCache
+    c = RowCache(session)
     rows = []
     q = (select(StockItem).where(StockItem.status == "in_stock")
          .order_by(StockItem.stock_no))
     for item in session.scalars(q):
-        line = session.get(MfgTransferLine, item.line_id) if item.line_id else None
-        transfer = session.get(MfgTransfer, line.transfer_id) if line else None
+        line = c.get(MfgTransferLine, item.line_id)
+        transfer = c.get(MfgTransfer, line.transfer_id) if line else None
         if transfer is not None and transfer.vr_date > date_to:
             continue
-        job = session.get(Job, item.job_id) if item.job_id else None
-        sku = session.get(ProductSku, item.product_sku_id) if item.product_sku_id else None
-        client = session.get(Account, job.account_id) if job and job.account_id else None
-        loc = session.get(Location, item.location_id) if item.location_id else None
+        job = c.get(Job, item.job_id)
+        sku = c.get(ProductSku, item.product_sku_id)
+        client = c.get(Account, job.account_id) if job else None
+        loc = c.get(Location, item.location_id)
         rows.append({
             "stock_no": item.stock_no, "sku": sku.sku_code if sku else "",
             "job_no": job.job_no if job else "", "_job_id": job.id if job else None,

@@ -661,7 +661,8 @@ def _in_date(session: Session, c: _C, item: StockItem) -> date | None:
         return t.vr_date if t else None
     if item.in_line_id:
         src = c.get(ReadyVoucherLine, item.in_line_id)
-        return src.voucher.vr_date if src else None
+        v = c.get(ReadyVoucher, src.voucher_id) if src else None
+        return v.vr_date if v else None
     return None
 
 
@@ -672,15 +673,17 @@ def approval_out_counts(session: Session, date_from: date, date_to: date) -> lis
     so their true age is unknown (Q17)."""
     c = _C(session)
     rows = []
+    approvals = dict(session.execute(
+        select(ReadyVoucherLine.stock_item_id, func.count(ReadyVoucherLine.id))
+        .join(ReadyVoucher).where(ReadyVoucher.vr_type == "rs_approval")
+        .group_by(ReadyVoucherLine.stock_item_id)).all())
     for item in session.scalars(select(StockItem).where(
             StockItem.status.in_(("in_stock", "on_approval"))).order_by(StockItem.stock_no)):
         made = _in_date(session, c, item)
         if made is None or made > date_to:
             continue
         n = _piece_names(c, item)
-        apps = session.scalar(select(func.count(ReadyVoucherLine.id)).join(ReadyVoucher).where(
-            ReadyVoucherLine.stock_item_id == item.id,
-            ReadyVoucher.vr_type == "rs_approval")) or 0
+        apps = approvals.get(item.id, 0)
         rows.append({"stock_no": item.stock_no, "sku": n["sku"], "item": n["item"],
                      "family": n["family"], "app_nos": apps or None, "mfg_date": made,
                      "age": (date_to - made).days,
@@ -827,17 +830,23 @@ def ledger_bal(session: Session, date_from: date, date_to: date,
     from diagold.services import accounts
     nominal = accounts.nominal_ids(session)
     rows = []
+
+    def sums(*where) -> dict[int, tuple[Decimal, Decimal]]:
+        # Every ledger in one grouped query, not two queries per ledger.
+        return {aid: (_dec(d), _dec(c)) for aid, d, c in session.execute(
+            select(AccountEntry.account_id, func.coalesce(func.sum(AccountEntry.debit), 0),
+                   func.coalesce(func.sum(AccountEntry.credit), 0))
+            .where(*where).group_by(AccountEntry.account_id))}
+    before = sums(AccountEntry.entry_date < date_from)
+    period = sums(AccountEntry.entry_date >= date_from, AccountEntry.entry_date <= date_to)
     for a in session.scalars(select(Account).where(
             Account.account_type.not_in(("Worker", "Designer"))).order_by(Account.name)):
         if a.id in nominal:
             continue
-        opening = accounts.balance(session, a.id, before=date_from)
-        dr, cr = session.execute(select(
-            func.coalesce(func.sum(AccountEntry.debit), 0),
-            func.coalesce(func.sum(AccountEntry.credit), 0)).where(
-            AccountEntry.account_id == a.id, AccountEntry.entry_date >= date_from,
-            AccountEntry.entry_date <= date_to)).one()
-        dr, cr = _dec(dr), _dec(cr)
+        b_dr, b_cr = before.get(a.id, (ZERO, ZERO))
+        # = accounts.balance(a, before=date_from): master opening + postings before
+        opening = accounts._opening_signed(a) + b_dr - b_cr
+        dr, cr = period.get(a.id, (ZERO, ZERO))
         close = opening + dr - cr
         if not with_zero and not close and not dr and not cr:
             continue

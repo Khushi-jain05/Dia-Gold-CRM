@@ -1131,10 +1131,14 @@ class ItemSearchWidget(_Screen):
     def refresh(self) -> None:
         self.results.setRowCount(0)
         self._items = []
+        from diagold.services.rowcache import OneRow, RowCache
         with SessionLocal() as s:
-            for it in mfg.find_items(s, self.search.text()):
-                job = s.get(Job, it.job_id) if it.job_id else None
-                psku = s.get(ProductSku, it.product_sku_id) if it.product_sku_id else None
+            found = mfg.find_items(s, self.search.text())
+            # Many pieces: their jobs / SKUs in one read each, not one by one.
+            rc = RowCache(s) if len(found) > 50 else OneRow(s)
+            for it in found:
+                job = rc.get(Job, it.job_id)
+                psku = rc.get(ProductSku, it.product_sku_id)
                 sku = psku.sku_code if psku else ""
                 r = self.results.rowCount()
                 self.results.insertRow(r)

@@ -743,12 +743,18 @@ def _groups(line: ReadyVoucherLine) -> dict[str, Decimal]:
     return out
 
 
-def _line_row(session: Session, v: ReadyVoucher, l: ReadyVoucherLine) -> dict[str, Any]:
-    acct = session.get(Account, v.account_id) if v.account_id else None
-    item = session.get(StockItem, l.stock_item_id) if l.stock_item_id else None
-    sku = session.get(ProductSku, l.product_sku_id) if l.product_sku_id else None
-    metal = session.get(Metal, l.metal_id) if l.metal_id else None
-    loc = session.get(Location, l.location_id) if l.location_id else None
+def _line_row(session: Session, v: ReadyVoucher, l: ReadyVoucherLine,
+              c: Any = None) -> dict[str, Any]:
+    if c is None:
+        class _One:     # a single row: plain lookups, not whole tables
+            def get(self, model, pk):
+                return session.get(model, pk) if pk else None
+        c = _One()
+    acct = c.get(Account, v.account_id)
+    item = c.get(StockItem, l.stock_item_id)
+    sku = c.get(ProductSku, l.product_sku_id)
+    metal = c.get(Metal, l.metal_id)
+    loc = c.get(Location, l.location_id)
     g = _groups(l)
     return {"date": v.vr_date, "vrno": v.vr_no, "vrtype": READY_TYPES[v.vr_type].code,
             "particulars": acct.name if acct else "", "ref_no": v.ref_no,
@@ -768,15 +774,27 @@ def ready_register(session: Session, date_from: date, date_to: date,
                                     ReadyVoucher.vr_date >= date_from,
                                     ReadyVoucher.vr_date <= date_to)
          .order_by(ReadyVoucher.vr_date, ReadyVoucher.vr_no))
-    for v in session.scalars(q):
-        for l in v.lines:
-            rows.append(_line_row(session, v, l))
+    from diagold.services.rowcache import RowCache
+    c = RowCache(session)
+    vouchers = session.scalars(q).all()
+    lines: dict[int, list[ReadyVoucherLine]] = {}
+    ids = [v.id for v in vouchers]
+    for i in range(0, len(ids), 1000):      # SQL Server: 2,100 parameters at most
+        for l in session.scalars(select(ReadyVoucherLine).where(
+                ReadyVoucherLine.voucher_id.in_(ids[i:i + 1000]))
+                .order_by(ReadyVoucherLine.sno)):
+            lines.setdefault(l.voucher_id, []).append(l)
+    for v in vouchers:
+        for l in lines.get(v.id, []):
+            rows.append(_line_row(session, v, l, c))
     return rows
 
 
 def approval_balance(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
     """Ready Stock Approval Balance: pieces out on approval now - with whom,
     since when, for how many days."""
+    from diagold.services.rowcache import RowCache
+    c = RowCache(session)
     rows = []
     for item in session.scalars(select(StockItem).where(StockItem.status == "on_approval")
                                 .order_by(StockItem.stock_no)):
@@ -785,7 +803,7 @@ def approval_balance(session: Session, date_from: date, date_to: date) -> list[d
             .order_by(ReadyVoucherLine.id.desc())).first()
         if line is None or line.voucher.vr_date > date_to:
             continue
-        r = _line_row(session, line.voucher, line)
+        r = _line_row(session, line.voucher, line, c)
         r["days"] = (date_to - line.voucher.vr_date).days
         rows.append(r)
     return rows
@@ -795,6 +813,8 @@ def approval_analysis(session: Session, date_from: date, date_to: date) -> list[
     """Ready Stock Approval Analysis: every piece sent on approval in the
     period, and what became of it - returned (weights back), sold, or still
     out (balance = out - returned - sold)."""
+    from diagold.services.rowcache import RowCache
+    c = RowCache(session)
     rows = []
     q = (select(ReadyVoucher).where(ReadyVoucher.vr_type == "rs_approval",
                                     ReadyVoucher.vr_date >= date_from,
@@ -802,7 +822,7 @@ def approval_analysis(session: Session, date_from: date, date_to: date) -> list[
          .order_by(ReadyVoucher.vr_date, ReadyVoucher.vr_no))
     for v in session.scalars(q):
         for l in v.lines:
-            r = _line_row(session, v, l)
+            r = _line_row(session, v, l, c)
             ret = session.scalars(select(ReadyVoucherLine).join(ReadyVoucher).where(
                 ReadyVoucherLine.stock_item_id == l.stock_item_id,
                 ReadyVoucher.vr_type == "rs_approval_return",

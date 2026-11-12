@@ -178,12 +178,11 @@ def stone_summary(session: Session, date_to: date, *, groups_only: bool = False
             locs[lid] = l.name if l else "(no location)"
         return locs[lid]
 
-    skus: dict[int | None, StoneSku | None] = {}
+    from diagold.services.rowcache import RowCache
+    skus = RowCache(session)
 
     def stone_name(sku_id, text) -> str:
-        if sku_id not in skus:
-            skus[sku_id] = session.get(StoneSku, sku_id) if sku_id else None
-        k = skus[sku_id]
+        k = skus.get(StoneSku, sku_id)
         return ((k.stone or k.sku_code) if k else (text or "")).strip() or "?"
 
     def add(lid, group, stone, where, pcs, wt, val) -> None:

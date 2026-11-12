@@ -21,6 +21,7 @@ from diagold.db.models import (Account, AccountVoucher, FamilyCategory, InvVouch
                                StockItem, StoneSku)
 from diagold.db.models.sku import Item
 from diagold.services import sales
+from diagold.services.rowcache import RowCache as _C  # one row cache for every report
 
 ZERO = Decimal("0")
 D2 = Decimal("0.01")
@@ -30,18 +31,6 @@ def _dec(v: Any) -> Decimal:
     if v in (None, ""):
         return ZERO
     return v if isinstance(v, Decimal) else Decimal(str(v))
-
-
-class _C:
-    def __init__(self, s: Session):
-        self.s, self.d = s, {}
-
-    def get(self, model, pk):
-        if not pk:
-            return None
-        if (model, pk) not in self.d:
-            self.d[(model, pk)] = self.s.get(model, pk)
-        return self.d[(model, pk)]
 
 
 def _lines(session: Session, types: tuple[str, ...], date_from: date, date_to: date):
