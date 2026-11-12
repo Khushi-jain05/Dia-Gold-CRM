@@ -40,6 +40,8 @@ jobs:
         run: |
           # Double-click launchers for testing on the demo database.
           Copy-Item packaging/windows/*.bat dist/DiaGoldCRM/
+          # Filled in and renamed server.ini on the office PCs (go-live).
+          Copy-Item packaging/server.ini.example dist/DiaGoldCRM/
           Compress-Archive -Path dist/DiaGoldCRM/* -DestinationPath dist/${{ matrix.artifact }}.zip
 
       - name: Package (macOS)
