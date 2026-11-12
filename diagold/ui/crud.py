@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from sqlalchemy import String, Text, inspect, or_, select
+from sqlalchemy import String, Text, func, inspect, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from diagold.db.session import SessionLocal
@@ -1560,7 +1560,7 @@ class CrudWidget(QWidget):
         if f.type == "fk":
             if value is None:
                 return ""
-            related = session.get(f.fk_model, value)
+            related = getattr(self, "_fk_rows", {}).get((f.fk_model, value)) or session.get(f.fk_model, value)
             if related is None:
                 return str(value)
             return (f.fk_label or str)(related)
@@ -1568,14 +1568,44 @@ class CrudWidget(QWidget):
             return "Yes" if value else "No"
         if f.type == "child":
             # a list of ORM objects would print as "<OrderLine object at 0x…>"
-            n = len(value or [])
+            counts = getattr(self, "_child_counts", {}).get(f.name)
+            n = counts.get(obj.id, 0) if counts is not None else len(value or [])
             return f"{n} line{'s' if n != 1 else ''}"
         if value is None:
             return ""
         return str(value)
 
+    def _preload(self, session) -> None:
+        """What the list shows of other tables, read in a few queries.
+
+        One row at a time it was a query per linked master and per child list
+        - 62,000 for the 10,517 legacy SKUs, minutes on the office server.
+        Linked rows land in the session, so _display finds them there.
+        """
+        self._child_counts: dict[str, dict[int, int]] = {}
+        # Held here: the session only keeps weak references, so rows read and
+        # not kept would be read again one by one.
+        self._fk_rows: dict[tuple[Any, int], Any] = {}
+        if not self._rows:
+            return
+        for f in self.list_fields:
+            if f.type == "fk" and f.fk_model is not None:
+                ids = sorted({getattr(o, f.name) for o in self._rows} - {None})
+                for i in range(0, len(ids), 1000):   # SQL Server: 2,100 parameters at most
+                    for row in session.scalars(select(f.fk_model).where(
+                            f.fk_model.id.in_(ids[i:i + 1000]))):
+                        self._fk_rows[(f.fk_model, row.id)] = row
+            elif f.type == "child":
+                rel = inspect(self.spec.model).relationships.get(f.name)
+                if rel is None or len(rel.remote_side) != 1:
+                    continue
+                fk = next(iter(rel.remote_side))
+                self._child_counts[f.name] = dict(session.execute(
+                    select(fk, func.count()).group_by(fk)).all())
+
     def _fill_table(self, session) -> None:
         self.table.setRowCount(0)
+        self._preload(session)
         for obj in self._rows:
             r = self.table.rowCount()
             self.table.insertRow(r)
