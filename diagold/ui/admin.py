@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
+from PySide6.QtCore import QDate, QThread, Signal
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox,
+                               QFileDialog, QFormLayout,
                                QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                                QPushButton, QSpinBox, QTabWidget, QTableWidget,
                                QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
@@ -380,8 +382,20 @@ class AdvanceOptionsWidget(_Screen):
                       "Stone SKU and size not in the system yet (nothing is changed or removed).")
         st.clicked.connect(self._import_stone_list)
         lay.addWidget(st)
+        lg = QPushButton("Import from Legacy DIAGOLD…")
+        lg.setToolTip("Reads the legacy database (Diagold26 on the SQL Server) and loads its "
+                      "masters, accounts and Product SKUs - and, at cut-over, the opening stock. "
+                      "Only adds and fills blanks; a report lists every difference.")
+        lg.clicked.connect(self._import_legacy)
+        lay.addWidget(lg)
         lay.addStretch(1)
         return w
+
+    def _import_legacy(self) -> None:
+        if not getattr(self.user, "is_superuser", False):
+            _warn(self, "Import from Legacy DIAGOLD", "Only an administrator can run the import.")
+            return
+        LegacyImportDialog(self).exec()
 
     def _masters(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Masters Excel", "masters.xlsx",
@@ -423,6 +437,139 @@ class AdvanceOptionsWidget(_Screen):
                 return
         _info(self, "Import Stone SKU List", "Added: " + ", ".join(
             f"{k} {v}" for k, v in added.items()) + "\nAlready there: skipped.")
+
+
+class _ImportRun(QThread):
+    """The import off the screen's thread: it reads tens of thousands of rows."""
+    done = Signal(str, bool)
+
+    def __init__(self, params: dict, dry_run: bool, as_of) -> None:
+        super().__init__()
+        self.params, self.dry_run, self.as_of = params, dry_run, as_of
+
+    def run(self) -> None:
+        from diagold.services import legacy_import as LI
+        try:
+            legacy = LI.Legacy(**self.params)
+        except Exception as exc:  # noqa: BLE001 - shown to the user
+            self.done.emit(f"Could not reach the legacy database:\n{exc}", False)
+            return
+        try:
+            with SessionLocal() as s:
+                report = LI.import_all(s, legacy, self.as_of)
+                if self.dry_run:
+                    s.rollback()
+                else:
+                    s.commit()
+            self.done.emit(report.text(), True)
+        except Exception as exc:  # noqa: BLE001 - shown to the user; nothing was saved
+            self.done.emit(f"The import stopped and nothing was saved:\n{exc}", False)
+        finally:
+            legacy.close()
+
+
+class LegacyImportDialog(QDialog):
+    """Admin > Masters Excel > Import from Legacy DIAGOLD (go-live, 11 Nov).
+
+    The legacy database is read with the same server.ini login when it is on
+    the same server (diagold_app has read access to Diagold26)."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        from diagold.config import _ini_value
+        self.setWindowTitle("Import from Legacy DIAGOLD")
+        self.resize(860, 640)
+        lay = QVBoxLayout(self)
+        form = QFormLayout()
+        self.server = QLineEdit(_ini_value("Server") or "SERVER2\\ERP")
+        self.port = QLineEdit(_ini_value("Port"))
+        self.database = QLineEdit("Diagold26")
+        self.login = QLineEdit(_ini_value("UID"))
+        self.password = QLineEdit(_ini_value("PWD"))
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        for label, w in (("Legacy server", self.server), ("Port (blank = instance name)", self.port),
+                         ("Legacy database", self.database), ("Login", self.login),
+                         ("Password", self.password)):
+            form.addRow(label, w)
+        self.openings = QCheckBox("Also load the opening stock (ready pieces, stones, metal) as on")
+        self.as_of = QDateEdit(QDate.currentDate())
+        self.as_of.setCalendarPopup(True)
+        self.as_of.setDisplayFormat("dd-MM-yyyy")
+        row = QHBoxLayout()
+        row.addWidget(self.openings)
+        row.addWidget(self.as_of)
+        row.addStretch(1)
+        lay.addLayout(form)
+        lay.addLayout(row)
+        note = QLabel("Masters and Product SKUs can be loaded any time and again later - what is "
+                      "already here is matched, never added twice. Load the opening stock ONCE, "
+                      "on cut-over day. Run 'Check (nothing saved)' first and read the report.")
+        note.setWordWrap(True)
+        note.setObjectName("Muted")
+        lay.addWidget(note)
+        self.out = QTextEdit()
+        self.out.setReadOnly(True)
+        self.out.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.out.setFontFamily("Courier New")
+        lay.addWidget(self.out, 1)
+        btns = QHBoxLayout()
+        self.b_check = QPushButton("Check (nothing saved)")
+        self.b_run = QPushButton("Import")
+        self.b_run.setObjectName("Primary")
+        self.b_save = QPushButton("Save Report…")
+        b_close = QPushButton("Close")
+        self.b_check.clicked.connect(lambda: self._start(True))
+        self.b_run.clicked.connect(lambda: self._start(False))
+        self.b_save.clicked.connect(self._save)
+        b_close.clicked.connect(self.reject)
+        for b in (self.b_check, self.b_run, self.b_save):
+            btns.addWidget(b)
+        btns.addStretch(1)
+        btns.addWidget(b_close)
+        lay.addLayout(btns)
+        self._run: _ImportRun | None = None
+
+    def _start(self, dry_run: bool) -> None:
+        as_of = self.as_of.date().toPython() if self.openings.isChecked() else None
+        if not dry_run:
+            msg = "Load the legacy masters and Product SKUs into this database?"
+            if as_of:
+                msg += (f"\n\nThe opening stock as on {as_of:%d-%m-%Y} is loaded too - do this "
+                        "once, on cut-over day.")
+            if QMessageBox.question(self, "Import", msg) != QMessageBox.StandardButton.Yes:
+                return
+        port = self.port.text().strip()
+        params = {"server": self.server.text().strip(), "database": self.database.text().strip(),
+                  "user": self.login.text().strip(), "password": self.password.text(),
+                  "port": int(port) if port.isdigit() else None}
+        self.out.setPlainText("Working… this takes a few minutes.")
+        for b in (self.b_check, self.b_run, self.b_save):
+            b.setEnabled(False)
+        self._dry = dry_run
+        self._run = _ImportRun(params, dry_run, as_of)
+        self._run.done.connect(self._finished)
+        self._run.start()
+
+    def _finished(self, text: str, ok: bool) -> None:
+        if ok:
+            text = ("CHECK ONLY - nothing was saved.\n\n" if self._dry
+                    else "Saved.\n\n") + text
+        self.out.setPlainText(text)
+        for b in (self.b_check, self.b_run, self.b_save):
+            b.setEnabled(True)
+
+    def _save(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "Save Report", "legacy_import_report.txt",
+                                              "Text (*.txt)")
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self.out.toPlainText())
+
+    def reject(self) -> None:
+        if self._run is not None and self._run.isRunning():
+            _warn(self, "Import", "The import is still running - wait for it to finish.")
+            return
+        super().reject()
 
 
 class BackupWidget(_Screen):
