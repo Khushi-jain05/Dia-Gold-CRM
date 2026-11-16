@@ -452,3 +452,16 @@ def build_palette() -> QPalette:
 from diagold.ui.manual_input import QSS as _MANUAL_QSS  # noqa: E402
 
 APP_QSS = APP_QSS + _MANUAL_QSS
+
+# Grids that do not fit their box step down (16 Nov, crud.fill_width): 13 =
+# tighter padding at the same size, then 12 / 11 / 10 px text and headers.
+_FIT = []
+for _px in (13, 12, 11, 10):
+    _sel = f'QTableView[fitPx="{_px}"], QTableWidget[fitPx="{_px}"]'
+    _FIT.append(f"{_sel} {{ font-size: {_px}px; }}")
+    _FIT.append(f'QTableView[fitPx="{_px}"]::item, QTableWidget[fitPx="{_px}"]::item '
+                "{ padding: 2px 3px; }")
+    _FIT.append(f'QTableView[fitPx="{_px}"] QHeaderView::section, '
+                f'QTableWidget[fitPx="{_px}"] QHeaderView::section '
+                f"{{ font-size: {min(_px, 11)}px; padding: 2px 2px; }}")
+APP_QSS = APP_QSS + "\n".join(_FIT)

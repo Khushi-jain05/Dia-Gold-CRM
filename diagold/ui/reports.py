@@ -1077,6 +1077,7 @@ class ReportWidget(QWidget):
             display.append(("total", self._sum_row(rows, first_key, f"TOTAL ({len(rows)})")))
         self.model.row_numbers = self.row_numbers
         self.model.load(cols, display)
+        self._span_labels(display)
         # A long remark must not push every other column off the screen; the
         # user can still drag a column wider.
         fill_width(self.view, REPORT_COL_MAX)
@@ -1092,6 +1093,22 @@ class ReportWidget(QWidget):
         if active:
             parts.append(f"{active} filter(s) on")
         self.status.setText("   ·   ".join(parts))
+
+    def _span_labels(self, display: list) -> None:
+        """A group / subtotal / total label runs across the empty cells beside
+        it, so "PARTICULARS : KK JEWELS" reads in full however narrow the
+        first column is fitted (16 Nov)."""
+        v, m = self.view, self.model
+        v.clearSpans()
+        n = m.columnCount()
+        for r, (kind, _d) in enumerate(display):
+            if kind not in ("group", "subtotal", "total") or n < 2:
+                continue
+            end = 1
+            while end < n and m.data(m.index(r, end), Qt.ItemDataRole.DisplayRole) in (None, ""):
+                end += 1
+            if end > 1:
+                v.setSpan(r, 0, 1, end)
 
     # -- toolbar actions ------------------------------------------------
     def _set_columns(self) -> None:

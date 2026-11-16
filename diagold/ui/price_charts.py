@@ -125,6 +125,8 @@ class PriceChartWidget(_Screen):
         self.grid.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.grid.horizontalHeader().setStretchLastSection(True)
         self.grid.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        from diagold.ui.crud import auto_fit
+        auto_fit(self.grid)          # the whole row in view (16 Nov)
         rl.addWidget(self.grid, 1)
         note = QLabel(NOTES[kind])
         note.setObjectName("Muted")

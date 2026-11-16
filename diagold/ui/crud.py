@@ -1372,34 +1372,122 @@ class FormDialog(QDialog):
                 self.session.add(child.model(**{child.fk_attr: obj.id}, **row))
 
 
+_NUMERIC = __import__("re").compile(r"^[-+(]?[\d,]*\.?\d*\)?%?$")
+FIT_MIN_TEXT = 72          # a name / remark column never narrower than this
+FIT_SMALLEST_PX = 10       # the font steps down to this before scrolling
+
+
+def _header_text(table, c: int) -> str:
+    v = table.model().headerData(c, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole)
+    return "" if v is None else str(v)
+
+
+def _is_numeric_column(table, c: int, sample: int = 40) -> bool:
+    m = table.model()
+    seen = 0
+    for r in range(min(m.rowCount(), 400)):
+        v = m.data(m.index(r, c), Qt.ItemDataRole.DisplayRole)
+        t = "" if v is None else str(v).strip()
+        if not t:
+            continue
+        if not _NUMERIC.match(t):
+            return False
+        seen += 1
+        if seen >= sample:
+            break
+    return seen > 0
+
+
+def _set_table_px(table, px: int | None) -> None:
+    """Step a grid's text down (the style sheet holds every font at 13 px, so
+    this goes through the fitPx property its rules key on - style.py)."""
+    want = "" if px is None else str(px)
+    if (table.property("fitPx") or "") != want:
+        table.setProperty("fitPx", want or None)
+        for w in (table, table.horizontalHeader()):
+            w.style().unpolish(w)
+            w.style().polish(w)
+
+
 def fill_width(table, max_width: int | None = None) -> None:
-    """Size columns to their contents, then share any spare width among them
-    in proportion, so a list always spans its box - no blank strip to the
-    right of the last column - and re-fits when a column is added or the
-    window is resized. Works on any table view; ``max_width`` caps a column
-    before the sharing (a long remark must not push the rest off screen)."""
+    """Fit every column into the grid's width (16 Nov: the whole row on one
+    screen at the client's 1366 px, whatever the resolution).
+
+    Each column wants its content and its header on one line. When they do
+    not all fit: headers wrap onto two or three lines (a column need only be
+    as wide as its longest header word), the grid's text steps down to
+    FIT_SMALLEST_PX, and only then do name / remark columns give way down to
+    FIT_MIN_TEXT ("…" for the rest - numbers are never cut). Only a grid
+    still too wide after all that scrolls sideways. Spare width is shared, so a list always
+    spans its box. ``max_width`` caps a text column before the sharing."""
+    if table.model() is None:
+        return
     header = table.horizontalHeader()
     header.setStretchLastSection(False)
-    table.resizeColumnsToContents()
-    count = table.model().columnCount() if table.model() is not None else 0
+    count = table.model().columnCount()
     cols = [c for c in range(count) if not table.isColumnHidden(c)]
-    if max_width:
-        for c in cols:
-            if table.columnWidth(c) > max_width:
-                table.setColumnWidth(c, max_width)
-    if not cols:
+    avail = table.viewport().width()
+    if not cols or avail <= 0:
         return
-    used = sum(table.columnWidth(c) for c in cols)
-    spare = table.viewport().width() - used
-    if spare <= 0:
-        return   # wider than the box: keep content widths and scroll sideways
-    for i, c in enumerate(cols):
-        extra = spare * table.columnWidth(c) // used if used else spare // len(cols)
-        if i == len(cols) - 1:
-            extra = table.viewport().width() - sum(table.columnWidth(x) for x in cols[:-1]) \
-                - table.columnWidth(c)
-        table.setColumnWidth(c, table.columnWidth(c) + max(extra, 0))
+    if not table.property("_fit_wrap"):
+        table.setProperty("_fit_wrap", True)
+        header.setDefaultAlignment(header.defaultAlignment() | Qt.TextFlag.TextWordWrap)
+        table.setTextElideMode(Qt.TextElideMode.ElideRight)
+    numeric = {c: _is_numeric_column(table, c) for c in cols}
 
+    pad = {"v": 26}             # header side padding: the sheet's, until tightened
+
+    def measure(cut_text: bool = False) -> tuple[dict, dict]:
+        fm = header.fontMetrics()
+        want, least = {}, {}
+        for c in cols:
+            cell = table.sizeHintForColumn(c)
+            head = header.sectionSizeHint(c)
+            words = [w for w in _header_text(table, c).replace("·", " ").split() if w]
+            head_least = max((fm.horizontalAdvance(w) for w in words), default=0) + pad["v"]
+            w = max(cell, head)
+            if max_width and not numeric[c]:
+                w = min(w, max(max_width, head_least))
+            want[c] = w
+            keep = cell if numeric[c] or not cut_text else min(cell, FIT_MIN_TEXT)
+            least[c] = max(keep, head_least)
+        return want, least
+
+    # Steps: as is; tighter cell padding (13 = same font); then 12, 11, 10 px.
+    steps = [None, 13] + list(range(12, FIT_SMALLEST_PX - 1, -1))
+    # Smaller text first; names / remarks are cut ("…") only when even the
+    # smallest text does not fit whole (SKU "BANG-577" read "BANG-…").
+    for px in steps:
+        _set_table_px(table, px)
+        pad["v"] = 26 if px is None else 10
+        want, least = measure()
+        if sum(least.values()) <= avail:
+            break
+    else:
+        want, least = measure(cut_text=True)
+
+    tw, tl = sum(want.values()), sum(least.values())
+    if tw <= avail:                        # room to spare: everyone grows alike
+        k = avail / tw if tw else 1
+        widths = {c: int(want[c] * k) for c in cols}
+    elif tl < avail:                       # squeeze each toward its least
+        k = (avail - tl) / (tw - tl)
+        widths = {c: int(least[c] + (want[c] - least[c]) * k) for c in cols}
+    else:                                  # nothing left to give: scroll
+        widths = dict(least)
+    if sum(widths.values()) < avail:
+        widths[cols[-1]] += avail - sum(widths.values())
+    for c in cols:
+        table.setColumnWidth(c, widths[c])
+    # Headers that wrapped need the room for their lines.
+    lines = 1
+    fm = header.fontMetrics()
+    for c in cols:
+        text = _header_text(table, c)
+        need = fm.boundingRect(0, 0, max(widths[c] - 10, 10), 1000,
+                               int(Qt.TextFlag.TextWordWrap), text).height()
+        lines = max(lines, -(-need // max(fm.lineSpacing(), 1)))
+    header.setMinimumHeight(min(lines, 3) * fm.lineSpacing() + 12)
 
 
 class _AutoFit(QObject):
