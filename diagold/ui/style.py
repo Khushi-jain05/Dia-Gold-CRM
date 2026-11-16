@@ -444,3 +444,11 @@ def build_palette() -> QPalette:
         p.setColor(disabled, role, QColor(MUTED))
     p.setColor(disabled, QPalette.ColorRole.Base, QColor("#F0F0F2"))
     return p
+
+
+# Every input typed by hand (16 Nov): the drop-down arrow is gone and a box
+# whose text names no entry is red (diagold.ui.manual_input). In APP_QSS so the
+# main window's own sheet carries it too.
+from diagold.ui.manual_input import QSS as _MANUAL_QSS  # noqa: E402
+
+APP_QSS = APP_QSS + _MANUAL_QSS

@@ -14,7 +14,11 @@ CONFIRM_SAVE_FLAG = "ui.confirm_save"
 
 
 def confirm_save(parent: QWidget | None, what: str = "") -> bool:
-    """Ask before saving. Yes is the default, so Enter saves and Esc cancels."""
+    """Ask before saving. Yes is the default, so Enter saves and Esc cancels.
+    First every typed entry on the screen must name one (16 Nov, manual input)."""
+    from diagold.ui.manual_input import check
+    if not check(parent):
+        return False
     if not settings.flag(CONFIRM_SAVE_FLAG, True):
         return True
     box = QMessageBox(parent)

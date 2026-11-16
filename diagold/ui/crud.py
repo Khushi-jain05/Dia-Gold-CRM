@@ -62,7 +62,6 @@ GRID_QSS = f"""
 QHeaderView::section {{ font-size: {GRID_HEAD_PX}px; padding: 2px 3px; }}
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit {{
     font-size: {GRID_CELL_PX}px; padding: 1px 4px; min-height: 0px; }}
-QComboBox::drop-down {{ width: 16px; }}
 QCheckBox {{ font-size: {GRID_CELL_PX}px; }}
 """
 
@@ -355,34 +354,12 @@ def _wide_popup(w: QComboBox) -> None:
 
 
 def _type_to_pick(w: QComboBox) -> None:
-    """Type to narrow, Enter to accept, the list still there (5 Nov UX4): an
-    editable box whose completer matches anywhere in the text; it never adds
-    what was typed as a new choice."""
-    w.setEditable(True)
-    w.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-    c = w.completer()
-    if c is not None:
-        c.setCompletionMode(c.CompletionMode.PopupCompletion)
-        c.setFilterMode(Qt.MatchFlag.MatchContains)
-        c.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-
-    def _snap() -> None:
-        # Typed text that names a choice selects it; anything else falls back
-        # to the chosen item.
-        typed = w.currentText().strip()
-        i = w.findText(typed, Qt.MatchFlag.MatchFixedString)
-        if i < 0 and typed:
-            # "camm" + Enter takes the first choice that contains it (CAMMING).
-            i = w.findText(typed, Qt.MatchFlag.MatchContains)
-        if i >= 0:
-            w.setCurrentIndex(i)
-            w.setEditText(w.itemText(i))
-        else:
-            w.setEditText(w.itemText(w.currentIndex()))
-    w.lineEdit().editingFinished.connect(_snap)
-    w.currentTextChanged.connect(
-        lambda t: w.setCurrentIndex(i) if (i := w.findText(t, Qt.MatchFlag.MatchFixedString)) >= 0
-        and i != w.currentIndex() else None)
+    """A typed box (16 Nov: every input manual, no lists or suggestions).
+    What was typed must name an entry exactly - checked when the box is left
+    and on Save (diagold.ui.manual_input); nothing is guessed from part of a
+    name any more (was: "camm" + Enter took CAMMING)."""
+    from diagold.ui.manual_input import make_manual
+    make_manual(w)
 
 
 class ChildTableEditor(QWidget):
