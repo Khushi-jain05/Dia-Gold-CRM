@@ -55,7 +55,8 @@ def specs() -> dict[str, ReportSpec]:
                             Col("ref_no", "REFNO"), Col("snap", "SNAP"),
                             Col("repair", "REPAIR"), Col("ret", "RETURN")]),
             query=lambda s, a, b, **_k: SR.sales_register(s, a, b),
-            group_by="particulars", filter_column="particulars", images=True,
+            # No client-name Show chips (16 Nov) - Search / Group pick a client.
+            group_by="particulars", images=True,
             stone_group_cols=tuple(k for k, _l in STONE_COLS), on_activate=open_job,
             toggle_cols=[("F9", "A/c Ids", ("acc_code",))],
             actions=[("Catalog", "Ctrl+C", lambda w: _catalog(w, w.selected_rows()))],

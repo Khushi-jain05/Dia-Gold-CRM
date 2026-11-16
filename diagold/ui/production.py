@@ -1636,6 +1636,19 @@ class JobHistoryWidget(_Screen):
                         f"{b['lost'][0]} / {b['lost'][1]}", b.line.s_type, ""]
                 for c, v in enumerate(vals):
                     self.stones.setItem(r, c, _item(v, right=c in (5, 6, 7)))
+            # A repair job: the old piece's stones come with it (status OLD) -
+            # they were in the piece, never issued, so the bag has none (16 Nov).
+            from diagold.services import repair
+            for st in repair.old_stones(s, job):
+                r = self.stones.rowCount()
+                self.stones.insertRow(r)
+                pcs, wt = int(st.get("pcs") or 0), Decimal(str(st.get("weight") or 0))
+                per = (wt / pcs).quantize(Decimal("0.0001")) if pcs else ""
+                vals = [f"Old Stock {job.old_stock_no or ''}".strip(), st.get("ssku") or "",
+                        st.get("label") or "", st.get("size") or "", "", per, pcs, wt,
+                        "", "", "", st.get("s_type") or "", "OLD"]
+                for c, v in enumerate(vals):
+                    self.stones.setItem(r, c, _item(v, right=c in (5, 6, 7)))
             self.stones.resizeColumnsToContents()
             self._fit_stones()
             sm = production.job_summary(s, job)

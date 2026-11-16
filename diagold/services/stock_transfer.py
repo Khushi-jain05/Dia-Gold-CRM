@@ -94,11 +94,11 @@ def _material(ln: StockTransferLine) -> tuple[str, int | None, str, str]:
 
 
 def post(session: Session, head: dict[str, Any], lines: list[dict[str, Any]], *,
-         user_id: int | None = None) -> StockTransfer:
+         user_id: int | None = None, vr_no: int | None = None) -> StockTransfer:
     from diagold.services import inventory as INV
     if not lines:
         raise ProductionError("Add at least one line to a pane.")
-    t = StockTransfer(vr_no=next_vr_no(session), vr_date=head.get("vr_date") or date.today(),
+    t = StockTransfer(vr_no=vr_no or next_vr_no(session), vr_date=head.get("vr_date") or date.today(),
                       contact_person=head.get("contact_person") or "",
                       ref_no=head.get("ref_no") or "", remark=head.get("remark") or "",
                       user_id=user_id)
@@ -179,6 +179,47 @@ def delete(session: Session, t: StockTransfer, *, user_id: int | None = None) ->
                             before_json=json.dumps(image, default=str)))
     session.delete(t)
     session.flush()
+
+
+def edit(session: Session, t: StockTransfer, head: dict[str, Any], lines: list[dict[str, Any]],
+         *, user_id: int | None = None) -> StockTransfer:
+    """Edit a saved transfer (16 Nov): undo it and post the changed lines under
+    the same Vr No - pieces, metal and stone stock come out as if it had been
+    saved that way. All or nothing: the caller rolls back on an error."""
+    vr = t.vr_no
+    delete(session, t, user_id=user_id)
+    return post(session, head, lines, user_id=user_id, vr_no=vr)
+
+
+def lines_of(session: Session, t: StockTransfer) -> list[dict[str, Any]]:
+    """A saved transfer's lines in the screen's shape, for Edit."""
+    out = []
+    for ln in t.lines:
+        d: dict[str, Any] = {"pane": ln.pane}
+        for k in _LINE_FIELDS:
+            v = getattr(ln, k)
+            d[k] = _dec(v) if k in ("wt_per_pcs", "in_wt", "in_loss_wt", "out_wt",
+                                    "out_loss_wt", "price", "amount") else v
+        loc = session.get(Location, ln.location_id) if ln.location_id else None
+        to = session.get(Location, ln.to_location_id) if ln.to_location_id else None
+        d["location"] = loc.name if loc else ""
+        d["to_location"] = to.name if to else ""
+        if ln.pane in ("ready_out", "ready_transfer") and ln.stock_item_id:
+            from diagold.services import sales
+            item = session.get(StockItem, ln.stock_item_id)
+            info = sales.describe(session, item)
+            d.update(stock_no=info["stock_no"], sku=info["sku"], metal=info["metal"],
+                     size=info["size"], gross_wt=info["gross_wt"])
+            if ln.pane == "ready_out":
+                d["location"] = info["location"] if not loc else d["location"]
+        elif ln.pane == "metal":
+            m = session.get(Metal, ln.metal_id) if ln.metal_id else None
+            d["name"] = m.name if m else ""
+        else:
+            sku = session.get(StoneSku, ln.stone_sku_id) if ln.stone_sku_id else None
+            d["name"] = sku.sku_code if sku else ln.particulars
+        out.append(d)
+    return out
 
 
 def melting_lines(session: Session, item: StockItem, on_date: date) -> list[dict[str, Any]]:

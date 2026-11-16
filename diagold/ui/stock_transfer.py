@@ -273,6 +273,7 @@ class StockTransferWidget(_Screen):
         self.header.hide()
         self.lines: list[dict] = []
         self._last_id: int | None = None
+        self._edit_id: int | None = None     # the saved transfer being edited
         self.vr = QLabel("")
         self.vr.setObjectName("H2")
         self.date = QDateEdit(_qdate(None))
@@ -287,6 +288,7 @@ class StockTransferWidget(_Screen):
             self.toolbar.addWidget(w)
         self.toolbar.addStretch(1)
         self.button("Add", self.new_voucher)
+        self.button("Edit", self.edit_voucher)
         self.button("Save", self.save, primary=True)
         self.button("Delete", self.delete_voucher)
         for label, fn in (("Barcode", self.barcode), ("Stock Melting", self.stock_melting),
@@ -338,8 +340,9 @@ class StockTransferWidget(_Screen):
         self.refresh()
 
     def refresh(self) -> None:
-        with SessionLocal() as s:
-            self.vr.setText(str(ST.next_vr_no(s)))
+        if self._edit_id is None:
+            with SessionLocal() as s:
+                self.vr.setText(str(ST.next_vr_no(s)))
         self._render()
 
     # -- lines -------------------------------------------------------------
@@ -488,7 +491,28 @@ class StockTransferWidget(_Screen):
             self.tabs.setCurrentIndex(2 if dlg.kind.currentText() == "Stone" else 1)
 
     # -- save / delete / print -----------------------------------------------
+    def edit_voucher(self) -> None:
+        """Edit (16 Nov): open a saved transfer; Save replaces it under the
+        same Vr No."""
+        tid = self._pick("Edit — pick the stock transfer")
+        if tid is None:
+            return
+        with SessionLocal() as s:
+            t = s.get(StockTransfer, tid)
+            self.lines = ST.lines_of(s, t)
+            self.vr.setText(f"{t.vr_no}  (editing)")
+            self.date.setDate(_qdate(t.vr_date))
+            self.contact.setText(t.contact_person or "")
+            self.ref.setText(t.ref_no or "")
+            self.narration.setText(t.remark or "")
+        self._edit_id = tid
+        self._render()
+        first = next((i for i, p in enumerate(PANE_TITLES)
+                      if any(l["pane"] == p for l in self.lines)), 0)
+        self.tabs.setCurrentIndex(first)
+
     def new_voucher(self) -> None:
+        self._edit_id = None
         self.lines = []
         self.narration.clear()
         self.ref.clear()
@@ -509,7 +533,14 @@ class StockTransferWidget(_Screen):
                 "ref_no": self.ref.text().strip(), "remark": self.narration.text().strip()}
         with SessionLocal() as s:
             try:
-                t = ST.post(s, head, self.lines, user_id=getattr(self.user, "id", None))
+                uid = getattr(self.user, "id", None)
+                if self._edit_id is not None:
+                    old = s.get(StockTransfer, self._edit_id)
+                    if old is None:
+                        raise ProductionError("That stock transfer was deleted meanwhile.")
+                    t = ST.edit(s, old, head, self.lines, user_id=uid)
+                else:
+                    t = ST.post(s, head, self.lines, user_id=uid)
                 s.commit()
                 tid, vr = t.id, t.vr_no
             except ProductionError as exc:
@@ -566,8 +597,8 @@ class StockTransferWidget(_Screen):
                 s.rollback()
                 QMessageBox.warning(self, "Cannot delete", str(exc))
                 return
+        self.new_voucher()
         self.totals.setText("Stock transfer deleted.")
-        self.refresh()
 
     def print_voucher(self) -> None:
         """Print 2: the voucher, pane by pane."""
