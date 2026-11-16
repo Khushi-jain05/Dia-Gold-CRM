@@ -154,8 +154,9 @@ class MainWindow(QMainWindow):
                             rep.setObjectName("TopMenuPopup")
                             self._add_report_menu(rep, REPORT_MENUS[key], group.label)
                             continue
-                        text = sub_label if has_real_screen(key) else f"{sub_label}  ·  soon"
-                        act = sub.addAction(text)
+                        if not has_real_screen(key):
+                            continue  # not built yet - kept out of the menu (16 Nov)
+                        act = sub.addAction(sub_label)
                         act.triggered.connect(
                             lambda _c=False, k=key: self._open_by_key(k))
                         self._search_targets[
@@ -163,8 +164,6 @@ class MainWindow(QMainWindow):
                     shown += 1
                     continue
                 label = item.label
-                if not has_real_screen(item.key) and item.key not in self.ACTIONS:
-                    label += "  ·  soon"
                 if item.key in self.NESTED:
                     # Inv Return ▸ Stone, as the legacy menu nests it.
                     sub = menu.addMenu(item.label)
@@ -176,6 +175,8 @@ class MainWindow(QMainWindow):
                                          f"{group.label}"] = item.key
                     shown += 1
                     continue
+                if not has_real_screen(item.key) and item.key not in self.ACTIONS:
+                    continue  # not built yet ("soon") - kept out of the menu (16 Nov)
                 if item.key == "production_planning.job_history":
                     label += "\tF11"   # the legacy menu shows its key
                 action = menu.addAction(label)
