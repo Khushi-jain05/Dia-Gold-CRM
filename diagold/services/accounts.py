@@ -219,6 +219,24 @@ def settle_cash(session: Session, *, on: date, party_id: int, amount: Any, ref_k
              dr=party_id, cr=cash, amount=amount, mode="Cash")
 
 
+def unsettle_cash_sales(session: Session) -> int:
+    """Once (16 Nov): sales saved in Cash mode had a 'settled in cash' pair
+    (Dr Cash / Cr party, narration '... · cash'); a sale is now paid by its
+    Receipt, so those pairs go. Returns how many entries were removed."""
+    from diagold.services import settings
+    key = "backfill.cash_sale_unsettled"
+    if settings.get_setting(session, key, "") == "1":
+        return 0
+    rows = session.scalars(select(AccountEntry).where(
+        AccountEntry.ref_kind.in_(RECEIVABLE), AccountEntry.mode == "Cash",
+        AccountEntry.narration.like("% · cash"))).all()
+    for e in rows:
+        session.delete(e)
+    settings.set_setting(session, key, "1")
+    session.flush()
+    return len(rows)
+
+
 def remove_postings(session: Session, ref_kind: str, ref_no: int) -> None:
     for e in session.scalars(select(AccountEntry).where(
             AccountEntry.ref_kind == ref_kind, AccountEntry.ref_no == ref_no)).all():
@@ -442,8 +460,11 @@ def bills(session: Session, party_id: int | None = None, side: str | None = None
     sides = [side] if side else ["receivable", "payable"]
     for sd in sides:
         kinds = RECEIVABLE if sd == "receivable" else PAYABLE
-        q = select(ReadyVoucher).where(ReadyVoucher.vr_type.in_(kinds),
-                                       ReadyVoucher.mode != "Cash")
+        # Sales are bills whatever the mode (16 Nov: a Cash-mode sale is paid
+        # by a Receipt); a Cash-mode purchase stays settled on the spot.
+        q = select(ReadyVoucher).where(ReadyVoucher.vr_type.in_(kinds))
+        if sd == "payable":
+            q = q.where(ReadyVoucher.mode != "Cash")
         if party_id:
             q = q.where(ReadyVoucher.account_id == party_id)
         if upto:
@@ -454,7 +475,9 @@ def bills(session: Session, party_id: int | None = None, side: str | None = None
             out.append(Bill(v.vr_type, v.vr_no, v.account_id, v.vr_date, v.ref_no,
                             _dec(v.total), int(v.credit_days or (acct.credit_days if acct else 0) or 0),
                             loc.name if loc else "", sd))
-        q = select(InvVoucher).where(InvVoucher.vr_type.in_(kinds), InvVoucher.mode != "Cash")
+        q = select(InvVoucher).where(InvVoucher.vr_type.in_(kinds))
+        if sd == "payable":
+            q = q.where(InvVoucher.mode != "Cash")
         if party_id:
             q = q.where(InvVoucher.account_id == party_id)
         if upto:

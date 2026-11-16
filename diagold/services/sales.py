@@ -378,11 +378,10 @@ def _accounts(session: Session, v: ReadyVoucher) -> None:
     common = dict(on=v.vr_date, amount=total, ref_kind=v.vr_type, ref_no=v.vr_no,
                   narration=text, mode=mode)
     if v.vr_type == "rs_sale":
+        # A Cash-mode sale is not cash in hand yet (16 Nov, client): the party
+        # owes it like any bill; the cash comes in on the Receipt.
         INV.post_entry(session, debit_account_id=v.account_id, credit_ledger=SALES_LEDGER,
                        **common)
-        if mode == "Cash":
-            accounts.settle_cash(session, on=v.vr_date, party_id=v.account_id, amount=total,
-                                 ref_kind=v.vr_type, ref_no=v.vr_no, narration=text, incoming=True)
     elif v.vr_type == "rs_sale_return":
         INV.post_entry(session, debit_ledger=SALES_RETURN_LEDGER, credit_account_id=v.account_id,
                        **common)

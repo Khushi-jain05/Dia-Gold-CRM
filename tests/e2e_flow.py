@@ -240,6 +240,15 @@ with SessionLocal() as s:
     S.post_ready(s, "rs_sale_return", {"vr_date": T, "account_id": kk.id}, [line(piece)]); s.commit()
     check("sale return -> in stock", piece.status, "in_stock")
     check("order pending again after return", [r["bal_pcs"] for r in S.pending_orders(s, kk.id) if r["ord_no"] == o.order_no], [1])
+    # 16 Nov: a Cash-mode sale is not cash yet - only its Receipt is (AANAND JEWELS).
+    from diagold.services import accounts as ACC
+    cs = S.post_ready(s, "rs_sale", {"vr_date": T, "account_id": kk.id, "mode": "Cash"}, [line(piece)]); s.commit()
+    check("cash-mode sale: no cash in yet", [r for r in ACC.cash_flow(s, T, T) if r["vrtype"] == "RS" and r["vrno"] == cs.vr_no], [])
+    check("cash-mode sale is a pending bill", any(b.no == cs.vr_no and b.kind == "rs_sale" for b in ACC.bills(s, kk.id, "receivable")), True)
+    rc = ACC.post_voucher(s, "receipt", {"vr_date": T, "account_id": kk.id, "mode": "Cash", "amount": D("20000")}); s.commit()
+    check("cash flow = the receipt only", [(r["kind"], r["cash_in"]) for r in ACC.cash_flow(s, T, T) if r["vrno"] in (cs.vr_no, rc.vr_no) and r["kind"] in ("Cash sale", "Cash received")], [("Cash received", D("20000"))])
+    S.post_ready(s, "rs_sale_return", {"vr_date": T, "account_id": kk.id}, [line(piece)]); s.commit()
+    check("back in stock after the cash-mode sale", piece.status, "in_stock")
 
     print("\n== H. Repair")
     rv = S.post_ready(s, "rs_repair_issue", {"vr_date": T, "account_id": mb.id}, [line(piece)]); s.commit()
@@ -382,8 +391,8 @@ with SessionLocal() as s:
     s.rollback()
     from diagold.services import sales_reports as SRR
     sreg = SRR.sales_register(s, *FY)
-    check("Sales Register: the sold piece is marked RETURN Y", [(r["vrtype"], r["ret"]) for r in sreg],
-          [("RS", "Y")])
+    check("Sales Register: both sales of the piece are marked RETURN Y", [(r["vrtype"], r["ret"]) for r in sreg],
+          [("RS", "Y"), ("RS", "Y")])
     check("Sales Dashboard: sale less its return nets to 0 by client",
           dict(SRR.cube(s, *FY, "Client", "Value")).get(kk.name), D("0.00"))
     check("Today's Daybook lists the sale with its stone lines",
@@ -766,7 +775,8 @@ with SessionLocal() as s:
     manik = Account(code="FFMANIK", name="MANIK JI (test)", account_type="Worker", group_name="x"); s.add(manik); s.flush()
     want = []
     for out_w, loss_w, alw in (("52.011", "1.820", "1.820"), ("6.670", "0.400", "0.233"),
-                               ("8.491", "0.297", "0.297"), ("17.822", "-0.207", "0.000")):
+                               ("8.491", "0.297", "0.297"), ("17.822", "-0.207", "0.624")):
+        # 16 Nov: a gain earns the full allowance too (client) - was 0.000.
         oM = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
         s.add(oM); s.flush(); s.add(OrderLine(order_id=oM.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(oM)
         _v, mkM = P.explode_orders(s, [{"order_id": oM.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
@@ -779,7 +789,7 @@ with SessionLocal() as s:
         goM("issue", D(out_w) + D(loss_w), D("3.5")); goM("receive", D(out_w), D("3.5"))
         want.append(D(alw))
     rowsM = [r for r in P.worker_metal_ledger(s, *FY, worker_id=manik.id) if r["vrtype"] == "RTN"]
-    check("ALW L WT 1.820 / 0.233 (capped) / 0.297 / 0 (gain)", [r["alw_wt"] for r in rowsM], want)
+    check("ALW L WT 1.820 / 0.233 / 0.297 / 0.624 (gain earns it too)", [r["alw_wt"] for r in rowsM], want)
     last = P.worker_metal_ledger(s, *FY, worker_id=manik.id)[-1]
     inw = sum(D(x) + D(y) for x, y in (("52.011", "1.820"), ("6.670", "0.400"), ("8.491", "0.297"), ("17.822", "-0.207")))
     outw = D("52.011") + D("6.670") + D("8.491") + D("17.822")

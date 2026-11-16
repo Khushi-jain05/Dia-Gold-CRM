@@ -248,10 +248,7 @@ def post_accounts(session: Session, v: InvVoucher) -> None:
         accounts.post(session, on=v.vr_date, ref_kind=v.vr_type, ref_no=v.vr_no, narration=text,
                       dr=v.account_id, cr=accounts.nominal(session, SALES_LEDGER).id,
                       amount=total, mode=mode)
-        if mode == "Cash":
-            accounts.settle_cash(session, on=v.vr_date, party_id=v.account_id, amount=total,
-                                 ref_kind=v.vr_type, ref_no=v.vr_no, narration=text,
-                                 incoming=True)
+        # Cash-mode or not, the party owes it until the Receipt (16 Nov).
     else:
         accounts.post(session, on=v.vr_date, ref_kind=v.vr_type, ref_no=v.vr_no, narration=text,
                       dr=accounts.nominal(session, PURCHASE_LEDGER).id, cr=v.account_id,
