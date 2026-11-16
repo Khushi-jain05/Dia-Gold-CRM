@@ -112,7 +112,9 @@ def specs() -> dict[str, ReportSpec]:
             key="sales_profit_metal", title="Sales Profit[Metal]",
             columns=static(_purity_cols()),
             query=lambda s, a, b, **_k: MIS.sales_profit_metal(s, a, b),
-            date_default="month", group_by="client", filter_column="ret",
+            # One flat list in date / Vr order like the legacy window, not
+            # per client (16 Nov) - Group is still there to pick.
+            date_default="month", filter_column="ret",
             negative_key="_negative", on_activate=_open_job,
             note="Legacy window: Sales Metal Profit. SOLD FINE = NET x SOLD PURITY / 1000; "
                  "ACTUAL FINE = NET x PURITY / 1000; DIFF = SOLD - ACTUAL (8.228 x 0.590 = "
@@ -121,7 +123,7 @@ def specs() -> dict[str, ReportSpec]:
             key="sales_return_profit_metal", title="Sales Return Profit[Metal]",
             columns=static(_purity_cols()[:-1]),
             query=lambda s, a, b, **_k: MIS.sales_return_profit_metal(s, a, b),
-            date_default="month", group_by="client", negative_key="_negative",
+            date_default="month", negative_key="_negative",
             on_activate=_open_job,
             note="The same as Sales Profit [Metal] for pieces returned on a sale return."),
         # -- ledger / M.R.P. (T-14) -----------------------------------------
