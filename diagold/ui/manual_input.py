@@ -130,6 +130,11 @@ def make_manual(w: QComboBox) -> None:
     w.lineEdit().editingFinished.connect(lambda: settle(w))
     w.lineEdit().textEdited.connect(lambda _t: _mark(w, False))
     w.currentIndexChanged.connect(lambda _i: _clear_if_blank(w))
+    # A long entry in a narrow box shows from its start, not its end (16 Nov:
+    # "PRIMARY - Primary" read "MARY - Primary").
+    w.currentIndexChanged.connect(lambda _i: w.lineEdit().setCursorPosition(0))
+    w.lineEdit().editingFinished.connect(lambda: w.lineEdit().setCursorPosition(0))
+    w.lineEdit().setCursorPosition(0)
     _clear_if_blank(w)
     w.style().unpolish(w)
     w.style().polish(w)

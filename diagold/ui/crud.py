@@ -58,12 +58,20 @@ from diagold.services.rights import (
 ROW_HEIGHT = 38
 # Line grids (16 Nov): a compact cell font so a whole line fits the form.
 GRID_CELL_PX, GRID_HEAD_PX = 12, 11
-GRID_QSS = f"""
-QHeaderView::section {{ font-size: {GRID_HEAD_PX}px; padding: 2px 3px; }}
+def grid_qss(px: int = GRID_CELL_PX) -> str:
+    return f"""
+QHeaderView::section {{ font-size: {min(px, GRID_HEAD_PX)}px; padding: 2px 3px; }}
+QTableWidget::item {{ padding: 0px; }}
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit {{
-    font-size: {GRID_CELL_PX}px; padding: 1px 4px; min-height: 0px; }}
-QCheckBox {{ font-size: {GRID_CELL_PX}px; }}
+    font-size: {px}px; padding: 1px 3px; margin: 1px;
+    border-radius: 4px; min-height: 0px; }}
+QCheckBox {{ font-size: {px}px; }}
 """
+
+
+GRID_QSS = grid_qss()
+# A cell's box needs its text plus this much (padding, border, margin).
+GRID_BOX_EXTRA = 16
 
 
 def singular(title: str) -> str:
@@ -460,11 +468,39 @@ class ChildTableEditor(QWidget):
         self._refresh_summary()
 
     # -- columns share the grid's width (16 Nov) --------------------------
+    def _content_w(self, c: int) -> int:
+        """The widest value in column ``c`` as typed / shown (16 Nov: '120'
+        read '12(', 'PRIMARY - Primary' read 'MARY - Primary')."""
+        from PySide6.QtGui import QFont, QFontMetrics
+        f = QFont(self.table.font())
+        f.setPixelSize(getattr(self, "_cell_px", GRID_CELL_PX))
+        fm = QFontMetrics(f)
+        widest = 0
+        for r in range(self.table.rowCount()):
+            w = self.table.cellWidget(r, c)
+            if isinstance(w, QComboBox):
+                text = w.currentText()
+            elif isinstance(w, (QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit)):
+                text = w.text()
+            else:
+                continue
+            widest = max(widest, fm.horizontalAdvance(text))
+        return widest + GRID_BOX_EXTRA if widest else 0
+
     def _fit_columns(self) -> None:
         avail = self.table.viewport().width()
         if avail <= 0 or not self._base_w:
             return
-        base, least = self._base_w, self._min_w
+        # Smaller text before any sideways scroll: 12 -> 11 -> 10 px (16 Nov).
+        for px in (GRID_CELL_PX, 11, 10):
+            if getattr(self, "_cell_px", GRID_CELL_PX) != px:
+                self._cell_px = px
+                self.table.setStyleSheet(grid_qss(px))
+            content = [self._content_w(c) for c in range(len(self._base_w))]
+            least = [max(m, cw) for m, cw in zip(self._min_w, content)]
+            if sum(least) <= avail:
+                break
+        base = [max(b, m) for b, m in zip(self._base_w, least)]
         tb, tm = sum(base), sum(least)
         if tb <= avail:          # room to spare: everyone grows alike
             k = avail / tb
@@ -673,6 +709,8 @@ class ChildTableEditor(QWidget):
             _wide_popup(w)
             return w
         w = QLineEdit("" if value is None else str(value))
+        w.setCursorPosition(0)
+        w.editingFinished.connect(lambda: w.setCursorPosition(0))
         w.textChanged.connect(self._refresh_summary)
         return w
 
@@ -751,6 +789,13 @@ class ChildTableEditor(QWidget):
         return out
 
     def _refresh_summary(self, *_) -> None:
+        # A value changed: the columns follow what they now hold (16 Nov).
+        if not hasattr(self, "_refit"):
+            self._refit = QTimer(self)
+            self._refit.setSingleShot(True)
+            self._refit.setInterval(150)
+            self._refit.timeout.connect(self._fit_columns)
+        self._refit.start()
         if self.spec.summary is None:
             return
         try:
