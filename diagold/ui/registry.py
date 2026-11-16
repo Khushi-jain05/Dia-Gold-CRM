@@ -133,8 +133,8 @@ REPORT_MENUS: dict[str, list[tuple[str | None, tuple[str, ...]]]] = {
     "purchase.reports": [(None, ("rp_register", "inv_metal_day_book", "inv_stone_day_book",
                                  "account_ledger"))],
     "inventory.metal._reports": [(None, (
-        "metal_analysis", "metal_summary", "worker_metal_balance", "inv_metal_day_book",
-        "worker_metal_ledger"))],
+        "metal_analysis", "metal_summary", "worker_metal_balance", "worker_fine_by_head",
+        "inv_metal_day_book", "worker_metal_ledger"))],
     "inventory.stone._reports": [(None, (
         "job_card_analysis_stone", "inv_stone_day_book", "inv_rtn_os_stone",
         "worker_stone_ledger", "worker_stone_balance", "location_stone_balance",

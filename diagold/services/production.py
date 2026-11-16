@@ -2707,6 +2707,60 @@ def party_metal_balance(session: Session, date_from: date, date_to: date) -> lis
     return rows
 
 
+# The worker heads of Worker Fine Balance (Dept Wise), in their order (16 Nov).
+WORKER_HEADS = ("Ghat Worker", "Setting Worker", "Outside Worker", "Polish Worker",
+                "Other Worker")
+
+
+def worker_head(department: str | None, in_house: bool) -> str:
+    """A karigar's head from the Account master: an out-house karigar with a
+    department (OUTSIDE HANDMADE / OUTSIDE SETTING on the client's sheet) is
+    Outside; else HandMade / Ghat = Ghat, Setting = Setting, any Polish =
+    Polish; CASTING, COLOUR, Meena, no department … = Other."""
+    d = (department or "").strip().upper()
+    if "OUTSIDE" in d or (d and not in_house):
+        return "Outside Worker"
+    if "GHAT" in d or "HANDMADE" in d or "HAND MADE" in d:
+        return "Ghat Worker"
+    if "SETTING" in d:
+        return "Setting Worker"
+    if "POLISH" in d:
+        return "Polish Worker"
+    return "Other Worker"
+
+
+def worker_fine_by_head(session: Session, date_to: date) -> list[dict[str, Any]]:
+    """Worker Fine Balance (Dept Wise): one row per karigar - every metal's
+    balance turned to fine and added up, plus the fine still with them on job
+    steps (WIP) - under its head (Ghat / Setting / Outside / Polish / Other),
+    each head subtotalled. Same figures as Worker Balance (Metal)."""
+    acc: dict[int, dict[str, Any]] = {}
+    for r in party_metal_balance(session, date(2000, 1, 1), date_to):
+        if r["group"] != "Worker":
+            continue
+        a = acc.setdefault(r["_wid"], {"_wid": r["_wid"], "worker": r["worker"],
+                                       "bal_fine": ZERO, "wip_fine": ZERO, "metals": []})
+        a["bal_fine"] += _dec(r["bal_fine"])
+        a["wip_fine"] += _dec(r["wip_fine"])
+        a["metals"].append(r["metal"])
+    accounts = {a.id: a for a in session.scalars(
+        select(Account).where(Account.id.in_(list(acc))))} if acc else {}
+    order = {h: i for i, h in enumerate(WORKER_HEADS)}
+    rows = []
+    for wid, a in acc.items():
+        acct = accounts.get(wid)
+        dept = acct.department if acct else ""
+        head = worker_head(dept, bool(acct.in_house) if acct else False)
+        bal = a["bal_fine"].quantize(D3)
+        wip = a["wip_fine"].quantize(D3)
+        rows.append({"head": head, "worker": a["worker"], "department": dept or "",
+                     "metals": ", ".join(sorted(set(a["metals"]))), "_wid": wid,
+                     "bal_fine": bal, "wip_fine": wip or None,
+                     "total_fine": (bal + wip).quantize(D3), "_negative": bal < 0})
+    rows.sort(key=lambda r: (order.get(r["head"], 99), r["worker"].lower()))
+    return rows
+
+
 def client_metal_os(session: Session, date_to: date) -> list[dict[str, Any]]:
     """Client Metal Outstanding (5 Oct §4.10, T-03): one row per client with
     the balance in fine metal and in money side by side.

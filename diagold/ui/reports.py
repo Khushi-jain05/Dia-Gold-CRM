@@ -1048,6 +1048,9 @@ class ReportWidget(QWidget):
         elif gkeys:
             rows.sort(key=lambda r: tuple(fmt(r.get(k)).lower() for k in gkeys)
                       + (r.get("_n", 0),))
+        if gkeys:
+            # Both orders group the same way - kept-order groups showed only
+            # the TOTAL row before (16 Nov).
 
             def emit(part: list[dict], level: int) -> None:
                 if level == len(gkeys):
@@ -1375,7 +1378,8 @@ def _drill_client_metal(widget: ReportWidget, row: dict) -> None:
     spec = build_specs()["worker_metal_ledger"]
     with SessionLocal() as s:
         rows = P.worker_metal_ledger(s, date(2000, 1, 1), d1, worker_id=row["_wid"])
-    spec = ReportSpec(key="client_metal_drill", title=f"{row['client']} — metal ledger",
+    who = row.get("client") or row.get("worker") or ""
+    spec = ReportSpec(key="client_metal_drill", title=f"{who} — metal ledger",
                       columns=spec.columns, query=lambda _s, _a, _b, **_k: rows,
                       date_mode="none")
     from diagold.ui.production import show_in_dialog
@@ -1898,6 +1902,23 @@ def build_specs() -> dict[str, ReportSpec]:
                  "inward, outward, loss, the balance owed (after the allowance) and the metal "
                  "still with them on job steps (WIP) with its process. Clients: metal sold, "
                  "ready pieces sold (net weight), metal received. Group by WORKER for subtotals."),
+        "worker_fine_by_head": ReportSpec(
+            key="worker_fine_by_head", title="Worker Fine Balance (Dept Wise)",
+            columns=static([Col("head", "HEAD"), Col("worker", "WORKER"),
+                            Col("department", "DEPARTMENT"), Col("metals", "METALS"),
+                            wt("bal_fine", "BALANCE FINE"), wt("wip_fine", "WIP FINE"),
+                            wt("total_fine", "TOTAL FINE")]),
+            query=lambda s, a, b, **_k: P.worker_fine_by_head(s, b), date_mode="to",
+            negative_key="_negative", group_by="head", filter_column="head",
+            keep_group_order=True,
+            on_activate=_drill_client_metal,
+            note="Each karigar's total fine balance - every metal's balance turned to fine "
+                 "and added up - under its head, each head subtotalled: Ghat (HandMade), "
+                 "Setting, Outside (out-house karigar), Polish, Other (Casting, Colour, "
+                 "Meena, no department …). The head comes from the karigar's Department and "
+                 "In-house tick on the Account master. WIP FINE: still with them on job "
+                 "steps; TOTAL FINE = BALANCE + WIP. Same figures as Worker Balance (Metal). "
+                 "Double-click a karigar for their metal ledger."),
         "account_ledger": ReportSpec(
             key="account_ledger", title="Account Ledger",
             columns=static([Col("ledger", "LEDGER"), Col("date", "DATE"),
@@ -2141,7 +2162,7 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Analysis", ("job_analysis", "process_analysis", "job_card_analysis_stone",
                   "job_stock_analysis")),
     ("Inventory", ("metal_analysis", "metal_summary", "worker_metal_balance",
-                   "inv_metal_day_book",
+                   "worker_fine_by_head", "inv_metal_day_book",
                    "inv_stone_day_book", "transfer_register", "melting_list",
                    "account_ledger")),
     ("Manufacturing", ("job_costing", "pending_mfg_transfer", "mfg_transfer_day_book",
@@ -2156,7 +2177,8 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Registers", ("metal_loss_register", "stone_loss_register", "dust_register",
                    "wip_register", "wip_process_summary", "wip_stone")),
     ("Stone", ("location_stone_balance", "stone_summary", "worker_stone_balance")),
-    ("Karigar", ("worker_metal_ledger", "worker_stone_ledger", "worker_stone_balance",
+    ("Karigar", ("worker_metal_ledger", "worker_fine_by_head", "worker_stone_ledger",
+                 "worker_stone_balance",
                  "setting_labour_statement", "issue_day_book", "received_day_book")),
     ("Client", ("client_metal_os", "worker_metal_balance")),
     ("Other", ("job_os_pct", "data_quality")),
