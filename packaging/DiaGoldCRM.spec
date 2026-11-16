@@ -8,6 +8,14 @@ from PyInstaller.utils.hooks import collect_submodules
 PROJECT_ROOT = Path(SPECPATH).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import re
+
+# Mac "About"/Finder version follows diagold/__init__.py (was stuck at 0.10.0)
+APP_VERSION = re.search(
+    r'__version__\s*=\s*"([^"]+)"',
+    (PROJECT_ROOT / "diagold" / "__init__.py").read_text(encoding="utf-8"),
+).group(1)
+
 
 def _all_diagold_modules() -> list[str]:
     """Every module under diagold/, read from the files - collect_submodules
@@ -72,8 +80,8 @@ if sys.platform == "darwin":
         icon=None,
         bundle_identifier="works.iterativetech.diagoldcrm",
         info_plist={
-            "CFBundleShortVersionString": "0.10.0",
-            "CFBundleVersion": "0.10.0",
+            "CFBundleShortVersionString": APP_VERSION,
+            "CFBundleVersion": APP_VERSION,
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
         },
