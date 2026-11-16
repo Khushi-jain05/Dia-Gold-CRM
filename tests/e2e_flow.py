@@ -157,6 +157,15 @@ with SessionLocal() as s:
     P.set_bag_setting_type(s, bag[polki.id], g(SettingType, name="Polki").id)
     refused("return 50 from a bag of 10", lambda: P.bag_move(s, bag[polki.id], "rtn", 50))
     s.commit()
+    # 16 Nov: stones coming back to a location below zero in pieces (SUNIL JI
+    # -250 pcs / 22.4 ct) still go in; taking more out is still refused.
+    negloc = Location(code="NEGE2E", name="NEG TEST (e2e)", location_type="Karigar"); s.add(negloc); s.flush()
+    P.adjust_stock(s, negloc.id, "stone", polki.id, -250, D("-0.5"), size=polki.size or "", allow_negative=True)
+    P.adjust_stock(s, negloc.id, "stone", polki.id, 0, D("22.9"), size=polki.size or "")
+    r = P.adjust_stock(s, negloc.id, "stone", polki.id, 20, D("0.25"), size=polki.size or "", kind="return")
+    check("return into a negative location goes in", (r.pcs, D(str(r.weight))), (-230, D("22.6500")))
+    refused("issue from a negative location", lambda: P.adjust_stock(s, negloc.id, "stone", polki.id, -1, D("-0.1"), size=polki.size or ""))
+    s.rollback()
 
     print("\n== D. Manufacturing: issue / receive every step, edit + delete a voucher")
     W = {c: g(Account, code=c) for c in ("OFFICE", "FACTORY", "BUDDHAPOL", "RAKESHS", "AKSHAYJ", "JAGDISHPRA")}

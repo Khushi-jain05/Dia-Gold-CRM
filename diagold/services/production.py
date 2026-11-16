@@ -1043,7 +1043,11 @@ def adjust_stock(session: Session, location_id: int, material_class: str,
     row = stock_row(session, location_id, material_class, ref_id, size, ref_text, create=True)
     new_pcs = int(row.pcs) + int(d_pcs)
     new_wt = (_dec(row.weight) + _dec(d_wt)).quantize(D4)
-    if (new_pcs < 0 or new_wt < 0) and not allow_negative:
+    # Only taking stock out can be refused: stones coming back to a location
+    # already below zero (SUNIL JI -250 pcs, 16 Nov) still go in.
+    taking = int(d_pcs) < 0 or _dec(d_wt) < 0
+    if taking and ((int(d_pcs) < 0 and new_pcs < 0) or (_dec(d_wt) < 0 and new_wt < 0)) \
+            and not allow_negative:
         loc = session.get(Location, location_id)
         raise ProductionError(
             f"{loc.name if loc else 'The location'} holds only {row.pcs} pcs / "
