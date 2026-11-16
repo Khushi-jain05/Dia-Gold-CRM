@@ -15,6 +15,7 @@ from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -55,6 +56,15 @@ from diagold.services.rights import (
 
 # Tall enough for a styled combo / spin box sitting inside a table cell.
 ROW_HEIGHT = 38
+# Line grids (16 Nov): a compact cell font so a whole line fits the form.
+GRID_CELL_PX, GRID_HEAD_PX = 12, 11
+GRID_QSS = f"""
+QHeaderView::section {{ font-size: {GRID_HEAD_PX}px; padding: 2px 3px; }}
+QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit {{
+    font-size: {GRID_CELL_PX}px; padding: 1px 4px; min-height: 0px; }}
+QComboBox::drop-down {{ width: 16px; }}
+QCheckBox {{ font-size: {GRID_CELL_PX}px; }}
+"""
 
 
 def singular(title: str) -> str:
@@ -402,13 +412,35 @@ class ChildTableEditor(QWidget):
         # sideways when the columns are wider than the form.
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        hdr.setStretchLastSection(True)
+        hdr.setStretchLastSection(False)
+        # 16 Nov: every column on screen without scrolling sideways - a
+        # smaller font in the cells, no spin arrows, and the columns share
+        # the grid's width (each keeps at least what its kind needs; only a
+        # form too narrow even for those scrolls).
+        self.table.setStyleSheet(GRID_QSS)
         widths = {"fk": 210, "choice": 90, "int": 72, "float": 96, "date": 120,
                   "bool": 60, "text": 160, "stone_sku": 170, "stone_size": 110}
+        least = {"fk": 104, "choice": 62, "int": 44, "float": 62, "date": 92,
+                 "bool": 34, "text": 70, "stone_sku": 118, "stone_size": 56}
+        from PySide6.QtGui import QFont, QFontMetrics
+        hf = QFont(self.table.font())
+        hf.setPixelSize(GRID_HEAD_PX)
+        hfm = QFontMetrics(hf)
+        cf = QFont(self.table.font())
+        cf.setPixelSize(GRID_CELL_PX)
+        cfm = QFontMetrics(cf)
+        self._base_w: list[int] = []
+        self._min_w: list[int] = []
         for c, f in enumerate(spec.fields):
-            w = widths.get(f.type, 130)
-            w = max(w, self.table.fontMetrics().horizontalAdvance(f.label) + 28)
-            self.table.setColumnWidth(c, w)
+            label_w = hfm.horizontalAdvance(f.label) + 14
+            need = least.get(f.type, 70)
+            if f.type == "choice" and f.choices:
+                # "Actual" was cut to ":tual": a pick-list is as wide as its
+                # longest choice plus the arrow.
+                need = max(need, max(cfm.horizontalAdvance(str(x)) for x in f.choices) + 56)
+            self._base_w.append(max(widths.get(f.type, 130), label_w, need))
+            self._min_w.append(max(need, label_w))
+            self.table.setColumnWidth(c, self._base_w[-1])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setMinimumHeight(spec.height)
@@ -449,6 +481,34 @@ class ChildTableEditor(QWidget):
             self.table.setCellWidget(r, c, widget)
         self._link_stone_cells(r, values)
         self._refresh_summary()
+
+    # -- columns share the grid's width (16 Nov) --------------------------
+    def _fit_columns(self) -> None:
+        avail = self.table.viewport().width()
+        if avail <= 0 or not self._base_w:
+            return
+        base, least = self._base_w, self._min_w
+        tb, tm = sum(base), sum(least)
+        if tb <= avail:          # room to spare: everyone grows alike
+            k = avail / tb
+            ws = [int(w * k) for w in base]
+        elif tm < avail:         # squeeze each toward its least width
+            k = (avail - tm) / (tb - tm)
+            ws = [int(m + (w - m) * k) for w, m in zip(base, least)]
+        else:                    # a very narrow form: least widths, scroll
+            ws = list(least)
+        if sum(ws) <= avail:
+            ws[-1] += avail - sum(ws)
+        for c, w in enumerate(ws):
+            self.table.setColumnWidth(c, w)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
+        super().resizeEvent(event)
+        self._fit_columns()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt name
+        super().showEvent(event)
+        QTimer.singleShot(0, self._fit_columns)
 
     # -- stone name + size pickers (6 Nov) --------------------------------
     # SSKU lists each stone once (POLKI, EMERALD PEAR ...) and Size lists that
@@ -588,6 +648,7 @@ class ChildTableEditor(QWidget):
     def _cell(self, f: Field, value: Any) -> QWidget:
         if f.type == "float":
             w = QDoubleSpinBox()
+            w.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
             w.setDecimals(f.decimals)
             w.setRange(f.minimum, 1_000_000_000)
             w.setValue(float(value) if value not in (None, "") else 0.0)
@@ -595,6 +656,7 @@ class ChildTableEditor(QWidget):
             return w
         if f.type == "int":
             w = QSpinBox()
+            w.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
             w.setRange(int(f.minimum), 1_000_000_000)
             w.setValue(int(value) if value not in (None, "") else 0)
             w.valueChanged.connect(self._refresh_summary)
