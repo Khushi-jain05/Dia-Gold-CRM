@@ -329,6 +329,21 @@ class ImageSlot(QWidget):
         dlg.exec()
 
 
+def _wide_popup(w: QComboBox) -> None:
+    """The open list as wide as its longest entry, nothing cut to "M.TOUR...N
+    CABS" in a narrow grid cell (16 Nov)."""
+    view = w.view()
+    view.setTextElideMode(Qt.TextElideMode.ElideNone)
+    fm = w.fontMetrics()
+    longest = max((fm.horizontalAdvance(w.itemText(i)) for i in range(w.count())), default=0)
+    view.setMinimumWidth(longest + 48)
+    c = w.completer()      # the typed-search list too
+    pop = c.popup() if c is not None else None
+    if pop is not None:
+        pop.setTextElideMode(Qt.TextElideMode.ElideNone)
+        pop.setMinimumWidth(longest + 48)
+
+
 def _type_to_pick(w: QComboBox) -> None:
     """Type to narrow, Enter to accept, the list still there (5 Nov UX4): an
     editable box whose completer matches anywhere in the text; it never adds
@@ -602,6 +617,7 @@ class ChildTableEditor(QWidget):
             w.addItem("")
             w.addItems(sorted(self._stone_index(), key=str.lower))
             _type_to_pick(w)
+            _wide_popup(w)
             return w
         if f.type == "stone_size":
             w = QComboBox()
@@ -615,6 +631,7 @@ class ChildTableEditor(QWidget):
             idx = w.findData(value)
             w.setCurrentIndex(idx if idx >= 0 else 0)
             _type_to_pick(w)
+            _wide_popup(w)
             return w
         w = QLineEdit("" if value is None else str(value))
         w.textChanged.connect(self._refresh_summary)

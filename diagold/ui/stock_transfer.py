@@ -40,7 +40,7 @@ from diagold.services import sales as S
 from diagold.services import stock_transfer as ST
 from diagold.services.production import ProductionError
 from diagold.ui.confirm import confirm_save
-from diagold.ui.crud import auto_fit
+from diagold.ui.crud import _wide_popup, auto_fit
 from diagold.ui.production import _Screen, _item, _pydate, _qdate, _table
 
 D = Decimal
@@ -75,6 +75,30 @@ def _locations() -> list[tuple[int, str]]:
         return [(l.id, l.name) for l in s.scalars(select(Location).order_by(Location.name))]
 
 
+def _stone_sizes() -> dict[str, list[tuple[str, int, str, str]]]:
+    """{stone name: [(size, Stone SKU id, stone type, cost)]} - SSKU lists each
+    stone once and Size its sizes, as the purchase grids (16 Nov)."""
+    from diagold.db.models import StoneMaster
+    from diagold.services.stone_master import group_stone_skus, size_label
+    out: dict[str, list[tuple[str, int, str, str]]] = {}
+    with SessionLocal() as s:
+        if group_stone_skus(s):
+            s.commit()
+        for m in s.scalars(select(StoneMaster).where(StoneMaster.is_active == True)
+                           .order_by(StoneMaster.name)):
+            rows = [(size_label(k), k.id, k.stone_type or "", str(k.cost_price or 0))
+                    for k in m.sizes if k.is_active]
+            if rows:
+                out[m.name] = rows
+    return out
+
+
+def _pick_stone(sizes: dict, name: str, size: str) -> tuple[str, int, str, str] | None:
+    rows = sizes.get(name, [])
+    hit = [r for r in rows if r[0].lower() == size.strip().lower()]
+    return hit[0] if hit else (rows[0] if len(rows) == 1 and not size.strip() else None)
+
+
 def _dbl(dec: int) -> QDoubleSpinBox:
     w = QDoubleSpinBox()
     w.setDecimals(dec)
@@ -101,15 +125,20 @@ class LineDialog(QDialog):
                 for m in s.scalars(select(Metal).order_by(Metal.name)):
                     self.item.addItem(m.name, m.id)
             else:
-                for k in s.scalars(select(StoneSku).order_by(StoneSku.sku_code)):
-                    self.item.addItem(k.sku_code, (k.id, k.size or "", k.stone_type or "",
-                                                   str(k.cost_price or 0)))
+                # SSKU lists each stone once (POLKI, EMERALD PEAR ...), Size its
+                # sizes (16 Nov: "only SSKU name, remove size").
+                self._sizes = _stone_sizes()
+                for name in self._sizes:
+                    self.item.addItem(name, name)
+        _wide_popup(self.item)
         self.item.currentIndexChanged.connect(lambda _i: self._item_changed())
         self.mt_type, self.colour = QLineEdit("Actual"), QLineEdit("Y")
         self.metal_mould = QComboBox()
         self.metal_mould.addItems(["Metal", "Mould"])
         self.item_size, self.st_size = QLineEdit(), QLineEdit()
-        self.size, self.s_type = QLineEdit(), QLineEdit()
+        self.size, self.s_type = QComboBox(), QLineEdit()
+        self.size.setEditable(True)
+        self.size.currentTextChanged.connect(lambda _t: self._size_changed())
         self.in_pcs, self.out_pcs = QSpinBox(), QSpinBox()
         self.in_loss_pcs, self.out_loss_pcs = QSpinBox(), QSpinBox()
         for w in (self.in_pcs, self.out_pcs, self.in_loss_pcs, self.out_loss_pcs):
@@ -150,11 +179,26 @@ class LineDialog(QDialog):
         self._item_changed()
 
     def _item_changed(self) -> None:
-        if self.pane == "stone" and isinstance(self.item.currentData(), tuple):
-            _id, size, st, price = self.item.currentData()
-            self.size.setText(size)
-            self.s_type.setText(st)
-            self.price.setValue(float(price))
+        if self.pane != "stone":
+            return
+        rows = getattr(self, "_sizes", {}).get(self.item.currentText(), [])
+        self.size.blockSignals(True)
+        self.size.clear()
+        self.size.addItems([sz for sz, *_r in rows])
+        self.size.setCurrentText(rows[0][0] if len(rows) == 1 else "")
+        self.size.blockSignals(False)
+        self._size_changed()
+
+    def _stone(self) -> tuple[str, int, str, str] | None:
+        """The Stone SKU the SSKU + Size pair names."""
+        return _pick_stone(getattr(self, "_sizes", {}), self.item.currentText(),
+                           self.size.currentText())
+
+    def _size_changed(self) -> None:
+        hit = self._stone()
+        if hit is not None:
+            self.s_type.setText(hit[2])
+            self.price.setValue(float(hit[3]))
 
     def values(self) -> dict[str, Any]:
         v = {"pane": self.pane, "location_id": self.loc.currentData(),
@@ -177,10 +221,11 @@ class LineDialog(QDialog):
                      metal_mould=self.metal_mould.currentText(),
                      item_size=self.item_size.text().strip(), st_size=self.st_size.text().strip())
         else:
-            data = self.item.currentData()
-            v.update(stone_sku_id=data[0] if isinstance(data, tuple) else None,
-                     particulars="" if isinstance(data, tuple) else self.item.currentText(),
-                     size=self.size.text().strip(), s_type=self.s_type.text().strip())
+            hit = self._stone()
+            v.update(stone_sku_id=hit[1] if hit else None,
+                     particulars="" if hit else self.item.currentText(),
+                     size=self.size.currentText().strip(), s_type=self.s_type.text().strip())
+            v["name"] = self.item.currentText()
         v["amount"] = ST.line_amount(v)
         return v
 
@@ -199,7 +244,10 @@ class LocationTransferDialog(QDialog):
         self.kind.currentIndexChanged.connect(lambda _i: self._fill_items())
         self.item = QComboBox()
         self.item.setEditable(True)
-        self.size = QLineEdit()
+        self.size = QComboBox()
+        self.size.setEditable(True)
+        self._sizes = _stone_sizes()
+        self.item.currentIndexChanged.connect(lambda _i: self._fill_sizes())
         self.src, self.dst = QComboBox(), QComboBox()
         for lid, name in _locations():
             self.src.addItem(name, lid)
@@ -234,9 +282,19 @@ class LocationTransferDialog(QDialog):
                 for m in s.scalars(select(Metal).order_by(Metal.name)):
                     self.item.addItem(m.name, m.id)
             else:
-                for k in s.scalars(select(StoneSku).order_by(StoneSku.sku_code)):
-                    self.item.addItem(k.sku_code, k.id)
+                for name in self._sizes:
+                    self.item.addItem(name, name)
         self.size.setEnabled(self.kind.currentText() == "Stone")
+        self._fill_sizes()
+
+    def _fill_sizes(self) -> None:
+        if self.kind.currentText() != "Stone":
+            self.size.clear()
+            return
+        rows = self._sizes.get(self.item.currentText(), [])
+        self.size.clear()
+        self.size.addItems([r[0] for r in rows])
+        self.size.setCurrentText(rows[0][0] if len(rows) == 1 else "")
 
     def _ok(self) -> None:
         if self.src.currentData() == self.dst.currentData():
@@ -244,6 +302,10 @@ class LocationTransferDialog(QDialog):
             return
         if self.wt.value() <= 0 and self.pcs.value() <= 0:
             QMessageBox.warning(self, "Stock Location Transfer", "Enter what is sent.")
+            return
+        if self.kind.currentText() == "Stone" and _pick_stone(
+                self._sizes, self.item.currentText(), self.size.currentText()) is None:
+            QMessageBox.warning(self, "Stock Location Transfer", "Pick the stone's size.")
             return
         self.accept()
 
@@ -253,7 +315,9 @@ class LocationTransferDialog(QDialog):
         base = {"pane": pane, "name": self.item.currentText(),
                 "price": D(str(self.price.value())), "unit": "Gms" if metal else "Cts"}
         base.update({"metal_id": self.item.currentData()} if metal else
-                    {"stone_sku_id": self.item.currentData(), "size": self.size.text().strip()})
+                    {"stone_sku_id": (hit := _pick_stone(self._sizes, self.item.currentText(),
+                                                         self.size.currentText())) and hit[1],
+                     "size": self.size.currentText().strip()})
         wt, lwt = D(str(round(self.wt.value(), 3))), D(str(round(self.loss_wt.value(), 3)))
         pcs, lpcs = self.pcs.value(), self.loss_pcs.value()
         out = {**base, "location_id": self.src.currentData(), "location": self.src.currentText(),

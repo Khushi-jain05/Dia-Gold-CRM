@@ -217,7 +217,8 @@ def lines_of(session: Session, t: StockTransfer) -> list[dict[str, Any]]:
             d["name"] = m.name if m else ""
         else:
             sku = session.get(StoneSku, ln.stone_sku_id) if ln.stone_sku_id else None
-            d["name"] = sku.sku_code if sku else ln.particulars
+            d["name"] = ((sku.master.name if sku.master else sku.sku_code) if sku
+                         else ln.particulars)
         out.append(d)
     return out
 
