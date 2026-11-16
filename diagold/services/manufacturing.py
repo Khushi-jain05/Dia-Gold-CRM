@@ -105,11 +105,14 @@ def pending_rows(session: Session) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------
 def price_job(session: Session, job: Job, on_date: date, *, labour_weight: Any = None,
               margin_pct: Any = None, manual_amount: Any = 0,
-              is_repair: bool = False) -> mfg_pricing.TransferPrice:
-    """Fill Prices for one job - what the transfer grid shows before saving."""
+              is_repair: bool = False, metal_rate: Any = None,
+              labour_rate: Any = None) -> mfg_pricing.TransferPrice:
+    """Fill Prices for one job - what the transfer grid shows before saving.
+    A Metal Rate / Labour Price typed on the line beats the masters (16 Nov)."""
     return mfg_pricing.fill_prices(session, job, on_date, labour_weight=labour_weight,
                                    margin_pct=margin_pct, manual_amount=manual_amount,
-                                   zero_tag=is_repair)
+                                   zero_tag=is_repair, metal_rate=metal_rate,
+                                   labour_rate=labour_rate)
 
 
 D3 = Decimal("0.001")
@@ -174,7 +177,8 @@ def post_transfer(session: Session, lines: list[dict[str, Any]], *,
         p = price_job(session, job, vr_date, labour_weight=spec.get("labour_weight"),
                       margin_pct=spec.get("margin_pct"),
                       manual_amount=spec.get("manual_amount") or 0,
-                      is_repair=bool(spec.get("is_repair")))
+                      is_repair=bool(spec.get("is_repair")),
+                      metal_rate=spec.get("metal_rate"), labour_rate=spec.get("labour_rate"))
         if p.net_wt <= 0:
             raise ProductionError(f"Job {job.job_no} has no received net weight to price.")
         if not spec.get("is_repair") and not p.tag_price:
@@ -257,7 +261,10 @@ def transfer_overrides(transfer: MfgTransfer) -> dict[int, dict[str, Any]]:
     the transfer for editing."""
     return {l.job_id: {"labour_weight": _dec(l.labour_weight), "margin_pct": _dec(l.margin_pct),
                        "manual_amount": _dec(l.manual_amount), "is_repair": bool(l.is_repair),
-                       "stamp": l.stamp or ""} for l in transfer.lines}
+                       "stamp": l.stamp or "",
+                       # the rates it was priced at stay unless retyped (16 Nov)
+                       "metal_rate": _dec(l.metal_rate) or None,
+                       "labour_rate": _dec(l.labour_rate) or None} for l in transfer.lines}
 
 
 def update_transfer(session: Session, transfer: MfgTransfer, lines: list[dict[str, Any]], *,
@@ -283,7 +290,8 @@ def update_transfer(session: Session, transfer: MfgTransfer, lines: list[dict[st
         p = price_job(session, job, transfer.vr_date, labour_weight=spec.get("labour_weight"),
                       margin_pct=spec.get("margin_pct"),
                       manual_amount=spec.get("manual_amount") or 0,
-                      is_repair=bool(spec.get("is_repair")))
+                      is_repair=bool(spec.get("is_repair")),
+                      metal_rate=spec.get("metal_rate"), labour_rate=spec.get("labour_rate"))
         _store_price(session, line, job, p, spec)
         pieces = sorted(items.get(line.id, []), key=lambda i: i.stock_no)
         values = _pieces(line, p.total, p.price_per_pcs, len(pieces) > 1)

@@ -223,6 +223,14 @@ with SessionLocal() as s:
     MF.delete_transfer(s, t); s.commit(); s.refresh(job)
     check("transfer deleted -> job pending again", job.status, "complete")
     job.pcs = 1; s.flush()
+    # 16 Nov: a day before any Daily Metal Rate / Labour Rate, the line can carry
+    # a typed Metal Rate and Labour Price, and the price follows them.
+    from datetime import timedelta
+    early = MF.price_job(s, job, date(2000, 1, 1))
+    check("no rate on the masters before 2000 -> metal rate 0", early.metal_rate, D("0.00"))
+    typed = MF.price_job(s, job, date(2000, 1, 1), metal_rate=D("8005"), labour_rate=D("1200"))
+    check("typed metal rate / labour price are used", (typed.metal_rate, typed.labour_rate), (D("8005.00"), D("1200")))
+    check("typed rates raise the price", typed.price_per_pcs > early.price_per_pcs, True)
     t = MF.post_transfer(s, [{"job_id": job.id}], vr_date=T); s.commit()
     piece = MF.stock_for_transfer(s, t)[0]
     check("transfer price / tag", (D(str(piece.price)), piece.tag_text), (D("197502.77"), "197"))

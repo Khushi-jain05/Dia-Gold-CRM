@@ -298,7 +298,8 @@ def job_stones(session: Session, job: Job) -> list[StoneCost]:
 def fill_prices(session: Session, job: Job, on_date: date | None = None, *,
                 labour_weight: Any = None, margin_pct: Any = None,
                 manual_amount: Any = 0, zero_tag: bool = False,
-                setting_amount: Any = 0, net_wt: Any = None) -> TransferPrice:
+                setting_amount: Any = 0, net_wt: Any = None,
+                metal_rate: Any = None, labour_rate: Any = None) -> TransferPrice:
     """"Fill Prices" for one job from the masters, as of ``on_date``.
 
     Reads: title from the Metal master, fine rate from Daily Metal Rate (Q11:
@@ -315,9 +316,21 @@ def fill_prices(session: Session, job: Job, on_date: date | None = None, *,
     if metal is None:
         notes.append("The job has no metal, so the metal amount is 0.")
     info = rates.rate_for(session, metal.id, on_date) if metal else rates.RateInfo(ZERO, None)
-    if metal is not None and not info.found:
-        notes.append(f"No Daily Metal Rate for {metal.name} on or before {on_date}.")
+    fine_rate = info.rate
+    if metal_rate not in (None, "") and _dec(metal_rate) > 0:
+        # Typed on the transfer line (16 Nov): the metal's rate per gram,
+        # turned back to the fine rate it is worked from.
+        t = title_of(metal)
+        fine_rate = (_dec(metal_rate) * 1000 / t) if t else ZERO
+        notes.append(f"Metal Rate {metal_rate} typed on the line.")
+    elif metal is not None and not info.found:
+        notes.append(f"No Daily Metal Rate for {metal.name} on or before {on_date} - "
+                     "type the Metal Rate on the line or add it on Daily Metal Rate.")
     lab_rate, lab_src = labour_rate_for(session, job.metal_id, on_date)
+    if labour_rate not in (None, "") and _dec(labour_rate) > 0:
+        lab_rate, lab_src = _dec(labour_rate), f"Labour Price {labour_rate} typed on the line"
+    elif not lab_rate:
+        lab_src += " - type the Labour Price on the line or add it on Labour Rate"
     notes.append(lab_src)
     if margin_pct in (None, ""):
         margin_pct, m_src = margin_for(session)
@@ -330,7 +343,7 @@ def fill_prices(session: Session, job: Job, on_date: date | None = None, *,
                      "uses is to be confirmed (28 Sept Q2).")
     rule = settings.get_setting(session, TAG_DISPLAY_SETTING, "thousands")
     result = price_line(
-        net_wt=net, title=title_of(metal), fine_rate=info.rate,
+        net_wt=net, title=title_of(metal), fine_rate=fine_rate,
         stones=job_stones(session, job), labour_rate=lab_rate,
         labour_weight=labour_weight, manual_amount=manual_amount,
         setting_amount=setting_amount,

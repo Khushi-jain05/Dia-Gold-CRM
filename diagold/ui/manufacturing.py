@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -66,10 +66,10 @@ COLS: list[tuple[str, str, bool]] = [
     ("pcs", "Pcs", False), ("gross_wt", "G-Wt", False), ("net_wt", "N-Wt", False),
     ("fine_wt", "FineWt", False), ("fine_loss", "Fine With\nLoss", False),
     ("rej_pcs", "Rej\nPcs", False), ("rej_wt", "Rej\nWt", False),
-    ("metal_rate", "Metal\nRate", False), ("metal_amount", "Metal\nAmount", False),
+    ("metal_rate", "Metal\nRate", True), ("metal_amount", "Metal\nAmount", False),
     ("stone_amount", "Stone\nAmount", False), ("setting_amount", "Setting\nAmount", False),
     ("ex_metal_amount", "Ex Metal\nAmt", False), ("finding_labour", "Finding\nLabour", False),
-    ("labour_rate", "Labour\nPrice", False), ("labour_weight", "Labour\nWt", True),
+    ("labour_rate", "Labour\nPrice", True), ("labour_weight", "Labour\nWt", True),
     ("labour", "Labour", False), ("manual_amount", "Manual\nAmount", True),
     ("total", "Total\nAmount", False), ("margin_pct", "Margin\n%", True),
     ("margin_amount", "Margin\nAmount", False), ("price_per_pcs", "Price\nPer Pcs", False),
@@ -494,6 +494,9 @@ class MfgTransferWidget(_Screen):
         # A saved transfer open for editing, and what was typed on its lines.
         self._edit_tid: int | None = None
         self._seed: dict[int, dict[str, Any]] = {}
+        # Metal Rate / Labour Price typed on a line, by job (16 Nov) - blank
+        # means the Daily Metal Rate / Labour Rate masters.
+        self._typed: dict[int, dict[str, Any]] = {}
 
         self.vr = QLabel("")
         self.vr.setObjectName("H2")
@@ -582,7 +585,7 @@ class MfgTransferWidget(_Screen):
     def new_transfer(self) -> None:
         self.location.setEnabled(True)
         self.split.setEnabled(True)
-        self._edit_tid, self._seed = None, {}
+        self._edit_tid, self._seed, self._typed = None, {}, {}
         self._job_ids, self._results = [], {}
         self.grid.setRowCount(0)
         self.ref.clear()
@@ -633,6 +636,8 @@ class MfgTransferWidget(_Screen):
         with SessionLocal() as s:
             t = s.get(MfgTransfer, tid)
             self._seed = mfg.transfer_overrides(t)
+            self._typed = {jid: {k: o[k] for k in ("metal_rate", "labour_rate") if o.get(k)}
+                           for jid, o in self._seed.items()}
             self._job_ids = [l.job_id for l in t.lines]
             vr_date, ref = t.vr_date, t.ref_no
             loc_id = t.lines[0].location_id if t.lines else None
@@ -700,7 +705,8 @@ class MfgTransferWidget(_Screen):
             it = self.grid.item(row, _IDX[key])
             return it.text() if it else ""
         rep = self.grid.item(row, _IDX["is_repair"])
-        return {
+        jid = self._job_ids[row] if row < len(self._job_ids) else None
+        return {**self._typed.get(jid, {}),
             "labour_weight": _num(cell("labour_weight")),
             "manual_amount": _num(cell("manual_amount")) or 0,
             "margin_pct": _num(cell("margin_pct")),
@@ -722,7 +728,8 @@ class MfgTransferWidget(_Screen):
                 self._results[jid] = mfg.price_job(
                     s, job, _pydate(self.date), labour_weight=o.get("labour_weight"),
                     margin_pct=o.get("margin_pct"), manual_amount=o.get("manual_amount", 0),
-                    is_repair=o.get("is_repair", False))
+                    is_repair=o.get("is_repair", False), metal_rate=o.get("metal_rate"),
+                    labour_rate=o.get("labour_rate"))
             meta = {}
             for jid in self._job_ids:
                 job = s.get(Job, jid)
@@ -783,6 +790,14 @@ class MfgTransferWidget(_Screen):
                     if editable:
                         flags |= Qt.ItemFlag.ItemIsEditable
                     it.setFlags(flags)
+                    rate0 = (key == "metal_rate" and not p.metal_rate) or (
+                        key == "labour_rate" and not p.labour_rate)
+                    if rate0:
+                        # No rate on the master for the date: say so, and that
+                        # it can be typed here (16 Nov).
+                        it.setBackground(QColor("#F8D7DA"))
+                        it.setToolTip("\n".join(n for n in p.notes if "type the" in n)
+                                      or "No rate - type it here.")
                 self.grid.setItem(r, _IDX[key], it)
             totals["total"] += p.total
             totals["price"] += p.total_value
@@ -795,9 +810,19 @@ class MfgTransferWidget(_Screen):
             f"{totals['total']:,.2f}    Total value {totals['price']:,.2f}" if n else
             "No jobs on this transfer yet - Show Pending.")
 
-    def _edited(self, _item_: QTableWidgetItem) -> None:
-        if not self._filling:
-            self.fill_prices()
+    def _edited(self, item: QTableWidgetItem) -> None:
+        if self._filling:
+            return
+        key = COLS[item.column()][0] if 0 <= item.column() < len(COLS) else ""
+        if key in ("metal_rate", "labour_rate") and item.row() < len(self._job_ids):
+            jid = self._job_ids[item.row()]
+            v = _num(item.text().replace(",", ""))
+            typed = self._typed.setdefault(jid, {})
+            if v:
+                typed[key] = v
+            else:
+                typed.pop(key, None)       # cleared: back to the master
+        self.fill_prices()
 
     def remove_line(self) -> None:
         if self._editing_blocked():
