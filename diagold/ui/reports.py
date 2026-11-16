@@ -612,7 +612,6 @@ class ReportWidget(QWidget):
                     cb.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
                     for value, text in loader(_s):
                         cb.addItem(text, value)
-                    cb.completer().setFilterMode(Qt.MatchFlag.MatchContains)
                     cb.currentIndexChanged.connect(lambda _i: self.run())
                     self.picker_boxes[key] = cb
                     head.addWidget(cb)

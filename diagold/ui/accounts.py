@@ -403,9 +403,7 @@ class AccountVoucherWidget(_Screen):
         cb.addItem("", None)
         for i, t, *_r in items:
             cb.addItem(t, i)
-        if editable:
-            cb.completer().setFilterMode(Qt.MatchFlag.MatchContains)
-        return cb
+        return cb       # typed by hand, no suggestions (16 Nov)
 
     def _build_party(self) -> None:
         row = QHBoxLayout()
