@@ -474,7 +474,12 @@ class JobHeaderCard(QFrame):
             "sku": sku.sku_code if sku else "",
             "c_ref": job.c_ref, "ord_ref": order.ref if order else "",
             "client": client.name if client else "stock",
-            "order": f"{order.order_no} dt {_s(order.order_date)}" if order else "",
+            # A repair job says which piece it repairs, or that none was
+            # picked on Repair List - then no old stones come with it (16 Nov).
+            "order": (f"{order.order_no} dt {_s(order.order_date)}" if order else "") + (
+                f"  ·  REPAIR of Stock {job.old_stock_no}" if job.repair_item_id else
+                "  ·  REPAIR - no piece picked (Order ▸ Repair List)"
+                if order is not None and order.is_repair else ""),
             "metal": (f"{metal.name} {metal.print_on_tag} {job.colour}-".strip()
                       if metal else job.colour),
             "pcs": str(job.pcs),
