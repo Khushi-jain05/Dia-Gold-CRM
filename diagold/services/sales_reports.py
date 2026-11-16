@@ -64,6 +64,7 @@ def _base(c: _C, v: ReadyVoucher, l: ReadyVoucherLine) -> dict[str, Any]:
     loc = c.get(Location, l.location_id)
     job = c.get(Job, l.job_id)
     g = sales._groups(l)
+    gw = sales._group_weights(l)
     return {
         "location": loc.name if loc else "", "date": v.vr_date, "vrno": v.vr_no,
         "vrtype": sales.READY_TYPES[v.vr_type].code, "particulars": acct.name if acct else "",
@@ -81,7 +82,11 @@ def _base(c: _C, v: ReadyVoucher, l: ReadyVoucherLine) -> dict[str, Any]:
         "metal_rate": _dec(l.metal_rate), "mt_total": _dec(l.metal_amount),
         "st_total": _dec(l.stone_amount), "labour": _dec(l.labour), "total": _dec(l.total),
         "tag_price": (item.tag_text if item else "") or "",
-        "dia": g["DIAMOND"], "polki": g["POLKI"], "cs": g["COLOR STONE"],
+        # DIA / POL / CS = carats, as the legacy register (16 Nov); the
+        # amounts stay for the Sales Dashboard's Stone value.
+        "dia": gw["DIAMOND"] or None, "polki": gw["POLKI"] or None,
+        "cs": gw["COLOR STONE"] or None,
+        "dia_amt": g["DIAMOND"], "polki_amt": g["POLKI"], "cs_amt": g["COLOR STONE"],
         "cost": _dec(item.cost) if item else ZERO, "_item_id": l.stock_item_id,
         "_line_id": l.id, "_photo": (sku.image_finished or sku.image_design) if sku else "",
         "_account_id": v.account_id, "_family": fam.name if fam else "",
@@ -235,7 +240,8 @@ def _signed(session: Session, date_from: date, date_to: date) -> list[dict[str, 
     rows = sales_register(session, date_from, date_to)
     for r in sales_return_register(session, date_from, date_to):
         rows.append({**r, **{k: -_dec(r[k]) for k in ("pcs", "n_wt", "fine_wt", "total",
-                                                      "cost", "dia", "polki", "cs")}})
+                                                      "cost", "dia", "polki", "cs", "dia_amt",
+                                                      "polki_amt", "cs_amt")}})
     return rows
 
 
@@ -247,8 +253,8 @@ def cube(session: Session, date_from: date, date_to: date, dimension: str,
     for r in _signed(session, date_from, date_to):
         if key == "_stone":
             for g, k in (("DIAMOND", "dia"), ("POLKI", "polki"), ("COLOR STONE", "cs")):
-                if r.get(k):
-                    acc[g] += _dec(r[k]) if m == "total" else _dec(r[m])
+                if r.get(k) or r.get(k + "_amt"):
+                    acc[g] += _dec(r[k + "_amt"]) if m == "total" else _dec(r[m])
             continue
         acc[str(r.get(key) or "(blank)")] += _dec(r[m])
     return sorted(acc.items(), key=lambda kv: -kv[1])

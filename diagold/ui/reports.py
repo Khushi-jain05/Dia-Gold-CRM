@@ -1970,13 +1970,15 @@ def build_specs() -> dict[str, ReportSpec]:
             columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("job_no", "JOBNO"),
                             Col("sku", "SKU"), Col("stock_no", "STOCK NO"), pcs("pcs", "PCS"),
                             wt("g_wt", "G-WT"), wt("n_wt", "N-WT"),
+                            wt("dia", "DIA"), wt("polki", "POL"), wt("cs", "CS"),
                             money("metal_amt", "METAL AMT"), money("stone_amt", "STONE AMT"),
                             money("labour", "LABOUR"), money("total", "TOTAL"),
                             money("price", "PRICE"), Col("tag", "TAG")]),
             query=lambda s, a, b, **_k: MF.transfer_day_book(s, a, b),
             on_activate=lambda w, r: w.open_job(r),
             note="Every piece put into ready stock in the period, with the prices stored "
-                 "at transfer time."),
+                 "at transfer time. DIA / POL / CS = carats of diamond, polki and colour "
+                 "stone in the piece."),
         "ready_stock": ReportSpec(
             key="ready_stock", title="Ready Stock",
             columns=static([Col("stock_no", "STOCK NO"), Col("sku", "SKU"),

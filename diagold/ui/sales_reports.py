@@ -39,7 +39,7 @@ def _catalog(widget, rows) -> None:
 
 def specs() -> dict[str, ReportSpec]:
     open_job = lambda w, r: w.open_job(r)                       # noqa: E731
-    stone = [_m(k, l) for k, l in STONE_COLS]
+    stone = [_w(k, l) for k, l in STONE_COLS]   # carats, 3 decimals (16 Nov)
     return {
         "sales_register": ReportSpec(
             key="sales_register", title="Sales Register",
@@ -60,7 +60,7 @@ def specs() -> dict[str, ReportSpec]:
             toggle_cols=[("F9", "A/c Ids", ("acc_code",))],
             actions=[("Catalog", "Ctrl+C", lambda w: _catalog(w, w.selected_rows()))],
             note="Every piece sold. REPAIR = the piece was ever issued for repair; RETURN = "
-                 "it came back on a sale return. Ctrl+F1 DIA / POL / CS, Shift+F12 photos, Ctrl+C "
+                 "it came back on a sale return. Ctrl+F1 DIA / POL / CS (carats), Shift+F12 photos, Ctrl+C "
                  "Catalog of the selected pieces, F9 A/c Ids, Ctrl+E Excel."),
         "sales_return_register": ReportSpec(
             key="sales_return_register", title="Sales Return Register",

@@ -743,6 +743,15 @@ def _groups(line: ReadyVoucherLine) -> dict[str, Decimal]:
     return out
 
 
+def _group_weights(line: ReadyVoucherLine) -> dict[str, Decimal]:
+    """Carats per stone block - what the legacy Sales Register shows under
+    DIA / POL / CS (16 Nov)."""
+    out = {"DIAMOND": ZERO, "POLKI": ZERO, "COLOR STONE": ZERO}
+    for st in json.loads(line.stones_json or "[]"):
+        out[stone_block(st)] += _dec(st.get("weight"))
+    return {k: v.quantize(Decimal("0.001")) for k, v in out.items()}
+
+
 def _line_row(session: Session, v: ReadyVoucher, l: ReadyVoucherLine,
               c: Any = None) -> dict[str, Any]:
     if c is None:
