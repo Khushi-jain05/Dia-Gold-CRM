@@ -167,6 +167,11 @@ SETTINGS_TREE: tuple[Setting, ...] = (
             "Comma-separated process names whose receipt may be saved with no gross / net "
             "even when the issue was weighed (19 Oct meeting: \"casting me metal receive "
             "don't mandatory\"). The next process then goes out at the last weight"),
+    Setting("Others", "img.roots", "Image folders", "text",
+            r"\\Server2\d\JewelleryER_25\Images",
+            "Where product photos are, named <SKU>.jpg as in the legacy app (17 Nov). Several "
+            "folders: separate with ;  - e.g. the 2025 and 2026 installs' Images folders. A "
+            "photo attached to a SKU is copied into the first one"),
     Setting("Production Planning", "pp.repair_start_process",
             "A repair job's route starts at", "text", "HandMade",
             "Job Mapping on a repair job (a sold piece back on a Repair order) drops the "

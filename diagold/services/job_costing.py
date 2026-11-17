@@ -191,7 +191,7 @@ def costing_sheet(session: Session, job: Job, on_date: date | None = None, *,
         metal=metal.name if metal else "", colour=job.colour,
         size=production._order_line_size(session, job), pcs=job.pcs, gross_wt=gross,
         price=price, basis=basis, stock_no=stock_no,
-        photo=(sku.image_finished or sku.image_design) if sku else "", wip=wip,
+        photo=sku.photo if sku else "", wip=wip,
         notes=notes)
 
 

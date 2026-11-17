@@ -153,7 +153,7 @@ def _html(s, q: Quotation, *, images: bool = False, stones: bool = False) -> str
     for l in q.lines:
         sku = s.get(ProductSku, l.product_sku_id) if l.product_sku_id else None
         metal = s.get(Metal, l.metal_id) if l.metal_id else None
-        img = (sku.image_finished or sku.image_design) if sku else ""
+        img = sku.photo if sku else ""
         pic = f"<td><img src='file://{img}' width='90'></td>" if images else ""
         rows.append(f"<tr>{pic}<td>{l.sno}</td><td>{sku.sku_code if sku else ''}</td>"
                     f"<td>{l.sku_desc or ''}</td><td>{l.c_ref or ''}</td>"
@@ -209,7 +209,7 @@ def _slide_show(widget, q) -> None:
         pics = []
         for l in s.get(Quotation, q.id).lines:
             sku = s.get(ProductSku, l.product_sku_id) if l.product_sku_id else None
-            path = (sku.image_finished or sku.image_design) if sku else ""
+            path = sku.photo if sku else ""
             if path:
                 pics.append((f"{sku.sku_code} - {l.sku_desc or ''}", path))
     if not pics:

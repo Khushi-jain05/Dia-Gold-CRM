@@ -490,7 +490,7 @@ class JobHeaderCard(QFrame):
         }
         for k, v in vals.items():
             self.values[k].setText(v or "—")
-        path = (sku.image_finished or sku.image_design) if sku else ""
+        path = sku.photo if sku else ""
         pix = QPixmap(path) if path else QPixmap()
         self._photo_path = path if not pix.isNull() else ""
         self.photo.setCursor(Qt.CursorShape.PointingHandCursor if self._photo_path

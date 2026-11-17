@@ -173,7 +173,7 @@ def describe(session: Session, item: StockItem) -> dict[str, Any]:
         "cost": _dec(item.cost), "price": _dec(item.price), "tag": item.tag_text,
         "status": item.status, "holder": holder.name if holder else "",
         "holder_id": item.holder_account_id, "ord_no": order.order_no if order else "",
-        "photo": (sku.image_finished or sku.image_design) if sku else "",
+        "photo": sku.photo if sku else "",
     }
 
 
@@ -766,7 +766,7 @@ def excel_invoice(session: Session, v: ReadyVoucher, path: str) -> None:
         ws.cell(r0, t0 + 3).font = bold
         total_cells.append(f"{L(t0 + 3)}{r0}")
         # product image, when the file is there and Pillow can read it
-        photo = (sku.image_finished or sku.image_design) if sku else ""
+        photo = sku.photo if sku else ""
         if photo:
             try:
                 from openpyxl.drawing.image import Image as XLImage

@@ -866,6 +866,21 @@ with SessionLocal() as s:
     check("CHANDAN Vr 5844 / 5771 / 5737 / 5745 allowance", got, [w for _i, _r, w in rows])
     s.rollback()
 
+    print("\n== N20. Photos from the legacy image folder by SKU (17 Nov T-07)")
+    import tempfile
+    from diagold.services import images as IMG, settings as SETI
+    imgdir = tempfile.mkdtemp(prefix="dgimg")
+    open(os.path.join(imgdir, "bang-366.JPG"), "wb").write(b"x")
+    SETI.set_setting(s, IMG.ROOTS_SETTING, "/no/such/folder;" + imgdir); s.commit()
+    IMG.refresh(wait=True)
+    bang = ProductSku(sku_code="BANG-366", image_finished="BANG-366.jpg")
+    other = ProductSku(sku_code="NS-2740", image_finished="")
+    check("stored file name found in the folder, any case; unreachable folder skipped", (os.path.basename(bang.photo), other.photo), ("bang-366.JPG", ""))
+    src = os.path.join(tempfile.mkdtemp(), "phone.png"); open(src, "wb").write(b"y")
+    check("a picked photo is copied in as <SKU>.png", os.path.basename(IMG.store(src, "NS-2740")), "NS-2740.png")
+    check("... and found by the SKU code", os.path.basename(other.photo), "NS-2740.png")
+    SETI.set_setting(s, IMG.ROOTS_SETTING, ""); s.commit(); IMG.refresh(wait=True)
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

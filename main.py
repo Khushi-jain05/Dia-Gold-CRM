@@ -44,6 +44,8 @@ def main() -> int:
 
     try:
         init_db()
+        from diagold.services import images
+        images.refresh()      # list the photo folders in the background (17 Nov T-07)
         if DEMO:
             from diagold.db.session import SessionLocal
             from diagold.services.demo_data import load_demo

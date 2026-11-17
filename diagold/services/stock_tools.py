@@ -119,7 +119,7 @@ def piece_row(session: Session, item: StockItem, c: _Cache | None = None,
         "status": STATUS_TEXT.get(item.status, item.status), "_status": item.status,
         "holder": holder.name if holder else "",
         "date": tr.vr_date if tr else None,
-        "_photo": (sku.image_finished or sku.image_design) if sku else "",
+        "_photo": sku.photo if sku else "",
     }
 
 
@@ -189,7 +189,7 @@ def sku_status(session: Session, sku_text: str) -> list[dict[str, Any]]:
                      "pcs": job.pcs, "g_wt": gross, "n_wt": net, "st_wt": None,
                      "price": None, "status": "MFG" + (" (pending MFG transfer)"
                                                        if job.status == "complete" else ""),
-                     "_photo": sku.image_finished or sku.image_design, "sku": sku.sku_code})
+                     "_photo": sku.photo, "sku": sku.sku_code})
     return rows
 
 

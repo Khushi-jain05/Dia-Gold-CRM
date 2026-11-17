@@ -416,7 +416,7 @@ class NewPieceDialog(QDialog):
     def _photo(self) -> str:
         with SessionLocal() as s:
             p = s.get(ProductSku, self.sku.currentData()) if self.sku.currentData() else None
-            return (p.image_finished or p.image_design) if p else ""
+            return p.photo if p else ""
 
     def _recalc(self) -> None:
         v = self.values()
@@ -1366,7 +1366,7 @@ class ReadyVoucherWidget(_Screen):
                              "pcs": l.pcs, "g": D(str(l.gross_wt)), "n": D(str(l.net_wt)),
                              "st": D(str(l.st_wt)), "fine": D(str(l.fine_wt)), "line": l,
                              "stones": json.loads(l.stones_json or "[]"),
-                             "photo": (sku.image_finished or sku.image_design) if sku else "",
+                             "photo": sku.photo if sku else "",
                              "total": D(str(l.total))})
         return head, rows
 

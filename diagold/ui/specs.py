@@ -1250,6 +1250,12 @@ def _price_product_sku(values: dict, children: dict, session) -> None:
     Runs on every save so the stored figures always match the lines that
     produced them. Manual Price % is left alone - it is a separate override.
     """
+    # A finished photo picked from anywhere goes into the image folder as
+    # <SKU>.jpg, where every PC (and the legacy app) finds it (17 Nov T-07).
+    from diagold.services import images
+    src = values.get("image_finished") or ""
+    if src and values.get("sku_code") and src not in (images.find("", values["sku_code"]),):
+        values["image_finished"] = images.store(src, values["sku_code"])
     gross = Decimal(str(values.get("gross_weight") or 0))
     if gross > 0 and not Decimal(str(values.get("net_weight") or 0)):
         # Net never left at 0 (5 Nov: Gross 3.0000, Net 0.0000): gross less stones / 5.

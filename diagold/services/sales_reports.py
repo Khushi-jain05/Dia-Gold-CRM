@@ -88,7 +88,7 @@ def _base(c: _C, v: ReadyVoucher, l: ReadyVoucherLine) -> dict[str, Any]:
         "cs": gw["COLOR STONE"] or None,
         "dia_amt": g["DIAMOND"], "polki_amt": g["POLKI"], "cs_amt": g["COLOR STONE"],
         "cost": _dec(item.cost) if item else ZERO, "_item_id": l.stock_item_id,
-        "_line_id": l.id, "_photo": (sku.image_finished or sku.image_design) if sku else "",
+        "_line_id": l.id, "_photo": sku.photo if sku else "",
         "_account_id": v.account_id, "_family": fam.name if fam else "",
     }
 

@@ -288,6 +288,13 @@ class ProductSku(Base, PKMixin, TimestampMixin):
     # -- images (T-25) ----------------------------------------------------
     image_finished: Mapped[str] = mapped_column(String(255), default="")
     image_design: Mapped[str] = mapped_column(String(255), default="")
+
+    @property
+    def photo(self) -> str:
+        """The photo file to show: the stored path, else <SKU>.jpg in the
+        image folders (17 Nov T-07) - "" when there is none."""
+        from diagold.services.images import photo
+        return photo(self)
     image_cad: Mapped[str] = mapped_column(String(255), default="")
     image_cert: Mapped[str] = mapped_column(String(255), default="")
     cad_stl_file: Mapped[str] = mapped_column(String(255), default="")

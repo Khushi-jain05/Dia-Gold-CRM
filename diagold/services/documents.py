@@ -79,11 +79,9 @@ def job_context(session: Session, job: Job, user_name: str = "") -> dict[str, An
     metal = session.get(Metal, job.metal_id) if job.metal_id else None
     company = session.scalars(select(Company)).first()
     photo = ""
-    if sku and sku.image_finished and Path(sku.image_finished).exists():
-        photo = (f'<img src="file://{sku.image_finished}" width="140" '
+    if sku and sku.photo:
+        photo = (f'<img src="file://{sku.photo}" width="140" '
                  f'alt="{html.escape(sku.sku_code)}">')
-    elif sku and sku.image_design and Path(sku.image_design).exists():
-        photo = f'<img src="file://{sku.image_design}" width="140">'
     rows = production.history_rows(session, job)
     started = {r.step.id: r for r in rows if r.issue is not None}
     steps = []

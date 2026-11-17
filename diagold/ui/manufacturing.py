@@ -167,7 +167,7 @@ class PendingForDialog(QDialog):
             for row in rows:
                 job = s.get(Job, row["_job_id"])
                 sku = job.product_sku if job else None
-                row["_photo"] = (sku.image_finished or sku.image_design) if sku else ""
+                row["_photo"] = sku.photo if sku else ""
                 r = self.table.rowCount()
                 self.table.insertRow(r)
                 chk = QTableWidgetItem("")
@@ -1203,7 +1203,7 @@ class ItemSearchWidget(_Screen):
             # Old stock -> repair job -> new stock (9 Oct §4.2 / TR4).
             from diagold.services import repair as _rep
             chain = _rep.chain_text(s, it)
-            self._photo_path = (d["sku"].image_finished or d["sku"].image_design) \
+            self._photo_path = d["sku"].photo \
                 if d["sku"] else ""
             pix = QPixmap(self._photo_path) if self._photo_path else QPixmap()
             if pix.isNull():
@@ -1586,7 +1586,7 @@ class ProcessVoucherWidget(_Screen):
             with SessionLocal() as s:
                 job = s.get(Job, self.lines[rows[0].row()]["_job_id"])
                 sku = job.product_sku if job else None
-                path = (sku.image_finished or sku.image_design) if sku else ""
+                path = sku.photo if sku else ""
         pix = QPixmap(path) if path else QPixmap()
         self._photo_path = path if not pix.isNull() else ""
         if pix.isNull():
