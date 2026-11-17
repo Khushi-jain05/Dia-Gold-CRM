@@ -141,7 +141,12 @@ class MainWindow(QMainWindow):
                     # its sections directly.
                     target = menu if item.key == "reports.all_reports" else menu.addMenu(item.label)
                     target.setObjectName("TopMenuPopup")
-                    self._add_report_menu(target, REPORT_MENUS[item.key], group.label)
+                    sections = REPORT_MENUS[item.key]
+                    if item.key == "reports.all_reports" and any(
+                            i.key == "reports.mis_reports" for i in group.items):
+                        # M.I.S. Reports has its own item below - listed once (17 Nov).
+                        sections = [sec for sec in sections if sec[0] != "M.I.S. Reports"]
+                    self._add_report_menu(target, sections, group.label)
                     shown += 1
                     continue
                 if item.key in SUBMENUS:

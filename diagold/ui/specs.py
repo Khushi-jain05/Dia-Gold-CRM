@@ -1540,7 +1540,7 @@ def _warn_order(values: dict, children: dict, session) -> str | None:
     typed in rather than picked on Repair List (17 Nov T-06: Order 3's job
     25007 came out 18KT, new weights, CAD -> CASTING, no link to the piece)."""
     od = values.get("order_date")
-    bad = []
+    notes = []
     if values.get("is_repair"):
         loose = []
         for n, r in enumerate(children.get("lines", []), start=1):
@@ -1548,19 +1548,23 @@ def _warn_order(values: dict, children: dict, session) -> str | None:
             if line is None or not line.stock_item_id:
                 loose.append(str(n))
         if loose:
-            return (f"Repair order line {', '.join(loose)} is not a piece picked on Repair "
-                    "List, so its job starts as a new piece (the SKU's metal, no weights, "
-                    "stones or C-Ref, the whole route).\n\nTo repair a sold piece: Sale "
-                    "Return, Ready Repair Issue, then save the order with no line and use "
-                    "Repair List.")
-    if od and values.get("delivery_date") and values["delivery_date"] < od:
-        bad.append(f"Delivery Date {values['delivery_date']:%d-%m-%Y}")
-    for n, r in enumerate(children.get("lines", []), start=1):
-        if od and r.get("delivery_date") and r["delivery_date"] < od:
-            bad.append(f"line {n} Del Dt {r['delivery_date']:%d-%m-%Y}")
-    if not bad:
-        return None
-    return f"{', '.join(bad)} is before the order date {od:%d-%m-%Y}."
+            notes.append(f"Repair order line {', '.join(loose)} is not a piece picked on Repair "
+                         "List, so its job starts as a new piece (the SKU's metal, no weights, "
+                         "stones or C-Ref, the whole route).\n\nTo repair a sold piece: Sale "
+                         "Return, Ready Repair Issue, then save the order with no line and use "
+                         "Repair List.")
+    dates = [("Delivery Date", values.get("delivery_date"))] + [
+        (f"line {n} Del Dt", r.get("delivery_date"))
+        for n, r in enumerate(children.get("lines", []), start=1)]
+    before = [f"{what} {d:%d-%m-%Y}" for what, d in dates if od and d and d < od]
+    if before:
+        notes.append(f"{', '.join(before)} is before the order date {od:%d-%m-%Y}.")
+    # More than six months out (17 Nov: Order 8 of 16-11-2026 due 30-11-2027).
+    far = [f"{what} {d:%d-%m-%Y}" for what, d in dates if od and d and (d - od).days > 183]
+    if far:
+        notes.append(f"{', '.join(far)} is more than six months after the order date "
+                     f"{od:%d-%m-%Y} - is the year right?")
+    return "\n\n".join(notes) or None
 
 
 def _prepare_order(values: dict, children: dict, session) -> None:

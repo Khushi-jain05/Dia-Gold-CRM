@@ -599,14 +599,20 @@ class Importer:
                 res.skipped.append(f"account {r['AccountID']}: no name")
                 continue
             g = groups.get(r["AccountGroupID"])
+            kind = self.ACCOUNT_TYPE.get(r["InventoryGroupID"], "Accounts")
+            group = g.name if g else ""
+            if kind == "Worker" and "receivable" in group.lower():
+                # A karigar filed under Accounts Receivable in the legacy master
+                # (DEEPAK, 17 Nov) sits with the other karigars.
+                group = "Accounts Payable"
             cur = currencies.get(r["CurrencyID"])
             address = ", ".join(a for a in (text(r["Address1"]), text(r["Address2"]),
                                             text(r["Address3"])) if a)
             self.put(res, "account", r["AccountID"], Account, {
                 "code": text(r["AccountCode"]).upper() or key(name).replace(" ", "")[:24],
                 "name": name,
-                "account_type": self.ACCOUNT_TYPE.get(r["InventoryGroupID"], "Accounts"),
-                "group_name": g.name if g else "",
+                "account_type": kind,
+                "group_name": group,
                 "address": address, "city": text(r["City"]), "state": text(r["State"]),
                 "phone": text(r["Phone"]), "email": text(r["Email"]),
                 "gstin": text(r["GST"]), "pan": text(r["PANNo"]),

@@ -150,6 +150,8 @@ def init_db() -> None:
         backfill_nominals(session)    # Sales / Purchase A/c entries get their account
         from diagold.services.accounts import unsettle_cash_sales
         unsettle_cash_sales(session)  # a Cash-mode sale is paid by its Receipt (16 Nov)
+        from diagold.services.accounts import move_workers_out_of_receivable
+        move_workers_out_of_receivable(session)  # karigars with the karigars (17 Nov)
         from diagold.services.sales import fix_return_values
         for line in fix_return_values(session):  # returns at the sold value (17 Nov T-05)
             log.info("re-valued %s", line)

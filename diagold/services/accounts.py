@@ -237,6 +237,22 @@ def unsettle_cash_sales(session: Session) -> int:
     return len(rows)
 
 
+def move_workers_out_of_receivable(session: Session) -> int:
+    """Once (17 Nov T-12): a karigar imported under Accounts Receivable (legacy
+    DEEPAK) goes to Accounts Payable with the other karigars."""
+    from diagold.services import settings
+    key = "backfill.workers_payable"
+    if settings.get_setting(session, key, "") == "1":
+        return 0
+    rows = session.scalars(select(Account).where(
+        Account.account_type == "Worker", Account.group_name == "Accounts Receivable")).all()
+    for a in rows:
+        a.group_name = "Accounts Payable"
+    settings.set_setting(session, key, "1")
+    session.flush()
+    return len(rows)
+
+
 def remove_postings(session: Session, ref_kind: str, ref_no: int) -> None:
     for e in session.scalars(select(AccountEntry).where(
             AccountEntry.ref_kind == ref_kind, AccountEntry.ref_no == ref_no)).all():
