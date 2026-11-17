@@ -138,6 +138,25 @@ def make_manual(w: QComboBox) -> None:
     _clear_if_blank(w)
     w.style().unpolish(w)
     w.style().polish(w)
+    _fit_box(w)
+    w.model().rowsInserted.connect(lambda *_a: _fit_box(w))   # entries loaded later
+
+
+def _in_grid(w: QWidget) -> bool:
+    from PySide6.QtWidgets import QAbstractItemView
+    p = w.parent()
+    return p is not None and isinstance(p.parent(), QAbstractItemView)
+
+
+def _fit_box(w: QComboBox) -> None:
+    """A box on a form is wide enough for its longest entry (up to 18
+    letters), so "Default" does not read "efault" (16 Nov). A box in a grid
+    cell is sized by its column instead."""
+    if _in_grid(w) or w.count() == 0:
+        return
+    longest = max(len(w.itemText(i)) for i in range(w.count()))
+    w.setMinimumContentsLength(min(max(longest, 4), 18))
+    w.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
 
 
 _orig_set_completer = QComboBox.setCompleter

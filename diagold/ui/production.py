@@ -2545,6 +2545,13 @@ class JobMappingWidget(_Screen):
         b_apply = QPushButton("Apply Group")
         b_apply.clicked.connect(self._apply_group)
         bar.addWidget(b_apply)
+        # Apply Group only fills the steps; the job is mapped when the route is
+        # saved - and the Save under the eleven steps sat below a 768-high
+        # screen, so jobs stayed "Not mapped" (16 Nov). Save is here too.
+        b_save_top = QPushButton("Save Route")
+        b_save_top.setObjectName("Primary")
+        b_save_top.clicked.connect(self._save)
+        bar.addWidget(b_save_top)
         bar.addStretch(1)
         rl.addLayout(bar)
         self.steps = QTableWidget(0, 3)
