@@ -1504,6 +1504,9 @@ class ProcessVoucherWidget(_Screen):
                           ("allow", "Allow\nLoss %", True),
                           ("price_on", "L Price\nOn", False), ("f3f5", "F3 / F5", False)]
         else:
+            # The issued pair beside the weights typed back (17 Nov T-03).
+            at = next(i for i, c in enumerate(self.cols) if c[0] == "gross")
+            self.cols[at:at] = [("iss_gross", "Iss\nG-Wt", False), ("iss_net", "Iss\nN-Wt", False)]
             self.cols += [("worker", "From", False), ("rej_type", "Rej.\nType", True),
                           ("rej_pcs", "Rej/Can\nPcs", True), ("rej_wt", "Rej Wt", True),
                           ("scrap", "Scrap", True), ("dust", "Dust", True),

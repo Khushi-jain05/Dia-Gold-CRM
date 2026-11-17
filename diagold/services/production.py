@@ -1819,6 +1819,9 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
         worker = session.get(Account, issue.worker_id) if issue else None
         gross, net = last_weights(session, job)
         if kind == "receive":
+            # Back at what went out until the karigar's weight is typed (17 Nov
+            # T-03: COLOUR at FACTORY 30.530 -> 30.530); the issued pair stays
+            # in view beside it.
             gross = _dec(issue.gross_wt) if issue.gross_wt is not None else None
             net = _dec(issue.net_wt) if issue.net_wt is not None else None
         client = session.get(Account, job.account_id) if job.account_id else None
@@ -1833,6 +1836,8 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
             "worker": worker.name if worker else "", "worker_id": issue.worker_id if issue else None,
             "issued_on": issue.vr_date if issue else None, "vr_no": issue.vr_no if issue else None,
             "gross": gross, "net": net, "due": step.due_date, "pcs": job.pcs,
+            "iss_gross": gross if kind == "receive" else None,
+            "iss_net": net if kind == "receive" else None,
             # the rest of the legacy voucher grid
             "c_ref": job.c_ref, "colour": job.colour,
             "metal": (session.get(Metal, job.metal_id).name if job.metal_id else ""),
@@ -2188,7 +2193,11 @@ def voucher_rows(session: Session, vr_no: int) -> list[dict[str, Any]]:
             StockMovement.ref_kind == VOUCHER_REF, StockMovement.ref_no == v.vr_no,
             StockMovement.job_id == v.job_id, StockMovement.material_class == "metal"))
         opt = lambda x: _dec(x) or None
+        iss = _issue_of(session, v) if v.kind == "receive" else None
         rows.append({
+            "iss_gross": _dec(iss.gross_wt) if iss is not None and iss.gross_wt is not None
+            else None,
+            "iss_net": _dec(iss.net_wt) if iss is not None and iss.net_wt is not None else None,
             "_voucher_id": v.id, "_job_id": job.id, "_step_id": v.step_id,
             "kind": v.kind, "vr_no": v.vr_no, "vr_date": v.vr_date, "vr_time": v.vr_time,
             "worker_id": v.worker_id, "worker": worker.name if worker else "",

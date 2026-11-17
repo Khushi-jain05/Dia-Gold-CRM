@@ -872,6 +872,17 @@ class VoucherDialog(QDialog):
         form.addRow("Pcs", self.pcs)
         form.addRow("Gross Wt (g)", self.gross)
         form.addRow("Net Wt (g)", self.net)
+        self._iss: tuple = (None, None)
+        if kind == "receive":
+            # What went out on this step, in view while the weight back is
+            # typed; it starts at that, "Same as issued" puts it back (17 Nov T-03).
+            row = QHBoxLayout()
+            self.issued = QLabel("")
+            row.addWidget(self.issued, 1)
+            same = QPushButton("Same as issued")
+            same.clicked.connect(self._same_as_issued)
+            row.addWidget(same)
+            form.addRow("Issued", row)
         form.addRow("Allow Loss %", self.allow)
         self.extra: dict[str, QWidget] = {}
         if kind == "issue":
@@ -931,7 +942,7 @@ class VoucherDialog(QDialog):
         form.addRow("", self.hint)
         self.step.currentIndexChanged.connect(lambda _i: self._step_changed())
         # The karigar's own Allow Loss % for the process (17 Nov T-01).
-        self.worker.currentIndexChanged.connect(lambda _i: self._step_changed())
+        self.worker.currentIndexChanged.connect(lambda _i: self._refresh_allow())
         self._step_changed()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save
                                    | QDialogButtonBox.StandardButton.Cancel)
@@ -943,14 +954,7 @@ class VoucherDialog(QDialog):
         """A design-only step takes no weights: grey the boxes and say why,
         rather than letting the figures be typed and refusing the save."""
         bearing = self._bearing.get(self.step.currentData(), True)
-        with SessionLocal() as s:
-            job = s.get(Job, self.job_id)
-            step = next((st for st in job.steps if st.id == self.step.currentData()), None)
-            if step is not None:
-                issue = production.open_issue(s, step) if self.kind == "receive" else None
-                w = getattr(self, "worker", None)
-                self.allow.setValue(float(production.default_allow_loss_pct(
-                    s, step, issue, w.currentData() if w is not None else None)))
+        self._refresh_allow()
         self.allow.setEnabled(bearing)
         for w in (self.gross, self.net):
             w.setEnabled(bearing)
@@ -967,12 +971,50 @@ class VoucherDialog(QDialog):
             self.gross.setValue(float(gross or 0))
             self.net.setValue(float(net or 0))
             self._setting_net = False
+        if self.kind == "receive":
+            self._iss = (None, None)
+            text = ""
+            with SessionLocal() as s:
+                job = s.get(Job, self.job_id)
+                step = next((st for st in job.steps if st.id == self.step.currentData()), None)
+                issue = production.open_issue(s, step) if step is not None else None
+                if issue is not None and bearing:
+                    self._iss = (issue.gross_wt, issue.net_wt)
+                    who = s.get(Account, issue.worker_id) if issue.worker_id else None
+                    g, n = (f"{Decimal(str(x)):.3f}" if x is not None else "—"
+                            for x in self._iss)
+                    text = f"G-Wt {g}  ·  N-Wt {n}   (Vr {issue.vr_no}" + (
+                        f", {who.name})" if who else ")")
+            self.issued.setText(text)
+            if bearing:
+                self._same_as_issued()
         self.hint.setText(
             "Loss is derived from what comes back: issued net − received net − scrap − dust. "
             "The karigar is allowed Allow Loss % of the net weight received back."
             if bearing else
             "This step is design only (no metal goes out or comes back), so the weight "
             "boxes are off. Pick a step like CASTING or HandMade to enter weights.")
+
+    def _refresh_allow(self) -> None:
+        """Allow Loss %: the karigar's figure for the process, else the
+        issue's, else the process master's."""
+        with SessionLocal() as s:
+            job = s.get(Job, self.job_id)
+            step = next((st for st in job.steps if st.id == self.step.currentData()), None)
+            if step is None:
+                return
+            issue = production.open_issue(s, step) if self.kind == "receive" else None
+            self.allow.setValue(float(production.default_allow_loss_pct(
+                s, step, issue, self.worker.currentData())))
+
+    def _same_as_issued(self) -> None:
+        gross, net = self._iss
+        if gross is None and net is None:
+            return
+        self._setting_net = True
+        self.gross.setValue(float(gross or 0))
+        self.net.setValue(float(net or 0))
+        self._setting_net = False
 
     def _show_mt_bal(self) -> None:
         wid = self.worker.currentData()
