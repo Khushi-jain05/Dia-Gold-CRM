@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from diagold.db.models import (
     Account,
+    WorkerProcess,
     DefaultProcessStep,
     InventoryReturn,
     InventoryReturnLine,
@@ -738,7 +739,7 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
             share = None                       # the whole job: no split
     allow = extra.get("allow_loss_pct")
     if allow in (None, ""):
-        allow = default_allow_loss_pct(session, step, issue_ref)
+        allow = default_allow_loss_pct(session, step, issue_ref, worker_id)
     allow = _dec(allow)
     if allow < 0 or allow >= 100:
         raise ProductionError("Allowed loss % must be between 0 and 100.")
@@ -781,12 +782,26 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
     return v
 
 
+def worker_process(session: Session, worker_id: int | None,
+                   process_id: int | None) -> WorkerProcess | None:
+    """The karigar's own row for a process (Account ▸ Select Worker Process)."""
+    if not worker_id or not process_id:
+        return None
+    return session.scalar(select(WorkerProcess).where(
+        WorkerProcess.account_id == worker_id, WorkerProcess.process_id == process_id))
+
+
 def default_allow_loss_pct(session: Session, step: JobStep,
-                           issue: JobVoucher | None = None) -> Decimal:
-    """The allowed loss % a new line starts on: a receive takes its issue's
-    figure, an issue takes the process master's. Live figures seen on 28 Sept:
-    HandMade 3.5, Setting 3.0, PrePolish 0.35, final setting 0. Whether the
-    default belongs to the process, the karigar or the job is open (Q3)."""
+                           issue: JobVoucher | None = None,
+                           worker_id: int | None = None) -> Decimal:
+    """The allowed loss % a new line starts on: the karigar's own figure for
+    the process (17 Nov T-01, legacy "Select Worker Process": DEEPAK HandMade
+    3%, Setting 4%), else a receive takes its issue's figure, else the process
+    master's (28 Sept: HandMade 3.5, Setting 3.0, PrePolish 0.35)."""
+    wid = worker_id or (issue.worker_id if issue is not None else None)
+    wp = worker_process(session, wid, step.process_id)
+    if wp is not None:
+        return _dec(wp.allow_metal_loss_pct)
     if issue is not None and issue.allow_loss_pct is not None:
         return _dec(issue.allow_loss_pct)
     process = session.get(ManufacturingProcess, step.process_id)
@@ -1823,7 +1838,8 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
             "metal": (session.get(Metal, job.metal_id).name if job.metal_id else ""),
             "order_no": order.order_no if order else "",
             "order_date": order.order_date if order else None, "ref_no": order.ref if order else "",
-            "allow": default_allow_loss_pct(session, step, issue),
+            "allow": default_allow_loss_pct(session, step, issue,
+                                            worker_id if kind == "issue" else None),
             "size": _order_line_size(session, job),
             "mt_price": metal_price(session, job.metal_id) or None,
             "price_on": issue.price_on if issue and issue.price_on else "NetWt",

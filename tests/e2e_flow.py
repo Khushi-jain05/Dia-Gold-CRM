@@ -840,6 +840,22 @@ with SessionLocal() as s:
     SETM.set_setting(s, "loss.allowance_basis", "issued"); s.commit()
     P._basis_cache = (0.0, P._basis_cache[1])
 
+    print("\n== N19. Karigar wastage per process; allowance on issued even on a gain (17 Nov T-01 / T-02)")
+    from diagold.db.models import WorkerProcess, ManufacturingProcess as MPr
+    hm = s.scalar(select(MPr).where(MPr.name.ilike("handmade")))
+    st = s.scalar(select(MPr).where(MPr.name.ilike("setting")))
+    s.add_all([WorkerProcess(account_id=chand.id, process_id=hm.id, allow_metal_loss_pct=D("3")),
+               WorkerProcess(account_id=chand.id, process_id=st.id, allow_metal_loss_pct=D("4"))]); s.flush()
+    class _St: pass
+    sh, ss = _St(), _St(); sh.process_id, ss.process_id = hm.id, st.id
+    check("DEEPAK-style grid: HandMade 3%, Setting 4% for this karigar only", (P.default_allow_loss_pct(s, sh, None, chand.id), P.default_allow_loss_pct(s, ss, None, chand.id), P.default_allow_loss_pct(s, sh, None, rahul.id) == D(str(hm.loss_percent or 0))), (D("3.0000"), D("4.0000"), True))
+    # Legacy CHANDAN MONDAL rows: ALW L WT = 3% x issued (= received + loss), also when the loss is negative.
+    rows = [(D("28.710"), D("29.080"), D("0.861")), (D("14.060"), D("14.080"), D("0.422")),
+            (D("36.920"), D("40.752"), D("1.108")), (D("6.590"), D("6.060"), D("0.198"))]
+    got = [P.allowed_loss(JobVoucher(net_wt=r), D("3"), JobVoucher(net_wt=i), basis="issued") for i, r, _w in rows]
+    check("CHANDAN Vr 5844 / 5771 / 5737 / 5745 allowance", got, [w for _i, _r, w in rows])
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

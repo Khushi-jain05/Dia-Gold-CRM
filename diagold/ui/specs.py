@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from diagold.db.models import (StoneMaster, 
+from diagold.db.models import (StoneMaster, WorkerProcess, 
     Complaint,
     ComplaintLine,
     GatePass,
@@ -129,8 +129,23 @@ _register(CrudSpec(
     ],
 ))
 
+def _validate_account(values: dict, children: dict) -> str | None:
+    seen = set()
+    for n, r in enumerate(children.get("processes", []), start=1):
+        if not r.get("process_id"):
+            return f"Select Worker Process row {n}: choose the process (or remove the row)."
+        if r["process_id"] in seen:
+            return f"Select Worker Process row {n}: that process is already on the list."
+        seen.add(r["process_id"])
+        for k in ("allow_metal_loss_pct", "allow_stone_loss_pct"):
+            if not 0 <= float(r.get(k) or 0) < 100:
+                return f"Select Worker Process row {n}: a loss % is between 0 and 100."
+    return None
+
+
 _register(CrudSpec(
     key="master.account",
+    validate=_validate_account,
     title="Accounts",
     model=Account,
     order_by="name",
@@ -169,6 +184,23 @@ _register(CrudSpec(
               help_text="A karigar's process: HandMade, Setting, CASTING, PrePolish …"),
         Field("in_house", "In-house karigar", type="bool", default=False, in_list=False,
               help_text="Works inside the factory (dashboard: in-house vs out-house)."),
+        # A karigar's wastage per process, as the legacy "Select Worker Process"
+        # grid (17 Nov T-01): his receipts on that process start on it.
+        Field("processes", "Select Worker Process", type="child", in_list=False,
+              child=ChildSpec(
+                  model=WorkerProcess, fk_attr="account_id", order_by="id", height=150,
+                  row_template={"allow_metal_loss_pct": 0, "allow_stone_loss_pct": 0,
+                                "labour_price": 0},
+                  fields=[
+                      Field("process_id", "Process", type="fk", fk_model=ManufacturingProcess,
+                            fk_label=lambda p: p.name),
+                      Field("allow_metal_loss_pct", "Allow Metal Loss %", type="float",
+                            decimals=4),
+                      Field("allow_stone_loss_pct", "Allow Stone Loss %", type="float",
+                            decimals=4),
+                      Field("labour_price", "L Price", type="float", decimals=2),
+                  ],
+              )),
         Field("invoice_layout", "Sale Invoice Layout", type="choice",
               choices=["DEFAULT", "CLIENT"], default="DEFAULT", in_list=False,
               help_text="Tools ▸ Advance Options ▸ Print Layouts"),

@@ -930,6 +930,8 @@ class VoucherDialog(QDialog):
         self.hint.setWordWrap(True)
         form.addRow("", self.hint)
         self.step.currentIndexChanged.connect(lambda _i: self._step_changed())
+        # The karigar's own Allow Loss % for the process (17 Nov T-01).
+        self.worker.currentIndexChanged.connect(lambda _i: self._step_changed())
         self._step_changed()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save
                                    | QDialogButtonBox.StandardButton.Cancel)
@@ -946,7 +948,9 @@ class VoucherDialog(QDialog):
             step = next((st for st in job.steps if st.id == self.step.currentData()), None)
             if step is not None:
                 issue = production.open_issue(s, step) if self.kind == "receive" else None
-                self.allow.setValue(float(production.default_allow_loss_pct(s, step, issue)))
+                w = getattr(self, "worker", None)
+                self.allow.setValue(float(production.default_allow_loss_pct(
+                    s, step, issue, w.currentData() if w is not None else None)))
         self.allow.setEnabled(bearing)
         for w in (self.gross, self.net):
             w.setEnabled(bearing)

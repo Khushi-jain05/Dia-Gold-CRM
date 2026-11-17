@@ -334,6 +334,24 @@ class StoneInfo(Base, PKMixin, TimestampMixin):
         return f"{self.code} - {self.name}"
 
 
+class WorkerProcess(Base, PKMixin):
+    """A karigar's wastage and labour per process - the legacy Account master's
+    "Select Worker Process" grid (17 Nov T-01): DEEPAK HandMade 3.0000,
+    Setting 4.0000 Allow Metal Loss %. A receipt from this karigar on this
+    process starts on these figures."""
+
+    __tablename__ = "worker_processes"
+    __table_args__ = (UniqueConstraint("account_id", "process_id",
+                                       name="uq_worker_process"),)
+
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"),
+                                            index=True)
+    process_id: Mapped[int] = mapped_column(ForeignKey("manufacturing_processes.id"))
+    allow_metal_loss_pct: Mapped[float] = mapped_column(Numeric(9, 4), default=0)
+    allow_stone_loss_pct: Mapped[float] = mapped_column(Numeric(9, 4), default=0)
+    labour_price: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+
+
 class ManufacturingProcess(Base, PKMixin, TimestampMixin):
     """A production step, carrying its OWN loss-calculation basis.
 
