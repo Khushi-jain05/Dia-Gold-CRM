@@ -72,6 +72,11 @@ class InvVoucherLine(Base, PKMixin):
     price: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
     unit: Mapped[str] = mapped_column(String(8), default="Gms")
     amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    # Labour on a metal line, as the legacy Metal Purchase (17 Nov T-04):
+    # LPrice per L Unit (Gms / Pcs) -> L Amount, billed on top of the metal.
+    l_price: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+    l_unit: Mapped[str] = mapped_column(String(8), default="Gms")
+    l_amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     wastage_pct: Mapped[float] = mapped_column(Numeric(9, 4), default=0)
     wastage_wt: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
     job_no: Mapped[int | None] = mapped_column(nullable=True)

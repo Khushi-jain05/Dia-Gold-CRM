@@ -8,6 +8,12 @@ whole entry, or one part of it - "25007" for "25007 · NS-2740 · A B JEWELS",
 red and says so, and :func:`check` (run by every Save) refuses to save.
 Dates are typed too: no calendar pop-up.
 
+Number and date boxes (17 Nov T-04): on the client's Windows PC every box
+without spin arrows showed EMPTY - date, Pcs, Weight, Price - and a price
+typed in front of the hidden "0.00" read 133590 (Metal Purchase payable ten
+times too much). Their text field is kept the box's full width, and clicking
+or tabbing into one selects what is in it, so typing replaces it.
+
 Installed once on the QApplication (main.py); screens need no change.
 """
 from __future__ import annotations
@@ -17,7 +23,8 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox, QDateE
                                QDialog, QMessageBox, QWidget)
 
 MANUAL = "_manual_input"
-BAD = "manualBad"           # dynamic property the style sheet colours red
+BAD = "manualBad"
+_ENTERING = "_spin_entering"           # dynamic property the style sheet colours red
 _SEPARATORS = (" · ", " - ", " — ")
 
 QSS = """
@@ -190,9 +197,43 @@ def _accept(self: QDialog) -> None:
         _orig_accept(self)
 
 
+def _fit_edit(sb: QAbstractSpinBox) -> None:
+    """The spin box's text field spans the box (it collapsed to a sliver)."""
+    try:
+        le = sb.lineEdit()
+    except RuntimeError:          # the box is gone
+        return
+    if le is None or sb.width() < 8:
+        return
+    want = sb.width() - 8
+    if le.width() < want * 0.6 or le.height() < 8:
+        le.setGeometry(4, 1, want, max(sb.height() - 2, 12))
+
+
 class _Filter(QObject):
     def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt name
         et = ev.type()
+        if et in (QEvent.Type.Resize, QEvent.Type.Show) and isinstance(obj, QAbstractSpinBox):
+            QTimer.singleShot(0, lambda sb=obj: _fit_edit(sb))
+            return False
+        if et == QEvent.Type.Wheel and (isinstance(obj, QAbstractSpinBox)
+                                        or isinstance(obj.parent(), QAbstractSpinBox)):
+            # The wheel never changes a number / date (14 Nov: "data change
+            # hota hai har bar scroll karne par"); the page scrolls instead.
+            ev.ignore()
+            return True
+        if et == QEvent.Type.FocusIn and isinstance(obj, QAbstractSpinBox) \
+                and not obj.isReadOnly():
+            # Tab selects at once; a click selects when the button comes up
+            # (the press itself would put the cursor where it landed).
+            obj.setProperty(_ENTERING, ev.reason() == Qt.FocusReason.MouseFocusReason)
+            QTimer.singleShot(0, obj.selectAll)
+            return False
+        if et == QEvent.Type.MouseButtonRelease and isinstance(obj.parent(), QAbstractSpinBox) \
+                and obj.parent().property(_ENTERING):
+            obj.parent().setProperty(_ENTERING, False)
+            QTimer.singleShot(0, obj.parent().selectAll)
+            return False
         if et == QEvent.Type.Polish:
             if isinstance(obj, QComboBox):
                 make_manual(obj)
@@ -207,6 +248,13 @@ class _Filter(QObject):
         if et == QEvent.Type.Wheel:
             ev.ignore()
             return True
+        if et == QEvent.Type.KeyPress and ev.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # A form with a "List of ..." panel: Enter takes the first name
+            # it shows before the entry is checked (17 Nov T-04).
+            side = getattr(combo.window(), "side_list", None)
+            if side is not None:
+                side.take_first()
+            return False
         if et == QEvent.Type.KeyPress and (ev.key() in _BLOCK_KEYS or (
                 ev.key() == Qt.Key.Key_Down
                 and ev.modifiers() & Qt.KeyboardModifier.AltModifier)):

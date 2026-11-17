@@ -223,6 +223,8 @@ class CrudSpec:
     # Open the form over the whole screen (5 Nov T-05: the order's lines were
     # squeezed in a dialog).
     form_maximized: bool = False
+    # The legacy "List of ..." panel beside the form (17 Nov T-04).
+    side_list: bool = False
     # Lay the fields out in this many side-by-side columns (5 Nov T-11: the
     # Product SKU form took several scrolls in one long column). Sections
     # start a new group box: {"field name that starts it": "Title"}.
@@ -986,7 +988,18 @@ class FormDialog(QDialog):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        layout.addWidget(scroll, 1)
+        if spec.side_list:
+            from diagold.ui.side_list import SideList
+            row = QHBoxLayout()
+            row.setSpacing(0)
+            row.addWidget(scroll, 1)
+            fields = {f.name: f for f in spec.fields}
+            self.side_list = SideList(self, {w: fields[n].label for n, w in self.editors.items()
+                                             if isinstance(w, QComboBox)})
+            row.addWidget(self.side_list)
+            layout.addLayout(row, 1)
+        else:
+            layout.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -1017,6 +1030,21 @@ class FormDialog(QDialog):
         self._fit_to_screen(body)
         if spec.form_maximized:
             self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt name
+        """Enter moves to the next box, as in the legacy screens (17 Nov T-04:
+        typing a supplier's full name + Enter fired Save and the form closed)."""
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) \
+                and not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            w = QApplication.focusWidget()
+            if not isinstance(w, (QPushButton, QPlainTextEdit)):
+                side = getattr(self, "side_list", None)
+                if side is not None:
+                    side.take_first()
+                self.focusNextChild()
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def _build_shortcut_panel(self, body_layout) -> None:
         """List the shortcuts on the screen and bind every one of them."""

@@ -39,7 +39,11 @@ def _summary(material: str):
                   Decimal("0"))
         pcs = sum(int(r.get("pcs") or 0) for r in rows)
         unit = "g" if material == "metal" else "ct"
-        return f"{len(rows)} line(s) · {pcs} pcs · {wt:.3f} {unit} · amount {amt:,.2f}"
+        lab = sum((_dec(r.get("pcs") if (r.get("l_unit") or "").lower().startswith("pc")
+                        else r.get("weight")) * _dec(r.get("l_price")) for r in rows),
+                  Decimal("0"))
+        return (f"{len(rows)} line(s) · {pcs} pcs · {wt:.3f} {unit} · amount {amt:,.2f}"
+                + (f" · labour {lab:,.2f} · total {amt + lab:,.2f}" if lab else ""))
     return fn
 
 
@@ -48,6 +52,19 @@ def _fill_weight_amount(grid, row: int, _value) -> None:
     unit = (grid.cell_value(row, "unit") or "").lower()
     qty = grid.cell_value(row, "pcs") if unit.startswith("pc") else grid.cell_value(row, "weight")
     grid.set_cell_value(row, "amount", _dec(qty) * _dec(grid.cell_value(row, "price")))
+
+
+def _fill_amounts(grid, row: int, value) -> None:
+    _fill_weight_amount(grid, row, value)
+    if grid.cell_value(row, "l_price") is not None:
+        _fill_labour_amount(grid, row, value)
+
+
+def _fill_labour_amount(grid, row: int, _value) -> None:
+    """L Amount = LPrice x weight (or x pcs when L Unit is Pcs)."""
+    unit = (grid.cell_value(row, "l_unit") or "").lower()
+    qty = grid.cell_value(row, "pcs") if unit.startswith("pc") else grid.cell_value(row, "weight")
+    grid.set_cell_value(row, "l_amount", _dec(qty) * _dec(grid.cell_value(row, "l_price")))
 
 
 def voucher_spec(vr_type: str) -> CrudSpec:
@@ -93,12 +110,19 @@ def voucher_spec(vr_type: str) -> CrudSpec:
             Field("colour", "Colour", type="choice", choices=["Y", "W", "R", ""], default="Y"),
             Field("pcs", "Pcs", type="int"),
             Field("weight", "Weight (g)", type="float", decimals=3,
-                  on_change=_fill_weight_amount),
+                  on_change=_fill_amounts),
             Field("fine_wt", "Fine", type="float", decimals=3, readonly=True),
             Field("price", "Price", type="float", decimals=2, on_change=_fill_weight_amount),
             Field("unit", "Unit", type="choice", choices=["Gms"], default="Gms"),
             Field("amount", "Amount", type="float", decimals=2, readonly=True),
         ]
+        if vt.party in ("supplier", "customer"):
+            line_fields += [
+                Field("l_price", "LPrice", type="float", decimals=2,
+                      on_change=_fill_labour_amount),
+                Field("l_unit", "L Unit", type="choice", choices=["Gms", "Pcs"], default="Gms"),
+                Field("l_amount", "L Amount", type="float", decimals=2, readonly=True),
+            ]
         if vr_type == "metal_receipt":
             line_fields += [
                 Field("wastage_pct", "Wastage %", type="float", decimals=3),
@@ -263,7 +287,7 @@ def voucher_spec(vr_type: str) -> CrudSpec:
                     ("Register", lambda w, _s: _open_register(w))]
     return CrudSpec(
         key=f"inventory.{vr_type}", title=vt.title, model=InvVoucher, fields=head,
-        extra_buttons=buttons,
+        extra_buttons=buttons, side_list=True,
         order_by="-vr_no", date_field="vr_date", search_hint="Search by ref, narration…",
         editable=True, before_save=prepare, after_save=saved, validate=validate,
         warn=warn, before_delete=before_delete, fixed={"vr_type": vr_type},

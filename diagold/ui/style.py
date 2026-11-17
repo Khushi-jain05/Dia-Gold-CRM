@@ -246,8 +246,13 @@ QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QPlainTextEdit {{
     border-radius: 8px;
     padding: 5px 9px;
     min-height: 20px;
+    color: {TEXT};
     selection-background-color: {GOLD_SOFT};
+    selection-color: {TEXT};
 }}
+/* The text field inside a number / date box: dark text whatever the Windows
+   theme (17 Nov - white on white showed every such box empty). */
+QAbstractSpinBox QLineEdit {{ color: {TEXT}; selection-color: {TEXT}; }}
 QPlainTextEdit {{ min-height: 54px; }}
 QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
 QDoubleSpinBox:disabled, QDateEdit:disabled {{ background: #F0F0F2; color: {MUTED}; }}

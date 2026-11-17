@@ -123,6 +123,9 @@ def fill_line(session: Session, vr_type: str, row: dict[str, Any]) -> None:
             pct = _dec(row.get("wastage_pct"))
             if pct and not _dec(row.get("wastage_wt")):
                 row["wastage_wt"] = (_dec(row.get("weight")) * pct / 100).quantize(D3)
+        row["l_unit"] = row.get("l_unit") or "Gms"
+        row["l_amount"] = line_amount("metal", row.get("pcs"), row.get("weight"),
+                                      row.get("l_price"), row["l_unit"])
     else:
         row["unit"] = row.get("unit") or "Cts"
         pcs = int(row.get("pcs") or 0)
@@ -238,7 +241,8 @@ def post_accounts(session: Session, v: InvVoucher) -> None:
     sale = v.vr_type in SALE_TYPES
     if not (v.vr_type.endswith("_purchase") or sale):
         return
-    total = sum((_dec(l.amount) for l in v.lines), ZERO).quantize(Decimal("0.01"))
+    total = sum((_dec(l.amount) + _dec(l.l_amount) for l in v.lines),
+                ZERO).quantize(Decimal("0.01"))
     if not total or not v.account_id:
         return
     vt = VOUCHER_TYPES[v.vr_type]

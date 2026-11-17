@@ -121,6 +121,11 @@ with SessionLocal() as s:
     check("stone purchase amounts", [l.amount for l in sp.lines], [D("12960.00"), D("2000.00")])
     mp = inv(s, "metal_purchase", sup, [{"location_id": raj.id, "metal_id": m590.id, "colour": "Y", "weight": D("50"), "price": D("8680.67")}])
     check("metal purchase amount / fine", (mp.lines[0].amount, D(str(mp.lines[0].fine_wt)).quantize(D("0.001"))), (D("434033.50"), D("29.500")))
+    # 17 Nov T-04: SHRIKANT 200 g x 13,359 = 2,671,800 (legacy Vr 250); labour on top.
+    shri = Account(code="SHRIKANT-T", name="SHRIKANT T", account_type="Accounts", group_name="Accounts Payable"); s.add(shri); s.flush()
+    mpl = inv(s, "metal_purchase", shri, [{"location_id": prim.id, "metal_id": g24.id, "colour": "Y", "weight": D("200"), "price": D("13359"), "l_price": D("100")}])
+    from diagold.db.models import AccountEntry as AE
+    check("200 g x 13,359 = 2,671,800 + labour 100/g", (mpl.lines[0].amount, mpl.lines[0].l_amount, sum((e.credit for e in s.scalars(select(AE).where(AE.ref_kind == "metal_purchase", AE.ref_no == mpl.vr_no, AE.account_id == shri.id))), D(0))), (D("2671800.00"), D("20000.00"), D("2691800.00")))
     mi = inv(s, "metal_issue", chand, [{"location_id": raj.id, "metal_id": m590.id, "weight": D("2.000")}])
     check("issue fine", D(str(mi.lines[0].fine_wt)).quantize(D("0.001")), D("1.180"))
     check("500 g warns", bool(INV.shortfalls(s, "metal_issue", [{"location_id": raj.id, "metal_id": m590.id, "weight": D("500")}])), True)
