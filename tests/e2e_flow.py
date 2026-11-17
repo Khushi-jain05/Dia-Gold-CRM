@@ -881,6 +881,13 @@ with SessionLocal() as s:
     check("... and found by the SKU code", os.path.basename(other.photo), "NS-2740.png")
     SETI.set_setting(s, IMG.ROOTS_SETTING, ""); s.commit(); IMG.refresh(wait=True)
 
+    print("\n== N21. Sales Profit: cost = metal + stone + labour; a returned sale makes nothing (17 Nov T-09)")
+    from diagold.services import sales_reports as SRP
+    prow = SRP.sales_profit(s, *FY)
+    check("cost columns add up on every row", all(r["cost_amt"] == r["cost_metal"] + r["cost_stone"] + r["cost_labour"] + r["cost_other"] for r in prow), True)
+    check("a made piece's cost carries its metal", any(r["cost_metal"] > 0 for r in prow), True)
+    check("returned sales show profit 0", {r["profit"] for r in prow if r["ret"] == "Y"} <= {D(0)}, True)
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

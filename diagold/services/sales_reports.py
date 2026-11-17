@@ -112,13 +112,42 @@ def sales_return_register(session: Session, date_from: date,
             for l, v in _lines(session, ("rs_sale_return",), date_from, date_to)]
 
 
+def cost_parts(session: Session, item: StockItem | None,
+               sale_line: ReadyVoucherLine | None) -> dict[str, Decimal]:
+    """A sold piece's cost as metal, stone and labour (17 Nov T-09). From its
+    MFG transfer line, scaled to the piece; metal priced at 0 there (no Daily
+    Metal Rate that day - 12-11, cost 41,699.00 = the stones only) is taken at
+    the rate it was sold at, so the profit is not the whole metal value. A
+    bought / opening piece: its cost, as one figure."""
+    out = {"cost_metal": ZERO, "cost_stone": ZERO, "cost_labour": ZERO, "cost_other": ZERO}
+    if item is None:
+        return out
+    line = session.get(MfgTransferLine, item.line_id) if item.line_id else None
+    if line is None:
+        out["cost_other"] = _dec(item.cost)
+        return out
+    f = Decimal(item.pcs or 1) / Decimal(line.pcs or 1)
+    metal = (_dec(line.metal_amount) + _dec(line.ex_metal_amount)) * f
+    if not metal and sale_line is not None and _dec(item.net_wt):
+        metal = _dec(item.net_wt) * _dec(sale_line.metal_rate)
+    out["cost_metal"] = metal.quantize(D2)
+    out["cost_stone"] = ((_dec(line.stone_amount) + _dec(line.setting_amount)) * f).quantize(D2)
+    out["cost_labour"] = ((_dec(line.labour) + _dec(line.finding_labour)
+                           + _dec(line.manual_amount)) * f).quantize(D2)
+    return out
+
+
 def sales_profit(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
-    """Per sold piece: SALE AMT (the line total) vs COST AMT (the piece's
-    cost), PROFIT and PROFIT %. A piece that came back is marked RETURN Y."""
+    """Per sold piece: SALE AMT (the line total) vs COST AMT = metal + stone +
+    labour (17 Nov T-09), PROFIT and PROFIT %. A piece that came back is
+    marked RETURN Y and its profit counts 0 - the sale was undone."""
     rows = []
     for r in sales_register(session, date_from, date_to):
-        profit = r["total"] - r["cost"]
-        rows.append({**r, "sale_amt": r["total"], "cost_amt": r["cost"], "profit": profit,
+        parts = cost_parts(session, session.get(StockItem, r["_item_id"]) if r["_item_id"]
+                           else None, session.get(ReadyVoucherLine, r["_line_id"]))
+        cost = sum(parts.values(), ZERO)
+        profit = ZERO if r["ret"] == "Y" else r["total"] - cost
+        rows.append({**r, **parts, "sale_amt": r["total"], "cost_amt": cost, "profit": profit,
                      "profit_pct": (profit / r["total"] * 100).quantize(D2) if r["total"]
                      else None, "_negative": profit < 0})
     return rows

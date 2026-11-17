@@ -84,13 +84,16 @@ def specs() -> dict[str, ReportSpec]:
             columns=static([Col("date", "DATE"), Col("vrno", "VRNO"),
                             Col("particulars", "PARTICULARS"), Col("barcode", "STOCK ID"),
                             Col("sku", "SKU"), _p("pcs", "PCS"), _w("n_wt", "NET WT"),
-                            _m("sale_amt", "SALE AMT"), _m("cost_amt", "COST AMT"),
+                            _m("sale_amt", "SALE AMT"), _m("cost_metal", "METAL COST"),
+                            _m("cost_stone", "STONE COST"), _m("cost_labour", "LABOUR COST"),
+                            _m("cost_other", "OTHER COST"), _m("cost_amt", "COST AMT"),
                             _m("profit", "PROFIT"), Col("profit_pct", "PROFIT %", "measure", 2),
                             Col("ret", "RETURN")]),
             query=lambda s, a, b, **_k: SR.sales_profit(s, a, b), negative_key="_negative",
             group_by="particulars", filter_column="particulars", on_activate=open_job,
-            note="Each piece sold: its sale amount against its cost (the cost on the piece "
-                 "from MFG transfer or purchase). Loss-making sales in red."),
+            note="Each piece sold: its sale amount against its cost - metal, stone and labour "
+                 "from its MFG transfer (metal at the sale's rate where the transfer had none), "
+                 "or the purchase cost. A returned sale's profit is 0. Loss-making sales in red."),
         "purchase_sales": ReportSpec(
             key="purchase_sales", title="Purchase - Sales Analysis",
             columns=static([Col("pur_date", "PUR DATE"), Col("pur_vrno", "PUR VRNO"),
