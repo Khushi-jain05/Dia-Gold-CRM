@@ -762,8 +762,8 @@ class ReadyVoucherWidget(_Screen):
     def _reprice_chart(self) -> None:
         """Re-price the pieces on the voucher: chart prices when ticked, the
         standard prices when not. The metal rate typed stays."""
-        if self._edit_id is not None or not self.lines:
-            return
+        if self._edit_id is not None or not self.lines or self.vr_type in S.RETURN_OF:
+            return                  # a return keeps the values it went out at (17 Nov T-05)
         with SessionLocal() as s:
             chart = self._chart(s)
             if chart is None and self.chart_cb.isChecked():
@@ -792,7 +792,7 @@ class ReadyVoucherWidget(_Screen):
                     continue
                 if chart is not None:
                     info = PC.apply(s, chart, info)
-                v = S.value(info, _pydate(self.date), s)
+                v = S.return_value(s, self.vr_type, info, _pydate(self.date))
                 self.lines.append({**info, **v, "old_wt": D(0),
                                    "order_line_id": order_line_id or info.get("order_line_id")})
         self._render()

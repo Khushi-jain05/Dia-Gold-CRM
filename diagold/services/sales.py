@@ -177,6 +177,70 @@ def describe(session: Session, item: StockItem) -> dict[str, Any]:
     }
 
 
+# A return gives back what the piece went out at (17 Nov T-05): a piece sold at
+# 1,39,936.36 came back on a credit note re-priced at the day's rate - no rate
+# that day, so only its stones, 41,699.00 - and the party kept a false balance.
+RETURN_OF = {"rs_sale_return": "rs_sale", "rs_approval_return": "rs_approval"}
+_VALUE_FIELDS = ("metal_rate", "metal_amount", "fine_wt", "st_wt", "stone_amount",
+                 "setting_amount", "labour_rate", "labour_per", "labour", "other_amount", "total")
+
+
+def out_line(session: Session, vr_type: str, item_id: int,
+             before_line_id: int | None = None) -> ReadyVoucherLine | None:
+    """The sale / approval line a return line takes the piece back from."""
+    if vr_type not in RETURN_OF:
+        return None
+    q = select(ReadyVoucherLine).join(ReadyVoucher).where(
+        ReadyVoucherLine.stock_item_id == item_id, ReadyVoucher.vr_type == RETURN_OF[vr_type])
+    if before_line_id:
+        q = q.where(ReadyVoucherLine.id < before_line_id)
+    return session.scalars(q.order_by(ReadyVoucherLine.id.desc())).first()
+
+
+def out_values(line: ReadyVoucherLine) -> dict[str, Any]:
+    """A line's amounts as a return copies them."""
+    out = {k: getattr(line, k) for k in _VALUE_FIELDS}
+    out["stones"] = json.loads(line.stones_json or "[]")
+    return out
+
+
+def return_value(session: Session, vr_type: str, info: dict[str, Any], on_date: date,
+                 **kw) -> dict[str, Any]:
+    """A line's amounts: a return takes those it went out at, else ``value``."""
+    src = out_line(session, vr_type, info["stock_item_id"]) if info.get("stock_item_id") else None
+    if src is None:
+        return value(info, on_date, session, **kw)
+    return out_values(src)
+
+
+def fix_return_values(session: Session) -> list[str]:
+    """Once (17 Nov): a saved Sale / Approval Return priced at the day's rate
+    with no metal rate (so stones only) is re-valued at what its sale /
+    approval line was, and re-posted. Returns what changed."""
+    from diagold.services import settings
+    key = "backfill.return_values"
+    if settings.get_setting(session, key, "") == "1":
+        return []
+    changed: list[str] = []
+    for v in session.scalars(select(ReadyVoucher).where(
+            ReadyVoucher.vr_type.in_(tuple(RETURN_OF))).order_by(ReadyVoucher.id)).all():
+        lines: dict[int, dict[str, Any]] = {}
+        for l in v.lines:
+            src = out_line(session, v.vr_type, l.stock_item_id, l.id) if l.stock_item_id else None
+            if src is None or _dec(l.metal_rate) or not _dec(src.metal_rate) \
+                    or _money(l.total) == _money(src.total):
+                continue
+            lines[l.id] = out_values(src)
+        if lines:
+            old = _money(v.total)
+            update_ready(session, v, {}, lines)
+            changed.append(f"{READY_TYPES[v.vr_type].title} Vr {v.vr_no}: "
+                           f"{old:,.2f} -> {_money(v.total):,.2f}")
+    settings.set_setting(session, key, "1")
+    session.flush()
+    return changed
+
+
 def labour_amount(rate: Any, per: str, net: Any, pcs: Any) -> Decimal:
     """Labour = rate x N-Wt, or rate x pcs when the rate is per piece."""
     rate = _dec(rate)
@@ -577,8 +641,9 @@ def update_ready(session: Session, v: ReadyVoucher, head: dict[str, Any],
     total = ZERO
     for line in v.lines:
         ch = lines.get(line.id) or {}
-        for k in ("metal_rate", "metal_amount", "stone_amount", "setting_amount", "labour_rate",
-                  "labour_per", "labour", "other_amount", "total", "old_wt", "remark"):
+        for k in ("metal_rate", "metal_amount", "fine_wt", "st_wt", "stone_amount",
+                  "setting_amount", "labour_rate", "labour_per", "labour", "other_amount",
+                  "total", "old_wt", "remark"):
             if k in ch:
                 setattr(line, k, ch[k])
         if "stones" in ch:

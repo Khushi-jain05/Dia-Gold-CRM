@@ -254,21 +254,33 @@ with SessionLocal() as s:
     check("order shipped -> no longer pending", [r for r in S.pending_orders(s, kk.id) if r["ord_no"] == o.order_no], [])
     S.excel_invoice(s, sale, OUT + "/e2e_invoice.xlsx")
     check("approval analysis says Sold", [r["status"] for r in S.approval_analysis(s, *FY) if r["barcode"] == piece.stock_no], ["Sold"])
-    S.post_ready(s, "rs_sale_return", {"vr_date": T, "account_id": kk.id}, [line(piece)]); s.commit()
+    # 17 Nov T-05: a return credits what the piece was sold at, even on a day with no metal rate.
+    back = S.return_value(s, "rs_sale_return", S.describe(s, piece), T, metal_rate=0)
+    check("return takes the sold value, not the day's rate", (back["total"], back["metal_rate"]), (sale.lines[0].total, sale.lines[0].metal_rate))
+    from diagold.services import accounts as ACC
+    kk0 = ACC.balance(s, kk.id)
+    sr = S.post_ready(s, "rs_sale_return", {"vr_date": T, "account_id": kk.id}, [{**S.describe(s, piece), **back}]); s.commit()
+    check("sale + its return leave the party where it was", (kk0 - ACC.balance(s, kk.id)).quantize(D("0.01")), D(sale.total).quantize(D("0.01")))
     check("sale return -> in stock", piece.status, "in_stock")
     check("order pending again after return", [r["bal_pcs"] for r in S.pending_orders(s, kk.id) if r["ord_no"] == o.order_no], [1])
     # 16 Nov: a Cash-mode sale is not cash yet - only its Receipt is (AANAND JEWELS).
-    from diagold.services import accounts as ACC
     cs = S.post_ready(s, "rs_sale", {"vr_date": T, "account_id": kk.id, "mode": "Cash"}, [line(piece)]); s.commit()
     check("cash-mode sale: no cash in yet", [r for r in ACC.cash_flow(s, T, T) if r["vrtype"] == "RS" and r["vrno"] == cs.vr_no], [])
     check("cash-mode sale is a pending bill", any(b.no == cs.vr_no and b.kind == "rs_sale" for b in ACC.bills(s, kk.id, "receivable")), True)
     rc = ACC.post_voucher(s, "receipt", {"vr_date": T, "account_id": kk.id, "mode": "Cash", "amount": D("20000")}); s.commit()
     check("cash flow = the receipt only", [(r["kind"], r["cash_in"]) for r in ACC.cash_flow(s, T, T) if r["vrno"] in (cs.vr_no, rc.vr_no) and r["kind"] in ("Cash sale", "Cash received")], [("Cash received", D("20000"))])
-    S.post_ready(s, "rs_sale_return", {"vr_date": T, "account_id": kk.id}, [line(piece)]); s.commit()
+    bad = S.post_ready(s, "rs_sale_return", {"vr_date": T, "account_id": kk.id}, [line(piece, 0)]); s.commit()
     check("back in stock after the cash-mode sale", piece.status, "in_stock")
+    from diagold.services import settings as SET
+    SET.set_setting(s, "backfill.return_values", "")
+    fixed = S.fix_return_values(s); s.commit(); s.refresh(bad)
+    check("a return saved at stones only is re-valued once to the sale", (len(fixed), bad.total), (1, cs.total))
+    check("... and its posting follows", sum((e.credit for e in s.scalars(select(AccountEntry).where(AccountEntry.ref_kind == "rs_sale_return", AccountEntry.ref_no == bad.vr_no, AccountEntry.account_id == kk.id))), D(0)), cs.total)
 
     print("\n== H. Repair")
+    e0 = s.scalar(select(func.count()).select_from(AccountEntry))
     rv = S.post_ready(s, "rs_repair_issue", {"vr_date": T, "account_id": mb.id}, [line(piece)]); s.commit()
+    check("Ready Repair Issue posts nothing to the accounts", s.scalar(select(func.count()).select_from(AccountEntry)), e0)
     check("repair register: out", [r["status"] for r in S.repair_register(s, *FY)], ["Out for repair"])
     S.delete_ready(s, rv); s.commit()
     check("repair issue deleted -> in stock", piece.status, "in_stock")

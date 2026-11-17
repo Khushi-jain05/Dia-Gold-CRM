@@ -1,11 +1,15 @@
 """SQLAlchemy engine / session setup."""
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from diagold.config import DATABASE_URL, IS_SERVER, SQL_ECHO
+
+log = logging.getLogger(__name__)
 
 if IS_SERVER:
     # Several PCs share the one SQL Server database. pre_ping drops a
@@ -146,6 +150,9 @@ def init_db() -> None:
         backfill_nominals(session)    # Sales / Purchase A/c entries get their account
         from diagold.services.accounts import unsettle_cash_sales
         unsettle_cash_sales(session)  # a Cash-mode sale is paid by its Receipt (16 Nov)
+        from diagold.services.sales import fix_return_values
+        for line in fix_return_values(session):  # returns at the sold value (17 Nov T-05)
+            log.info("re-valued %s", line)
         from diagold.services.production import backfill_setting_types
         backfill_setting_types(session)  # setting type from the stone; labour re-worked
         from diagold.services.master_import import seed_master_sheet
