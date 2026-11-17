@@ -26,6 +26,7 @@ from PySide6.QtCore import (
     QObject,
     Qt,
     QThread,
+    QTimer,
     Signal,
 )
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut
@@ -124,6 +125,9 @@ class ReportSpec:
     # Columns a picker makes redundant once it is set: one worker chosen, the
     # GROUP / WORKER columns go (5 Nov T-08, statement style).
     picker_hides: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # A picker whose list opens first ("Select Any One", the legacy ledger;
+    # 17 Nov T-10): type a few letters, Enter / double-click picks.
+    pick_first: str = ""
     pickers: list[tuple[str, str, Callable[[Any], list[tuple[Any, str]]]]] = field(
         default_factory=list)
     # Ctrl+G draws this chart instead of opening Group (the legacy ledger graph):
@@ -620,6 +624,8 @@ class ReportWidget(QWidget):
         self.btn_run.clicked.connect(self.run)
         head.addWidget(self.btn_run)
         outer.addLayout(head)
+        if spec.pick_first in self.picker_boxes:
+            QTimer.singleShot(0, self._select_any_one)
 
         row2 = QHBoxLayout()
         row2.setSpacing(6)
@@ -796,6 +802,46 @@ class ReportWidget(QWidget):
                 cb.setCurrentIndex(i)
 
     # -- running ----------------------------------------------------------
+    def _select_any_one(self) -> None:
+        """The legacy "Select Any One" list over the report: type to narrow,
+        Enter or double-click opens the report for that one; Esc shows all."""
+        cb = self.picker_boxes[self.spec.pick_first]
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Select Any One")
+        lay = QVBoxLayout(dlg)
+        find = QLineEdit()
+        find.setPlaceholderText("Type a few letters…")
+        lst = QListWidget()
+        lay.addWidget(find)
+        lay.addWidget(lst, 1)
+        items = [(i, cb.itemText(i)) for i in range(cb.count())
+                 if cb.itemData(i) not in (None, "")]
+
+        def fill(text: str = "") -> None:
+            lst.clear()
+            want = text.strip().casefold()
+            hits = [(i, label) for i, label in items if not want or want in label.casefold()]
+            hits.sort(key=lambda h: not h[1].casefold().startswith(want))  # "CHAN" -> CHAND… first
+            for i, label in hits:
+                it = QListWidgetItem(label)
+                it.setData(Qt.ItemDataRole.UserRole, i)
+                lst.addItem(it)
+            if lst.count():
+                lst.setCurrentRow(0)
+
+        def take(*_a) -> None:
+            it = lst.currentItem()
+            if it is not None:
+                cb.setCurrentIndex(int(it.data(Qt.ItemDataRole.UserRole)))
+            dlg.accept()
+
+        find.textChanged.connect(fill)
+        find.returnPressed.connect(take)
+        lst.itemActivated.connect(take)
+        fill()
+        dlg.resize(360, 460)
+        dlg.open()            # not modal-blocking: the report stays usable behind it
+
     def run(self) -> None:
         if self._thread is not None:
             self._detach()          # let the old run finish on its own, ignored
@@ -1717,10 +1763,11 @@ def _worker_ledger_q(s, a, b, worker="", vrtype="", metal="", **_k) -> list[dict
 
 
 def _ledger_as_on_today(w: "ReportWidget") -> None:
-    """Every karigar's closing weight and fine as on today."""
+    """Every karigar's closing fine as on today, head-wise - Ghat, Setting,
+    Outside, Polish, Other - each head subtotalled (14 Nov: "dept wise")."""
     from diagold.ui.production import show_in_dialog
-    show_in_dialog(w, ReportWidget(build_specs()["worker_metal_balance"], w.user),
-                   "Worker Metal Balance — as on today", (1000, 600))
+    show_in_dialog(w, ReportWidget(build_specs()["worker_fine_by_head"], w.user),
+                   "Worker Fine Balance (Dept Wise) — as on today", (1000, 600))
 
 
 def build_specs() -> dict[str, ReportSpec]:
@@ -2148,7 +2195,7 @@ def build_specs() -> dict[str, ReportSpec]:
             group_by="worker", filter_column="group",
             on_activate=lambda w, r: w.open_job(r),
             actions=[("As on Today", "", _ledger_as_on_today)],
-            picker_hides={"worker": ("group", "worker")},
+            picker_hides={"worker": ("group", "worker")}, pick_first="worker",
             note="The karigar's metal account. Inward = net weight issued on a job step; "
                  "outward = net weight received back plus scrap and dust; LOSSWT = what "
                  "was actually lost; ALW L WT = Allow Loss % of the net received. BALANCE "
