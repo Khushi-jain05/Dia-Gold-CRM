@@ -1562,6 +1562,13 @@ class ProcessVoucherWidget(_Screen):
 
     def _worker_changed(self) -> None:
         wid = self.worker.currentData()
+        if wid and getattr(self, "_edit_vr", None) is not None and self.lines:
+            # Editing: the lines' From follows the karigar picked (17 Nov T-11).
+            with SessionLocal() as s:
+                acc = s.get(Account, wid)
+            for ln in self.lines:
+                ln["worker"] = acc.name if acc else ln.get("worker")
+            self._render()
         if not wid:
             self.mt_bal.setText("")
             return
@@ -1994,8 +2001,9 @@ class ProcessVoucherWidget(_Screen):
                     vr_time=self.time.text().strip(), ref_no=self.vr_ref.text().strip(),
                     remark=self.narration.text().strip(),
                     user_id=getattr(self.user, "id", None),
-                    worker_id=new_worker if new_worker and new_worker != getattr(
-                        self, "_edit_worker", None) else None)
+                    # Always the header's karigar: a pair left split (receipt
+                    # on one karigar, issue on another) comes together (17 Nov T-11).
+                    worker_id=new_worker or None)
                 s.commit()
             except ProductionError as exc:
                 s.rollback()

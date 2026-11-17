@@ -785,6 +785,14 @@ with SessionLocal() as s:
     check("receipt and its issue now on RAHUL", (rcvA.worker_id, issA.worker_id), (rahul.id, rahul.id))
     c1, r1 = P.worker_metal_balance(s, chand.id, T)[0], P.worker_metal_balance(s, rahul.id, T)[0]
     check("the step's 0.200 balance moves from CHAND to RAHUL", (D(str(c0 - c1)).quantize(D("0.001")), D(str(r1 - r0)).quantize(D("0.001"))), (D("0.200"), D("0.200")))
+    # 17 Nov T-11: a pair left split (receipt on RAHUL, issue on CHAND - Vr 54)
+    # comes together when the receipt is saved on RAHUL again.
+    issA.worker_id = chand.id; s.flush()
+    P.update_voucher(s, vrA, {}, worker_id=rahul.id)
+    check("split pair: saving the receipt on RAHUL brings its issue along", s.get(JobVoucher, rcvA.issue_id).worker_id, rahul.id)
+    # ... and a step issued to one karigar is received from that karigar only.
+    goA("issue", rahul, D("9.800"))
+    refused("receive from a karigar it was not issued to", lambda: goA("receive", chand, D("9.700")))
     s.rollback()
 
     print("\n== N17. Net = Gross - stones in the piece / 5 (5 Nov T-02)")

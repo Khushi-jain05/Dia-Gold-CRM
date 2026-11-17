@@ -703,6 +703,18 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
                 "Nothing is out on this step - issue it to a worker before "
                 "receiving it back."
             )
+        # Work issued to one karigar is received from that karigar (17 Nov
+        # T-11: Vr 54 went on SUBROTO PALASH while job 25007 was out with
+        # SUBROTO MAITI, and PALASH's Mt Bal fell to -91.763).
+        if worker_id is None:
+            worker_id = issue_ref.worker_id
+        elif issue_ref.worker_id and issue_ref.worker_id != worker_id:
+            who = session.get(Account, issue_ref.worker_id)
+            proc = session.get(ManufacturingProcess, step.process_id)
+            raise ProductionError(
+                f"Job {job.job_no} {proc.name if proc else ''} was issued to "
+                f"{who.name if who else 'another karigar'} (Vr {issue_ref.vr_no}) - receive it "
+                "from that karigar, or change the karigar on the issue first.")
     else:
         issued, out, open_ = step_shares(session, job, step)
         total = _dec(job.pcs or 1)
@@ -1957,6 +1969,13 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
         if out is None:
             raise ProductionError(f"Job {job.job_no}: nothing is out on this step - "
                                   "issue it before receiving it back.")
+        if worker_id and out.worker_id and out.worker_id != worker_id:
+            other = session.get(Account, out.worker_id)
+            proc = session.get(ManufacturingProcess, step.process_id)
+            raise ProductionError(
+                f"Job {job.job_no} {proc.name if proc else ''} was issued to "
+                f"{other.name if other else 'another karigar'} (Vr {out.vr_no}) - receive it "
+                "from that karigar, or change the karigar on the issue first (17 Nov).")
         who = out.worker_id
     stones = {k: stone_spec(v) for k, v in (ln.get("stones") or {}).items()}
     lines = {l.id: l for l in session.scalars(select(JobBagLine).where(
@@ -2214,7 +2233,7 @@ def update_voucher(session: Session, vr_no: int, lines: dict[int, dict[str, Any]
         if session.get(Account, worker_id) is None:
             raise ProductionError("The worker is not on the Account master.")
         for v in rows:
-            if v.worker_id != worker_id:
+            if not _pair_on(session, v, worker_id):
                 _move_to_worker(session, v, worker_id)
     for v in rows:
         step = session.get(JobStep, v.step_id)
@@ -2269,11 +2288,33 @@ def update_voucher(session: Session, vr_no: int, lines: dict[int, dict[str, Any]
     return rows
 
 
+def _issue_of(session: Session, receive: JobVoucher) -> JobVoucher | None:
+    """The issue a receipt closes: its link, else the job's last issue on the
+    same step before it."""
+    if receive.issue_id:
+        return session.get(JobVoucher, receive.issue_id)
+    return session.scalars(select(JobVoucher).where(
+        JobVoucher.kind == "issue", JobVoucher.job_id == receive.job_id,
+        JobVoucher.step_id == receive.step_id, JobVoucher.id < receive.id)
+        .order_by(JobVoucher.id.desc())).first()
+
+
+def _pair_on(session: Session, v: JobVoucher, worker_id: int) -> bool:
+    """The voucher and the other half of its issue / receive pair are both on
+    ``worker_id``."""
+    if v.worker_id != worker_id:
+        return False
+    if v.kind == "receive":
+        issue = _issue_of(session, v)
+        return issue is None or issue.worker_id == worker_id
+    return all(r.worker_id == worker_id for r in session.scalars(select(JobVoucher).where(
+        JobVoucher.kind == "receive", JobVoucher.issue_id == v.id)))
+
+
 def _move_to_worker(session: Session, v: JobVoucher, worker_id: int) -> None:
     """Put one issue / receive pair, and the stones that went with it, on
     ``worker_id``."""
-    issue = v if v.kind == "issue" else (session.get(JobVoucher, v.issue_id)
-                                         if v.issue_id else None)
+    issue = v if v.kind == "issue" else _issue_of(session, v)
     pair = [v]
     if issue is not None:
         pair = [issue] + list(session.scalars(select(JobVoucher).where(
