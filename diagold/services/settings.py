@@ -167,6 +167,11 @@ SETTINGS_TREE: tuple[Setting, ...] = (
             "Comma-separated process names whose receipt may be saved with no gross / net "
             "even when the issue was weighed (19 Oct meeting: \"casting me metal receive "
             "don't mandatory\"). The next process then goes out at the last weight"),
+    Setting("Production Planning", "pp.repair_start_process",
+            "A repair job's route starts at", "text", "HandMade",
+            "Job Mapping on a repair job (a sold piece back on a Repair order) drops the "
+            "group's steps before this process - the legacy repair job 30283 went "
+            "HM CLR PP ST FP fs Meena Puwai, pending at HandMade (17 Nov). Blank = whole group"),
     Setting("Production Planning", "pp.jobs_on_order_save",
             "Allot jobs when the order is saved", "bool", "0",
             "Off = the legacy way (12 Oct video): an order's lines wait in Production - "

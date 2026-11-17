@@ -1528,11 +1528,25 @@ def _validate_order(values: dict, children: dict[str, list[dict]]) -> str | None
     return None
 
 
-def _warn_order(values: dict, children: dict, _session) -> str | None:
+def _warn_order(values: dict, children: dict, session) -> str | None:
     """A delivery date before the order date (5 Nov R23: order 2026-10-10,
-    delivery 2024-10-10 went through) - asked, not refused."""
+    delivery 2024-10-10 went through) - asked, not refused. A repair line
+    typed in rather than picked on Repair List (17 Nov T-06: Order 3's job
+    25007 came out 18KT, new weights, CAD -> CASTING, no link to the piece)."""
     od = values.get("order_date")
     bad = []
+    if values.get("is_repair"):
+        loose = []
+        for n, r in enumerate(children.get("lines", []), start=1):
+            line = session.get(OrderLine, r["id"]) if r.get("id") else None
+            if line is None or not line.stock_item_id:
+                loose.append(str(n))
+        if loose:
+            return (f"Repair order line {', '.join(loose)} is not a piece picked on Repair "
+                    "List, so its job starts as a new piece (the SKU's metal, no weights, "
+                    "stones or C-Ref, the whole route).\n\nTo repair a sold piece: Sale "
+                    "Return, Ready Repair Issue, then save the order with no line and use "
+                    "Repair List.")
     if od and values.get("delivery_date") and values["delivery_date"] < od:
         bad.append(f"Delivery Date {values['delivery_date']:%d-%m-%Y}")
     for n, r in enumerate(children.get("lines", []), start=1):
@@ -1584,7 +1598,7 @@ def _order_repair_list(widget, order) -> None:
                                 "Repair - edit it, tick Repair and Save first.")
         return
     with SessionLocal() as s:
-        rows = sales.repair_stock(s)
+        rows = sales.repair_stock(s, order.account_id)
     dlg = PiecePicker(rows, f"Repair Stock — Order {order.order_no}", widget)
     if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.picked():
         return

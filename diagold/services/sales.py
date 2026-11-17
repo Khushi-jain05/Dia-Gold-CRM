@@ -935,11 +935,17 @@ def repair_register(session: Session, date_from: date, date_to: date) -> list[di
 # --------------------------------------------------------------------------
 # Repair order: Repair List (2 Oct §4.11, T-10)
 # --------------------------------------------------------------------------
-def repair_stock(session: Session) -> list[dict[str, Any]]:
-    """The Repair Stock picker: pieces in stock or already out for repair."""
+def repair_stock(session: Session, account_id: int | None = None) -> list[dict[str, Any]]:
+    """The Repair Stock picker: pieces in stock or already out for repair -
+    those issued to repair for this client first (17 Nov T-06: the legacy
+    Repair List shows the client's REP pieces)."""
     q = select(StockItem).where(StockItem.status.in_(("in_stock", "in_repair"))).order_by(
         StockItem.stock_no)
-    return [describe(session, i) for i in session.scalars(q)]
+    items = list(session.scalars(q))
+    items.sort(key=lambda i: (0 if i.status == "in_repair" and account_id
+                              and i.holder_account_id == account_id
+                              else 1 if i.status == "in_repair" else 2))
+    return [describe(session, i) for i in items]
 
 
 def attach_repair_pieces(session: Session, order: Order, item_ids: list[int],
@@ -960,9 +966,12 @@ def attach_repair_pieces(session: Session, order: Order, item_ids: list[int],
         rate = production.metal_price(session, info["metal_id"], on_date or date.today())
         pcs = max(int(item.pcs or 1), 1)
         sno += 1
+        # C-Ref = the job the piece was made on (legacy: Order 2036's line
+        # carries C-Ref 29796, the original job).
+        c_ref = str(info["job_no"]) if info.get("job_no") else info["c_ref"]
         session.add(OrderLine(
             order_id=order.id, sno=sno, product_sku_id=item.product_sku_id,
-            sku_desc=info["sku"], c_ref=info["c_ref"], metal_id=info["metal_id"],
+            sku_desc=info["sku"], c_ref=c_ref, metal_id=info["metal_id"],
             colour=info["colour"], size=info["size"], pcs=pcs,
             net_wt_per_pcs=(_dec(item.net_wt) / pcs).quantize(D3),
             tot_gross_wt=_dec(item.gross_wt), metal_rate_unit=f"{rate}",

@@ -302,6 +302,16 @@ with SessionLocal() as s:
     s.refresh(piece)
     check("repair job keeps old stock no; old piece out of stock", (rj.old_stock_no, piece.status), (piece.stock_no, "repair_job"))
     check("old weights kept", (D(str(rj.old_gross_wt)), D(str(rj.old_net_wt))), (D(str(piece.gross_wt)), D(str(piece.net_wt))))
+    # 17 Nov T-06: the line carries the original job as C-Ref, the first issue the piece's
+    # weights, and the route starts at the repair process (legacy job 30283: pending at HandMade).
+    rl = s.scalar(select(OrderLine).where(OrderLine.order_id == ro.id))
+    check("repair line C-Ref = the job the piece was made on", rl.c_ref, str(s.get(Job, piece.job_id).job_no) if piece.job_id else rl.c_ref)
+    check("repair job's first issue goes out at the piece's weights", P.last_weights(s, rj), (D(str(piece.gross_wt)), D(str(piece.net_wt))))
+    P.map_job(s, rj, "Default", T); s.flush(); s.refresh(rj)
+    route = [s.get(ManufacturingProcess, st.process_id).name for st in rj.steps]
+    check("repair route starts at HandMade - no CAD / CASTING", (route[0], "CAD" in route), ("HandMade", False))
+    s.rollback()
+    rj = s.scalar(select(Job).where(Job.order_id == ro.id))
     refused("sell a piece that is in a repair job", lambda: S.post_ready(s, "rs_sale", {"vr_date": T, "account_id": kk.id}, [line(piece)]))
     s.rollback()
     check("WIP Repair Items lists it", [(r["job_no"], r["old_stock_no"]) for r in REP.wip_repair_items(s, *FY)], [(rj.job_no, piece.stock_no)])

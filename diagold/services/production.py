@@ -500,6 +500,15 @@ def map_job(session: Session, job: Job, group_name: str,
             f"Process group '{group_name}' has no steps. Add them under "
             "Master > Set Default Process first."
         )
+    if job.repair_item_id:
+        # A repaired piece is already made: its route starts at the repair
+        # process, not at CAD (17 Nov T-06: job 25007 went CAD -> CASTING).
+        from diagold.services import settings
+        first = (settings.opt("pp.repair_start_process", session) or "").strip().lower()
+        at = next((i for i, p in enumerate(processes) if p.name.strip().lower() == first),
+                  None)
+        if at:
+            processes = processes[at:]
     start = start or job.prod_date or date.today()
     rows = [
         {"process_id": p.id,
@@ -1756,6 +1765,13 @@ def last_weights(session: Session, job: Job) -> tuple[Decimal | None, Decimal | 
         .order_by(JobVoucher.vr_date.desc(), JobVoucher.vr_time.desc(), JobVoucher.id.desc())
     ).first()
     if v is None:
+        if job.repair_item_id:
+            # A repair job's first issue goes out at the piece as it came in
+            # (17 Nov T-06: 48.019 / 39.787).
+            from diagold.db.models import StockItem
+            item = session.get(StockItem, job.repair_item_id)
+            if item is not None:
+                return _dec(item.gross_wt), _dec(item.net_wt)
         return None, None
     if v.kind == "receive":
         issue = session.get(JobVoucher, v.issue_id) if v.issue_id else None
