@@ -1,4 +1,4 @@
-# 17 Nov testing review - task status (v0.13.0)
+# 17 Nov testing review - task status (v0.13.1)
 
 Source: `Dia_Gold_Meeting5_Testing_Feedback_Sales_Repair_Ledger_17Nov2026.pdf` (JewelleryERP_26).
 
@@ -21,4 +21,8 @@ Source: `Dia_Gold_Meeting5_Testing_Feedback_Sales_Repair_Ledger_17Nov2026.pdf` (
 | T-15 Recording | Team | Meet's Record meeting or headphones; 30 s test. |
 | T-16 WhatsApp notes | Done | Re-price (F6) on Ready Stock Sale; the rest shipped 16 Nov (v0.11.7-v0.12.0). |
 
-Tests: e2e 220/220, ns1430 30/30, abhijeet_das all rows match, 217 screens opened with no error.
+**v0.13.1 follow-ups:** Issue screen re-reads Allow Loss % when the karigar changes (asks before replacing a typed one) and shows Last G-Wt / N-Wt; Sale Return "For Repair" tick (those pieces head Ready Repair Issue); repair job shows the original order's remark; Item Search shows ORD between RI and the repair job; Image folders "Check" button; Pending For photo enlarges; MFG Transfer Day Book DIA / POL / CS pcs, carats and value.
+
+Still open (needs the client): legacy Select Worker Process import (C-01); use of Allow Stone Loss % and L Price (Q144-145); repair return billing (Q148); issue net with stones (Q150); legacy report layouts as-is (C-05); Stock Transfer "same format" - the WhatsApp screenshot cannot be read, the stone line already follows the purchase layout (SSKU + Size); "No Ready Stock Sale saved yet" in one copy (C-06).
+
+Tests: e2e 222/222, ns1430 30/30, abhijeet_das all rows match, 217 screens opened with no error.
