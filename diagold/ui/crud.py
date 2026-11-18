@@ -223,8 +223,9 @@ class CrudSpec:
     # Open the form over the whole screen (5 Nov T-05: the order's lines were
     # squeezed in a dialog).
     form_maximized: bool = False
-    # The legacy "List of ..." panel beside the form (17 Nov T-04).
-    side_list: bool = False
+    # The legacy "List of ..." panel beside the form (17 Nov T-04) - on every
+    # New / Edit form, as on the Inventory vouchers (18 Nov).
+    side_list: bool = True
     # Lay the fields out in this many side-by-side columns (5 Nov T-11: the
     # Product SKU form took several scrolls in one long column). Sections
     # start a new group box: {"field name that starts it": "Title"}.
