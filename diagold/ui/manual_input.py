@@ -14,6 +14,9 @@ typed in front of the hidden "0.00" read 133590 (Metal Purchase payable ten
 times too much). Their text field is kept the box's full width, and clicking
 or tabbing into one selects what is in it, so typing replaces it.
 
+Beside the box being typed in, the legacy "List of ..." panel shows the
+entries - those starting with what is typed first (ui/side_list.py, 18 Nov).
+
 Installed once on the QApplication (main.py); screens need no change.
 """
 from __future__ import annotations
@@ -254,6 +257,9 @@ class _Filter(QObject):
             side = getattr(combo.window(), "side_list", None)
             if side is not None:
                 side.take_first()
+            else:
+                from diagold.ui.side_list import take_first
+                take_first(combo)
             return False
         if et == QEvent.Type.KeyPress and (ev.key() in _BLOCK_KEYS or (
                 ev.key() == Qt.Key.Key_Down
@@ -279,3 +285,6 @@ def install(app: QApplication) -> None:
     QDialog.accept = _accept
     _installed = _Filter(app)
     app.installEventFilter(_installed)
+    # The "List of ..." beside every pick box (18 Nov).
+    from diagold.ui import side_list
+    side_list.install(app)
