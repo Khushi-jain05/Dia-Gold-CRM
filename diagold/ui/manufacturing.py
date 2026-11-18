@@ -55,6 +55,7 @@ from diagold.ui.production import (
     _warn,
     show_in_dialog,
 )
+from diagold.ui import photo_cache
 
 EDIT_TINT = TINT_RECEIVE
 
@@ -218,7 +219,7 @@ class PendingForDialog(QDialog):
     def _show_photo(self) -> None:
         sel = self.table.selectionModel().selectedRows()
         path = self.rows[sel[0].row()].get("_photo") if sel else ""
-        pix = QPixmap(path) if path else QPixmap()
+        pix = photo_cache.load(path)
         if pix.isNull():
             self.photo.setPixmap(QPixmap())
             self.photo.setText("no photo")
@@ -230,7 +231,7 @@ class PendingForDialog(QDialog):
     def _enlarge(self) -> None:
         sel = self.table.selectionModel().selectedRows()
         path = self.rows[sel[0].row()].get("_photo") if sel else ""
-        pix = QPixmap(path) if path else QPixmap()
+        pix = photo_cache.load(path)
         if pix.isNull():
             return
         from diagold.ui.production import show_in_dialog
@@ -1220,7 +1221,7 @@ class ItemSearchWidget(_Screen):
             chain = _rep.chain_text(s, it)
             self._photo_path = d["sku"].photo \
                 if d["sku"] else ""
-            pix = QPixmap(self._photo_path) if self._photo_path else QPixmap()
+            pix = photo_cache.load(self._photo_path)
             if pix.isNull():
                 self.photo.setPixmap(QPixmap())
                 self.photo.setText("no photo")
@@ -1285,7 +1286,7 @@ class ItemSearchWidget(_Screen):
             self.open_requested.emit("production_planning.job_history")
 
     def _enlarge(self) -> None:
-        pix = QPixmap(self._photo_path) if self._photo_path else QPixmap()
+        pix = photo_cache.load(self._photo_path)
         if pix.isNull():
             return
         lbl = QLabel()
@@ -1637,7 +1638,7 @@ class ProcessVoucherWidget(_Screen):
                 job = s.get(Job, self.lines[rows[0].row()]["_job_id"])
                 sku = job.product_sku if job else None
                 path = sku.photo if sku else ""
-        pix = QPixmap(path) if path else QPixmap()
+        pix = photo_cache.load(path)
         self._photo_path = path if not pix.isNull() else ""
         if pix.isNull():
             self.photo.setPixmap(QPixmap())
@@ -1653,7 +1654,7 @@ class ProcessVoucherWidget(_Screen):
         from diagold.ui.production import show_in_dialog
         big = QLabel()
         big.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        big.setPixmap(QPixmap(self._photo_path).scaled(
+        big.setPixmap(photo_cache.load(self._photo_path).scaled(
             720, 720, Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation))
         show_in_dialog(self, big, "Photo", (760, 760))

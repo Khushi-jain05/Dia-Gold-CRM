@@ -80,6 +80,7 @@ from diagold.services import documents, production, rates, settings
 from diagold.services.production import ProductionError
 from diagold.ui.confirm import confirm_save
 from diagold.ui.crud import ROW_HEIGHT, CrudWidget, auto_fit, fill_width
+from diagold.ui import photo_cache
 
 # Legacy colour cues (UX1, UX3) - kept as tints so the text stays readable.
 TINT_ISSUE = QColor("#FBE7E7")
@@ -450,7 +451,7 @@ class JobHeaderCard(QFrame):
             return
         big = QLabel()
         big.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        big.setPixmap(QPixmap(self._photo_path).scaled(
+        big.setPixmap(photo_cache.load(self._photo_path).scaled(
             720, 720, Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation))
         show_in_dialog(self, big, "Photo", (760, 760))
@@ -491,7 +492,7 @@ class JobHeaderCard(QFrame):
         for k, v in vals.items():
             self.values[k].setText(v or "—")
         path = sku.photo if sku else ""
-        pix = QPixmap(path) if path else QPixmap()
+        pix = photo_cache.load(path)
         self._photo_path = path if not pix.isNull() else ""
         self.photo.setCursor(Qt.CursorShape.PointingHandCursor if self._photo_path
                              else Qt.CursorShape.ArrowCursor)

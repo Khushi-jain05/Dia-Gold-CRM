@@ -28,6 +28,7 @@ from diagold.db.session import SessionLocal
 from diagold.services import job_costing as JC
 from diagold.ui.crud import auto_fit
 from diagold.ui.reports import Col, ReportSpec, ReportWidget, static
+from diagold.ui import photo_cache
 
 GROUP_COLS = ("dia_amt", "polki_amt", "cs_amt", "setting", "std")
 
@@ -139,7 +140,7 @@ class CostingSheetDialog(QDialog):
         self.photo.setObjectName("ImageSlot")
         self.photo.setFixedSize(110, 110)
         self.photo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pix = QPixmap(sh.photo) if sh.photo else QPixmap()
+        pix = photo_cache.load(sh.photo)
         if not pix.isNull():
             self.photo.setPixmap(pix.scaled(110, 110, Qt.AspectRatioMode.KeepAspectRatio,
                                             Qt.TransformationMode.SmoothTransformation))
@@ -206,7 +207,7 @@ class CostingSheetDialog(QDialog):
         from diagold.ui.production import show_in_dialog
         big = QLabel()
         big.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        big.setPixmap(QPixmap(path).scaled(720, 720, Qt.AspectRatioMode.KeepAspectRatio,
+        big.setPixmap(photo_cache.load(path).scaled(720, 720, Qt.AspectRatioMode.KeepAspectRatio,
                                            Qt.TransformationMode.SmoothTransformation))
         show_in_dialog(self, big, "Photo", (760, 760))
 

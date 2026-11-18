@@ -54,6 +54,7 @@ from diagold.services import sales as S
 from diagold.services.production import ProductionError
 from diagold.ui.confirm import confirm_save
 from diagold.ui.crud import auto_fit
+from diagold.ui import photo_cache
 from diagold.ui.production import (TINT_RECEIVE, _Screen, _item, _pydate, _qdate,
                                    _table, show_in_dialog)
 
@@ -1013,7 +1014,7 @@ class ReadyVoucherWidget(_Screen):
         rows = self.grid.selectionModel().selectedRows()
         path = self.lines[rows[0].row()].get("photo", "") if rows and rows[0].row() < len(
             self.lines) else ""
-        pix = QPixmap(path) if path else QPixmap()
+        pix = photo_cache.load(path)
         self._photo_path = path if not pix.isNull() else ""
         if pix.isNull():
             self.photo.setPixmap(QPixmap())
@@ -1026,7 +1027,7 @@ class ReadyVoucherWidget(_Screen):
     def _enlarge(self) -> None:
         if self._photo_path:
             big = QLabel()
-            big.setPixmap(QPixmap(self._photo_path).scaled(
+            big.setPixmap(photo_cache.load(self._photo_path).scaled(
                 720, 720, Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation))
             show_in_dialog(self, big, "Photo", (760, 760))

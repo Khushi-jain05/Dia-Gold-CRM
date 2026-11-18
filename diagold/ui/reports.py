@@ -227,7 +227,7 @@ class ReportModel(QAbstractTableModel):
                 path = row.get("_photo") or ""
                 if path not in self._pix:
                     from PySide6.QtGui import QPixmap
-                    pm = QPixmap(path) if path else QPixmap()
+                    pm = photo_cache.load(path)
                     self._pix[path] = pm.scaled(56, 56, Qt.AspectRatioMode.KeepAspectRatio,
                                                 Qt.TransformationMode.SmoothTransformation) \
                         if not pm.isNull() else None
@@ -2256,4 +2256,5 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # 9 Oct §4.3: the legacy M.I.S. Reports list, in its order - the reports
 # built so far (the rest wait for the client's ranking, C-06).
 from diagold.ui.mis_list import mis_keys as _mis_keys  # noqa: E402
+from diagold.ui import photo_cache  # noqa: E402
 SECTIONS = SECTIONS + (("M.I.S. Reports", _mis_keys()),)
