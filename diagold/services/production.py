@@ -1746,6 +1746,32 @@ def refresh_setting_labour(session: Session, receive: JobVoucher) -> Decimal:
     return total
 
 
+def link_receipt_breaks(session: Session) -> int:
+    """Once (17 Nov): stones broken / lost on a receipt were saved without the
+    receipt, the karigar or his step, so the receipt could not be deleted and
+    the Worker Stone Ledger did not show them. Each takes them from the
+    "back" posted just before it."""
+    from diagold.services import settings
+    key = "backfill.receipt_breaks"
+    if settings.get_setting(session, key, "") == "1":
+        return 0
+    n = 0
+    for m in session.scalars(select(JobBagMovement).where(
+            JobBagMovement.kind.in_(("break", "lost")), JobBagMovement.voucher_id.is_(None),
+            JobBagMovement.remark.like("% by the karigar"))):
+        back = session.scalar(select(JobBagMovement).where(
+            JobBagMovement.line_id == m.line_id, JobBagMovement.kind == "back",
+            JobBagMovement.id < m.id).order_by(JobBagMovement.id.desc()))
+        if back is None or back.voucher_id is None:
+            continue
+        m.voucher_id, m.worker_id = back.voucher_id, m.worker_id or back.worker_id
+        m.ref_kind, m.ref_id = m.ref_kind or back.ref_kind, m.ref_id or back.ref_id
+        n += 1
+    settings.set_setting(session, key, "1")
+    session.flush()
+    return n
+
+
 def backfill_setting_types(session: Session) -> int:
     """Bag lines saved before the Setting Type came from the stone get it now,
     and receipts that stored labour 0 for want of one are worked again (6 Nov).
@@ -2060,11 +2086,17 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
                     p_, w_ = sp[part + "pcs"], sp[part + "wt"]
                     if not p_ and not w_:
                         continue
-                    moved.append(bag_move(session, lines[line_id], "back", p_,
-                                          w_ if w_ else None, worker_id=who, mv_date=vr_date))
+                    back = bag_move(session, lines[line_id], "back", p_,
+                                    w_ if w_ else None, worker_id=who, mv_date=vr_date)
+                    moved.append(back)
                     if then:
-                        bag_move(session, lines[line_id], then, p_, moved[-1].weight,
-                                 mv_date=vr_date, remark=f"{then} by the karigar")
+                        # With the karigar and his step named, and on this
+                        # voucher: the Worker Stone Ledger shows it, and
+                        # deleting the receipt takes it out too (17 Nov).
+                        moved.append(bag_move(
+                            session, lines[line_id], then, p_, back.weight, worker_id=who,
+                            mv_date=vr_date, ref_kind=back.ref_kind, ref_id=back.ref_id,
+                            remark=f"{then} by the karigar"))
             if ln.get("net") in (None, "") and ln.get("gross") not in (None, ""):
                 # N-Wt = G-Wt less every stone now in the piece at 0.2 g / ct:
                 # 58.100 - 51.580 ct x 0.2 = 47.784 (12 Oct, final setting).
@@ -2459,8 +2491,9 @@ def delete_job_voucher(session: Session, vr_no: int, *, user_id: int | None = No
         job = session.get(Job, v.job_id)
         jobs.append(job.job_no)
         # F3 stones posted with this line leave the bag ledger again.
+        # Newest first: a broken stone goes before the "back" it came with.
         for m in session.scalars(select(JobBagMovement).where(
-                JobBagMovement.voucher_id == v.id)).all():
+                JobBagMovement.voucher_id == v.id).order_by(JobBagMovement.id.desc())).all():
             image["stones"].append({c.name: getattr(m, c.name) for c in m.__table__.columns})
             line = m.line
             session.delete(m)

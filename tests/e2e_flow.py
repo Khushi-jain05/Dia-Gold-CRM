@@ -924,6 +924,30 @@ with SessionLocal() as s:
     check("a made piece's cost carries its metal", any(r["cost_metal"] > 0 for r in prow), True)
     check("returned sales show profit 0", {r["profit"] for r in prow if r["ret"] == "Y"} <= {D(0)}, True)
 
+    print("\n== N22. A stone broken on a receipt belongs to it (17 Nov)")
+    oX = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(oX); s.flush(); s.add(OrderLine(order_id=oX.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(oX)
+    _v, mkX = P.explode_orders(s, [{"order_id": oX.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+    jX = s.scalar(select(Job).where(Job.job_no == mkX[0]))
+    siX = StoneIssue(vr_no=P.next_number(s, StoneIssue.vr_no), job_id=jX.id, vr_date=T); s.add(siX); s.flush()
+    s.add(StoneIssueLine(issue_id=siX.id, sno=1, location_id=prim.id, stone_sku_id=polki.id, size=polki.size or "", pcs=10, weight=D("1.000"), s_type="Polki"))
+    s.flush(); s.refresh(siX); P.apply_stone_issue(s, siX)
+    blX = next(l for l in s.scalars(select(JobBagLine).where(JobBagLine.job_id == jX.id)) if l.stone_sku_id == polki.id)
+    P.map_job(s, jX, "Default", T)
+    def stepX(kind):
+        return [x for x in P.pending_steps(s, kind) if x["_job_id"] == jX.id][0]["_step_id"]
+    for _ in range(3):
+        P.post_multi_voucher(s, "issue", chand.id, [{"job_id": jX.id, "step_id": stepX("issue")}], vr_date=T)
+        P.post_multi_voucher(s, "receive", chand.id, [{"job_id": jX.id, "step_id": stepX("receive")}], vr_date=T)
+    P.post_multi_voucher(s, "issue", chand.id, [{"job_id": jX.id, "step_id": stepX("issue"), "gross": D("10"), "net": D("10"), "stones": {blX.id: {"pcs": 10, "wt": D("1.000")}}}], vr_date=T)
+    bal0 = P.bag_row(blX)["bal"]
+    rX = P.post_multi_voucher(s, "receive", chand.id, [{"job_id": jX.id, "step_id": stepX("receive"), "gross": D("10.100"), "net": D("9.900"), "stones": {blX.id: {"pcs": 1, "wt": D("0.100"), "break_pcs": 1, "break_wt": D("0.100")}}}], vr_date=T)
+    brk = [r for r in P.worker_stone_ledger(s, *FY) if r["vrtype"] == "BRK" and r["job_no"] == jX.job_no]
+    check("the broken stone shows on CHAND's stone ledger", [(r["worker"], r["brk_pcs"]) for r in brk], [(chand.name, 1)])
+    P.delete_job_voucher(s, rX); s.flush(); s.refresh(blX)
+    check("deleting the receipt takes the break out too - bag as before", P.bag_row(blX)["bal"], bal0)
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

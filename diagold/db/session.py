@@ -155,6 +155,8 @@ def init_db() -> None:
         from diagold.services.sales import fix_return_values
         for line in fix_return_values(session):  # returns at the sold value (17 Nov T-05)
             log.info("re-valued %s", line)
+        from diagold.services.production import link_receipt_breaks
+        link_receipt_breaks(session)  # broken stones on a receipt belong to it (17 Nov)
         from diagold.services.production import backfill_setting_types
         backfill_setting_types(session)  # setting type from the stone; labour re-worked
         from diagold.services.master_import import seed_master_sheet
