@@ -732,7 +732,10 @@ class ReportWidget(QWidget):
         self.filter_layout.setSpacing(4)
         self.filter_scroll.setWidget(self.filter_inner)
         fb.addWidget(self.filter_scroll, 1)
-        self.filter_box.setVisible(bool(spec.filter_column))
+        # The "Show: All | <name> ..." chips are not shown (18 Nov: no use -
+        # Auto Filter on the column does the same; 14 Nov: "show tab me client
+        # name ki need nhi"). Nothing is filtered by them while hidden.
+        self.filter_box.setVisible(False)
         outer.addWidget(self.filter_box)
 
         self.progress = QProgressBar()
