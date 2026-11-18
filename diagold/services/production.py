@@ -2078,6 +2078,14 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
         if kind == "issue" and ln.get("metal"):
             # F5 metal is the line's extra metal; the column shows its total.
             extra["extra"] = sum((_dec(m["weight"]) for m in ln["metal"]), ZERO)
+        if kind == "issue" and stones and ln.get("gross") not in (None, "") \
+                and _dec(ln.get("net")) == _dec(ln["gross"]):
+            from diagold.services import settings
+            if settings.opt_on("pp.issue_net_less_stones", session):
+                # Option (17 Nov Q150): stones going out with the step come off
+                # the net - job 25002 final setting 12.000 with 3.300 ct -> 11.340.
+                ct = sum((_dec(sp["wt"]) for sp in stones.values()), ZERO)
+                ln = {**ln, "net": max(_dec(ln["gross"]) - ct * CT_TO_GRAM, ZERO).quantize(D3)}
         allow = ln.get("allow")
         v = post_voucher(session, job, step, kind, who, vr_date=vr_date, vr_time=vr_time,
                          pcs=ln.get("pcs") or job.pcs, gross_wt=ln.get("gross"),
@@ -2858,7 +2866,9 @@ def worker_fine_by_head(session: Session, date_to: date) -> list[dict[str, Any]]
         if r["group"] != "Worker":
             continue
         a = acc.setdefault(r["_wid"], {"_wid": r["_wid"], "worker": r["worker"],
-                                       "bal_fine": ZERO, "wip_fine": ZERO, "metals": []})
+                                       "bal_wt": ZERO, "bal_fine": ZERO, "wip_fine": ZERO,
+                                       "metals": []})
+        a["bal_wt"] += _dec(r["bal_wt"])      # weight too (17 Nov T-10)
         a["bal_fine"] += _dec(r["bal_fine"])
         a["wip_fine"] += _dec(r["wip_fine"])
         a["metals"].append(r["metal"])
@@ -2874,7 +2884,7 @@ def worker_fine_by_head(session: Session, date_to: date) -> list[dict[str, Any]]
         wip = a["wip_fine"].quantize(D3)
         rows.append({"head": head, "worker": a["worker"], "department": dept or "",
                      "metals": ", ".join(sorted(set(a["metals"]))), "_wid": wid,
-                     "bal_fine": bal, "wip_fine": wip or None,
+                     "bal_wt": a["bal_wt"].quantize(D3), "bal_fine": bal, "wip_fine": wip or None,
                      "total_fine": (bal + wip).quantize(D3), "_negative": bal < 0})
     rows.sort(key=lambda r: (order.get(r["head"], 99), r["worker"].lower()))
     return rows

@@ -1969,7 +1969,7 @@ def build_specs() -> dict[str, ReportSpec]:
             key="worker_fine_by_head", title="Worker Fine Balance (Dept Wise)",
             columns=static([Col("head", "HEAD"), Col("worker", "WORKER"),
                             Col("department", "DEPARTMENT"), Col("metals", "METALS"),
-                            wt("bal_fine", "BALANCE FINE"), wt("wip_fine", "WIP FINE"),
+                            wt("bal_wt", "BALANCE WT"), wt("bal_fine", "BALANCE FINE"), wt("wip_fine", "WIP FINE"),
                             wt("total_fine", "TOTAL FINE")]),
             query=lambda s, a, b, **_k: P.worker_fine_by_head(s, b), date_mode="to",
             negative_key="_negative", group_by="head", filter_column="head",

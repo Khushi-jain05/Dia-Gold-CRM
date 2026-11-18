@@ -53,8 +53,8 @@ def purity_fraction(metal: Any) -> Decimal:
     raw = _dec(getattr(metal, "purity_fineness", 0))
     if raw <= 0:
         return Decimal("0")
-    if raw > 100:            # per mille, e.g. 590
-        return raw / Decimal("1000")
+    if raw > 100:            # per mille, e.g. 590; never above pure (17 Nov: fine > weight)
+        return min(raw / Decimal("1000"), Decimal("1"))
     if raw > 1:              # percent, e.g. 59.50 or 61
         return raw / Decimal("100")
     return raw               # already a fraction, e.g. 0.585

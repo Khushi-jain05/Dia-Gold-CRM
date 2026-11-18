@@ -823,6 +823,28 @@ with SessionLocal() as s:
           P.net_for_gross(s, jB, D("14.805"), "receive", {blB.id: {"pcs": 1, "wt": D("0.600"), "break_pcs": 1, "break_wt": D("0.010")}}), D("11.949"))
     s.rollback()
 
+    # 17 Nov Q150 option: stones going out with the issue come off its net.
+    oB = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(oB); s.flush(); s.add(OrderLine(order_id=oB.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(oB)
+    _v, mkB = P.explode_orders(s, [{"order_id": oB.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+    jB = s.scalar(select(Job).where(Job.job_no == mkB[0]))
+    siB = StoneIssue(vr_no=P.next_number(s, StoneIssue.vr_no), job_id=jB.id, vr_date=T); s.add(siB); s.flush()
+    s.add(StoneIssueLine(issue_id=siB.id, sno=1, location_id=prim.id, stone_sku_id=polki.id, size=polki.size or "", pcs=20, weight=D("14.890"), s_type="Polki"))
+    s.flush(); s.refresh(siB); P.apply_stone_issue(s, siB)
+    blB = next(l for l in s.scalars(select(JobBagLine).where(JobBagLine.job_id == jB.id)) if l.stone_sku_id == polki.id)
+    from diagold.services import settings as SETQ
+    SETQ.set_setting(s, "pp.issue_net_less_stones", "1"); s.flush()
+    P.map_job(s, jB, "Default", T)
+    for _ in range(3):
+        rB = [x for x in P.pending_steps(s, "issue") if x["_job_id"] == jB.id][0]
+        P.post_multi_voucher(s, "issue", chand.id, [{"job_id": jB.id, "step_id": rB["_step_id"]}], vr_date=T)
+        rB = [x for x in P.pending_steps(s, "receive") if x["_job_id"] == jB.id][0]
+        P.post_multi_voucher(s, "receive", chand.id, [{"job_id": jB.id, "step_id": rB["_step_id"]}], vr_date=T)
+    rB = [x for x in P.pending_steps(s, "issue") if x["_job_id"] == jB.id][0]
+    vB = P.post_multi_voucher(s, "issue", chand.id, [{"job_id": jB.id, "step_id": rB["_step_id"], "gross": D("12.000"), "net": D("12.000"), "stones": {blB.id: {"pcs": 5, "wt": D("3.300")}}}], vr_date=T)
+    check("option on: issue 12.000 with 3.300 ct goes out at net 11.340 (job 25002)", D(str(s.scalar(select(JobVoucher.net_wt).where(JobVoucher.vr_no == vB)))).quantize(D("0.001")), D("11.340"))
+    s.rollback()
+
     print("\n== N18. Ledger allowance = min(loss, ALW % x outward) - legacy MANIK JI (5 Nov T-09)")
     from diagold.services import settings as SETM
     SETM.set_setting(s, "loss.allowance_basis", "received"); s.commit()
