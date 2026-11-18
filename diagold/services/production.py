@@ -752,6 +752,15 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
     allow = _dec(allow)
     if allow < 0 or allow >= 100:
         raise ProductionError("Allowed loss % must be between 0 and 100.")
+    manual_price, manual_amt = _dec(extra.get("manual_price")), _dec(extra.get("manual_amt"))
+    if not manual_price and kind == "receive":
+        # The karigar's L Price for the process (Select Worker Process, 17 Nov
+        # T-01) is his labour per gram, on the net received when none is typed.
+        wp = worker_process(session, worker_id, step.process_id)
+        if wp is not None and _dec(wp.labour_price) > 0:
+            manual_price = _dec(wp.labour_price)
+            if not manual_amt and net is not None:
+                manual_amt = (manual_price * _dec(net)).quantize(D2)
     v = JobVoucher(
         vr_no=vr_no or next_number(session, JobVoucher.vr_no),
         kind=kind, job_id=job.id, step_id=step.id,
@@ -766,8 +775,7 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
         dust=_dec(extra.get("dust")), remark=extra.get("remark") or "",
         allow_loss_pct=allow, user_id=user_id,
         mt_price=_dec(extra.get("mt_price")), mt_amt=_dec(extra.get("mt_amt")),
-        manual_price=_dec(extra.get("manual_price")),
-        manual_amt=_dec(extra.get("manual_amt")),
+        manual_price=manual_price, manual_amt=manual_amt,
         rej_type=(extra.get("rej_type") or "")[:24],
         price_on=extra.get("price_on") or "NetWt", ref_no=(extra.get("ref_no") or "")[:40],
     )
@@ -798,6 +806,12 @@ def worker_process(session: Session, worker_id: int | None,
         return None
     return session.scalar(select(WorkerProcess).where(
         WorkerProcess.account_id == worker_id, WorkerProcess.process_id == process_id))
+
+
+def _l_price(session: Session, worker_id: int | None, process_id: int | None) -> Decimal | None:
+    """The karigar's L Price for a process, or None when he has none."""
+    wp = worker_process(session, worker_id, process_id)
+    return _dec(wp.labour_price) if wp is not None and _dec(wp.labour_price) > 0 else None
 
 
 def default_allow_loss_pct(session: Session, step: JobStep,
@@ -1876,6 +1890,8 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
             "order_date": order.order_date if order else None, "ref_no": order.ref if order else "",
             "allow": default_allow_loss_pct(session, step, issue,
                                             worker_id if kind == "issue" else None),
+            "manual_price": _l_price(session, worker_id if kind == "issue" else
+                                     (issue.worker_id if issue else None), step.process_id),
             "size": _order_line_size(session, job),
             "mt_price": metal_price(session, job.metal_id) or None,
             "price_on": issue.price_on if issue and issue.price_on else "NetWt",

@@ -857,11 +857,12 @@ with SessionLocal() as s:
     from diagold.db.models import WorkerProcess, ManufacturingProcess as MPr
     hm = s.scalar(select(MPr).where(MPr.name.ilike("handmade")))
     st = s.scalar(select(MPr).where(MPr.name.ilike("setting")))
-    s.add_all([WorkerProcess(account_id=chand.id, process_id=hm.id, allow_metal_loss_pct=D("3")),
+    s.add_all([WorkerProcess(account_id=chand.id, process_id=hm.id, allow_metal_loss_pct=D("3"), labour_price=D("120")),
                WorkerProcess(account_id=chand.id, process_id=st.id, allow_metal_loss_pct=D("4"))]); s.flush()
     class _St: pass
     sh, ss = _St(), _St(); sh.process_id, ss.process_id = hm.id, st.id
     check("DEEPAK-style grid: HandMade 3%, Setting 4% for this karigar only", (P.default_allow_loss_pct(s, sh, None, chand.id), P.default_allow_loss_pct(s, ss, None, chand.id), P.default_allow_loss_pct(s, sh, None, rahul.id) == D(str(hm.loss_percent or 0))), (D("3.0000"), D("4.0000"), True))
+    check("his L Price is the receipt's labour per gram (Manual Price)", (P._l_price(s, chand.id, hm.id), P._l_price(s, chand.id, st.id)), (D("120.0000"), None))
     # Legacy CHANDAN MONDAL rows: ALW L WT = 3% x issued (= received + loss), also when the loss is negative.
     rows = [(D("28.710"), D("29.080"), D("0.861")), (D("14.060"), D("14.080"), D("0.422")),
             (D("36.920"), D("40.752"), D("1.108")), (D("6.590"), D("6.060"), D("0.198"))]
