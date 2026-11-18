@@ -3078,7 +3078,7 @@ def worker_stone_ledger(session: Session, date_from: date, date_to: date) -> lis
             events.append((rcv.vr_date, 2, rcv.id * 1000 + l.line.id, issue.worker_id, "SET",
                            -l.set_pcs, -per, l.line.particulars, l.line.size,
                            job.job_no if job else "", job.id if job else None, rcv.vr_no, None))
-    signs = {"stone_issue": ("SI", 1), "stone_receipt": ("SR", -1), "stone_sale": ("SS", 1),
+    signs = {"stone_issue": ("SI", 1), "stone_receipt": ("SR", -1), "stone_sale": ("SS", 1), "stone_sale_return": ("SSR", -1),
              "stone_approval": ("SA", 1), "stone_approval_return": ("SAR", -1)}
     q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
          .where(InvVoucher.vr_type.in_(tuple(signs)),

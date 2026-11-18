@@ -449,7 +449,8 @@ def trial_balance(session: Session, date_from: date, date_to: date, *,
 # --------------------------------------------------------------------------
 RECEIVABLE = ("rs_sale", "metal_sale", "stone_sale")
 PAYABLE = ("rp_purchase", "metal_purchase", "stone_purchase")
-RETURN_ALLOC = {"rs_sale_return": "receivable", "rp_return": "payable"}
+RETURN_ALLOC = {"rs_sale_return": "receivable", "rp_return": "payable",
+                "stone_sale_return": "receivable"}
 
 
 @dataclass
@@ -780,7 +781,7 @@ def cash_flow(session: Session, date_from: date, date_to: date, *,
         inflow, outflow = _dec(e.debit), _dec(e.credit)
         if e.ref_kind in ("rs_sale", "metal_sale", "stone_sale"):
             what = "Cash sale"
-        elif e.ref_kind in ("rs_sale_return",):
+        elif e.ref_kind in ("rs_sale_return", "stone_sale_return"):
             what = "Cash return"
         elif e.ref_kind == "receipt":
             what = "Cash received"

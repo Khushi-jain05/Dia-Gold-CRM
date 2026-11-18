@@ -1643,7 +1643,8 @@ def _sale_specs(money, wt, pcs) -> dict[str, ReportSpec]:
             note="Every Sale ▸ Metal voucher line (e.g. 24KT Gold 10 g @ 15,050)."),
         "stone_sale_register": ReportSpec(
             key="stone_sale_register", title="Stone Sale Register", columns=static(stone),
-            query=lambda s, a, b, **_k: INV.stone_register(s, a, b, ("stone_sale",)),
+            query=lambda s, a, b, **_k: INV.stone_register(s, a, b, ("stone_sale",
+                                                                    "stone_sale_return")),
             group_by="particulars", filter_column="ssku",
             note="Every Sale ▸ Stone ▸ Sale line."),
         "stone_approval_register": ReportSpec(

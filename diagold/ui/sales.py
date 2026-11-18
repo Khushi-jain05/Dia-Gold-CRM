@@ -18,6 +18,7 @@ SUBMENUS: dict[str, list[tuple[str, str]]] = {
     "sale.stone": [
         ("stone_sale", "Sale"), ("stone_approval", "Approval"),
         ("stone_approval_return", "Approval Return"),
+        ("stone_sale_return", "Sale Return"),
     ],
 }
 # Purchase ▸ Opening Stock ▸ … (2 Oct §4.5, T-07) - stock held when the
@@ -46,6 +47,7 @@ BUILDERS: dict[str, object] = {
     "stone_sale": lambda user: _inv("stone_sale", user),
     "stone_approval": lambda user: _inv("stone_approval", user),
     "stone_approval_return": lambda user: _inv("stone_approval_return", user),
+    "stone_sale_return": lambda user: _inv("stone_sale_return", user),
     "rp_opening": _ready("rp_opening"),
     "metal_opening": lambda user: _inv("metal_opening", user),
     "stone_opening": lambda user: __import__(

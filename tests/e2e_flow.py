@@ -373,6 +373,14 @@ with SessionLocal() as s:
     inv(s, "stone_approval_return", kk, [{"location_id": prim.id, "stone_sku_id": em.id, "size": em.size or "", "pcs": 1, "weight": D("0.1")}])
     s.commit()
     check("stone approval balance 3", [r["bal_pcs"] for r in INV.stone_approval_analysis(s, *FY)], [3])
+    # 18 Nov: a stone sale brought back - Sale > Stone > Sale Return.
+    from diagold.services import accounts as ACCS
+    st0, kb0 = P.stock_balance(s, prim.id, "stone", polki.id, polki.size or "")[0], ACCS.balance(s, kk.id)
+    ssr = inv(s, "stone_sale_return", kk, [{"location_id": prim.id, "stone_sku_id": polki.id, "size": polki.size or "", "pcs": 1, "weight": D("0.08")}])
+    check("stone sale return: 1 pc back at the location", P.stock_balance(s, prim.id, "stone", polki.id, polki.size or "")[0] - st0, 1)
+    check("... the client credited its amount (Dr Sales Return)", (kb0 - ACCS.balance(s, kk.id)).quantize(D("0.01")), D(str(ssr.lines[0].amount)).quantize(D("0.01")))
+    check("... and the Stone Sale Register takes it off", [r["pcs"] for r in INV.stone_register(s, *FY, ("stone_sale", "stone_sale_return")) if r["vrtype"] == "SSR"], [-1])
+    s.rollback()
 
     print("\n== K. Stock transfer: melting + location transfer")
     before = P.stock_balance(s, prim.id, "stone", polki.id, polki.size or "")[0]

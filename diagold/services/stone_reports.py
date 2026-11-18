@@ -65,7 +65,7 @@ def _line_of(m: StockMovement) -> str:
 
 
 INWARD_LINES = (("purchase", "Purchase"), ("receipt", "Receipt (stone receipt / approval "
-                                                      "return)"),
+                                                      "or sale return)"),
                 ("job_return", "Return From Job"), ("transfer_in", "Transfer In"))
 OUTWARD_LINES = (("issue_job", "Issued To Job (used in ready stock / in work)"),
                  ("sale", "Sale"), ("approval", "Approval"), ("transfer_out", "Transfer Out"),

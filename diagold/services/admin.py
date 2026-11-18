@@ -265,6 +265,7 @@ DECLARATION_DOCS: dict[str, int] = {
 DOC_OF_VOUCHER = {"metal_purchase": "Purchase Metal", "stone_purchase": "Purchase Stone",
                   "rp_purchase": "Purchase Ready Stock", "rs_approval": "Sale As Approval",
                   "stone_sale": "Sale Stone", "stone_approval": "Sale Stone",
+                  "stone_sale_return": "Sale Stone",
                   "rs_sale": "Sale Ready Stock", "order": "Order"}
 
 

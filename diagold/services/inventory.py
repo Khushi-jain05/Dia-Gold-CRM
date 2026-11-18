@@ -68,6 +68,9 @@ VOUCHER_TYPES: dict[str, VoucherType] = {v.key: v for v in (
     VoucherType("metal_sale", "Metal Sale", "metal", -1, "customer", "MS"),
     VoucherType("stone_sale", "Stone Sale", "stone", -1, "customer", "SS"),
     VoucherType("stone_approval", "Stone Approval", "stone", -1, "customer", "SA"),
+    # Stones sold and brought back by the client (18 Nov): back into the
+    # location, Dr Sales Return / Cr the client, knocked off his bills.
+    VoucherType("stone_sale_return", "Stone Sale Return", "stone", +1, "customer", "SSR"),
     VoucherType("stone_approval_return", "Stone Approval Return", "stone", +1, "customer",
                 "SAR"),
     # Purchase ▸ Opening Stock ▸ Metal (2 Oct §4.5, T-07): metal a location
@@ -75,6 +78,7 @@ VOUCHER_TYPES: dict[str, VoucherType] = {v.key: v for v in (
     VoucherType("metal_opening", "Metal Opening Stock", "metal", +1, "none", "MO"),
 )}
 SALE_TYPES = ("metal_sale", "stone_sale")
+SALE_RETURN_TYPES = ("stone_sale_return",)
 SALES_LEDGER = "Sales A/c"
 
 NEGATIVE_SETTING = "inventory.negative_stock"
@@ -239,6 +243,9 @@ def post_accounts(session: Session, v: InvVoucher) -> None:
     once (5 Oct T-04). Issues, receipts and approvals move stock only."""
     from diagold.services import accounts
     sale = v.vr_type in SALE_TYPES
+    if v.vr_type in SALE_RETURN_TYPES:
+        _post_sale_return(session, v)
+        return
     if not (v.vr_type.endswith("_purchase") or sale):
         return
     total = sum((_dec(l.amount) + _dec(l.l_amount) for l in v.lines),
@@ -257,6 +264,23 @@ def post_accounts(session: Session, v: InvVoucher) -> None:
         accounts.post(session, on=v.vr_date, ref_kind=v.vr_type, ref_no=v.vr_no, narration=text,
                       dr=accounts.nominal(session, PURCHASE_LEDGER).id, cr=v.account_id,
                       amount=total, mode=mode)
+
+
+def _post_sale_return(session: Session, v: InvVoucher) -> None:
+    """Stone Sale Return: Dr Sales Return A/c, Cr the client; the amount
+    knocks off his open bills, oldest first (as a Ready Stock Sale Return)."""
+    from diagold.services import accounts
+    from diagold.services.sales import SALES_RETURN_LEDGER
+    total = sum((_dec(l.amount) for l in v.lines), ZERO).quantize(Decimal("0.01"))
+    if not total or not v.account_id:
+        return
+    vt = VOUCHER_TYPES[v.vr_type]
+    text = f"{vt.title} Vr {v.vr_no}" + (f" · Ref {v.ref_no}" if v.ref_no else "")
+    accounts.post(session, on=v.vr_date, ref_kind=v.vr_type, ref_no=v.vr_no, narration=text,
+                  dr=accounts.nominal(session, SALES_RETURN_LEDGER).id, cr=v.account_id,
+                  amount=total, mode=v.mode or "Bill")
+    accounts.allocate(session, party_id=v.account_id, side="receivable",
+                      source_kind=v.vr_type, source_no=v.vr_no, amount=total, on=v.vr_date)
 
 
 def post_entry(session: Session, *, on: date, amount: Decimal, ref_kind: str, ref_no: int,
@@ -659,13 +683,15 @@ def stone_register(session: Session, date_from: date, date_to: date,
         acct = session.get(Account, v.account_id) if v.account_id else None
         loc = session.get(Location, line.location_id) if line.location_id else None
         sku = session.get(StoneSku, line.stone_sku_id) if line.stone_sku_id else None
+        sign = -1 if v.vr_type in SALE_RETURN_TYPES else 1     # a return takes off
         rows.append({"date": v.vr_date, "vrno": v.vr_no, "vrtype": VOUCHER_TYPES[v.vr_type].legacy,
                      "ref_no": v.ref_no, "particulars": acct.name if acct else "",
                      "location": loc.name if loc else "",
                      "ssku": (sku.sku_code if sku else line.particulars) or "",
-                     "size": line.size, "lot_no": line.lot_no, "pcs": line.pcs,
-                     "weight": _dec(line.weight), "curr": v.currency_code,
-                     "price": _dec(line.price), "unit": line.unit, "amount": _dec(line.amount)})
+                     "size": line.size, "lot_no": line.lot_no, "pcs": sign * (line.pcs or 0),
+                     "weight": sign * _dec(line.weight), "curr": v.currency_code,
+                     "price": _dec(line.price), "unit": line.unit,
+                     "amount": sign * _dec(line.amount)})
     return rows
 
 
