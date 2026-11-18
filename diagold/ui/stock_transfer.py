@@ -13,12 +13,14 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QComboBox,
     QDateEdit,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -114,7 +116,7 @@ class LineDialog(QDialog):
         self.pane = pane
         self.setWindowTitle(f"{PANE_TITLES[pane]} line")
         lay = QVBoxLayout(self)
-        form = QFormLayout()
+        self.setMinimumWidth(1340)
         self.loc = QComboBox()
         for lid, name in _locations():
             self.loc.addItem(name, lid)
@@ -149,28 +151,42 @@ class LineDialog(QDialog):
         self.unit = QComboBox()
         self.unit.addItems(["Gms"] if pane == "metal" else ["Cts", "Pcs"])
         self.job_no, self.remark = QLineEdit(), QLineEdit()
-        form.addRow("Location", self.loc)
+        # One line across, headings over the boxes - the same format as the
+        # pane's grid and the legacy line (14 Nov: "SAME FORMAT").
+        cells: list[tuple[str, QWidget]] = [("Location", self.loc)]
         if pane == "metal":
-            form.addRow("MtType", self.mt_type)
-            form.addRow("Metal / Mould", self.metal_mould)
-            form.addRow("Metal", self.item)
-            form.addRow("Col", self.colour)
-            form.addRow("Item Size", self.item_size)
-            form.addRow("St Size", self.st_size)
+            cells += [("MtType", self.mt_type), ("Metal/Mould", self.metal_mould),
+                      ("Metal", self.item), ("Col", self.colour),
+                      ("Item Size", self.item_size), ("St Size", self.st_size)]
         else:
-            form.addRow("SSKU", self.item)
-            form.addRow("StType", self.s_type)
-            form.addRow("Size", self.size)
+            cells += [("StType", self.s_type), ("SSKU", self.item), ("Size", self.size)]
         for label, w in (("In-Pcs", self.in_pcs), ("In-Wt", self.in_wt),
-                         ("In-Loss Pcs", self.in_loss_pcs), ("In-Loss Wt", self.in_loss_wt),
+                         ("In-LossPcs", self.in_loss_pcs), ("In-LossWt", self.in_loss_wt),
                          ("Out-Pcs", self.out_pcs), ("Out-Wt", self.out_wt),
-                         ("Out-Loss Pcs", self.out_loss_pcs), ("Out-Loss Wt", self.out_loss_wt),
+                         ("Out-LossPcs", self.out_loss_pcs), ("Out-LossWt", self.out_loss_wt),
                          ("Price", self.price), ("Unit", self.unit), ("JobNo", self.job_no),
                          ("Remark", self.remark)):
-            if self.pane == "metal" and "Loss Pcs" in label:
+            if self.pane == "metal" and "LossPcs" in label:
                 continue
-            form.addRow(label, w)
-        lay.addLayout(form)
+            cells.append((label, w))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(4)
+        for c, (label, w) in enumerate(cells):
+            head = QLabel(label)
+            head.setObjectName("Muted")
+            grid.addWidget(head, 0, c)
+            grid.addWidget(w, 1, c)
+            if isinstance(w, (QSpinBox, QDoubleSpinBox)):
+                w.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+                w.setMinimumWidth(84 if label == "Price" else 56)
+            elif label in ("Location", "SSKU", "Metal"):
+                w.setMinimumWidth(150)       # the whole name in view (14 Nov)
+            elif label in ("Size", "Remark", "Metal/Mould", "StType", "MtType", "Col", "Unit",
+                           "JobNo", "Item Size", "St Size"):
+                w.setMinimumWidth(70)
+        grid.setColumnStretch([l for l, _w in cells].index("SSKU" if pane != "metal"
+                                                               else "Metal"), 3)
+        lay.addLayout(grid)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                               | QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(self.accept)
