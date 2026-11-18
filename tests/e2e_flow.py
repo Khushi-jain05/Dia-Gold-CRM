@@ -335,6 +335,13 @@ with SessionLocal() as s:
     check("item search chain old -> job -> new", REP.chain_text(s, newp), f"{piece.stock_no} → repair job {rj.job_no} → {newp.stock_no}")
     check("history of new piece shows REP from old", "REP" in [h["vrtype"] for h in S.piece_history(s, newp)], True)
     check("WIP Repair Items empty once back", REP.wip_repair_items(s, *FY), [])
+    # 17 Nov Q148 option (on): back to the repair client = the repair only.
+    infoN = S.describe(s, newp)
+    rv_ = S.return_value(s, "rs_sale", infoN, T, account_id=mb.id)
+    full = S.value(infoN, T, s)
+    added = max(D("13.200") - D(str(piece.net_wt)), D(0))
+    check("repaired piece to its client: metal only for the weight added", rv_["metal_amount"], (added * full["metal_rate"]).quantize(D("0.01")))
+    check("... to anyone else: the whole piece", S.return_value(s, "rs_sale", infoN, T, account_id=kk.id)["total"], full["total"])
     MF.delete_transfer(s, rt); s.commit(); s.refresh(piece)
     check("transfer deleted -> old piece back in repair job", piece.status, "repair_job")
     rt = MF.post_transfer(s, [{"job_id": rj.id}], vr_date=T); s.commit()

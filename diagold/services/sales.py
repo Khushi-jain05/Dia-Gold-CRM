@@ -205,12 +205,48 @@ def out_values(line: ReadyVoucherLine) -> dict[str, Any]:
 
 
 def return_value(session: Session, vr_type: str, info: dict[str, Any], on_date: date,
-                 **kw) -> dict[str, Any]:
-    """A line's amounts: a return takes those it went out at, else ``value``."""
+                 account_id: int | None = None, **kw) -> dict[str, Any]:
+    """A line's amounts: a return takes those it went out at; a repaired piece
+    sold back to the client who sent it for repair is billed for the repair
+    only (option, 17 Nov Q148); else ``value``."""
     src = out_line(session, vr_type, info["stock_item_id"]) if info.get("stock_item_id") else None
-    if src is None:
-        return value(info, on_date, session, **kw)
-    return out_values(src)
+    if src is not None:
+        return out_values(src)
+    v = value(info, on_date, session, **kw)
+    if vr_type == "rs_sale" and account_id and info.get("stock_item_id"):
+        old = repair_source(session, session.get(StockItem, info["stock_item_id"]))
+        if old is not None and old[1] == account_id:
+            from diagold.services import settings
+            if settings.opt_on("sale.repair_bill_only", session):
+                v = repair_value(info, v, old[0])
+    return v
+
+
+def repair_source(session: Session, item: StockItem | None) -> tuple[StockItem, int | None] | None:
+    """(the piece it was before repair, the client of the repair order) for a
+    piece that came back from a repair job, else None."""
+    if item is None or not item.repair_of_id:
+        return None
+    old = session.get(StockItem, item.repair_of_id)
+    if old is None:
+        return None
+    job = session.scalar(select(Job).where(Job.repair_item_id == old.id)
+                         .order_by(Job.id.desc()))
+    order = session.get(Order, job.order_id) if job is not None and job.order_id else None
+    return old, (order.account_id if order is not None else None)
+
+
+def repair_value(info: dict[str, Any], v: dict[str, Any], old: StockItem) -> dict[str, Any]:
+    """The repair's bill: metal for the net weight added (none when it lost
+    weight), the NEW stones only, setting, labour and other as on the line."""
+    added = max(_dec(info["net_wt"]) - _dec(old.net_wt), ZERO)
+    metal = _money(added * _dec(v["metal_rate"]))
+    new = [s for s in info.get("stones") or [] if (s.get("status") or "") != "OLD"]
+    st_amt = sum((stone_amount(s) for s in new), ZERO)
+    total = _money(metal + st_amt + _dec(v["setting_amount"]) + _dec(v["labour"])
+                   + _dec(v["other_amount"]))
+    return {**v, "metal_amount": metal, "stone_amount": st_amt, "total": total,
+            "remark": f"Repair of Stock No {old.stock_no}: {added:.3f} g metal added"}
 
 
 def fix_return_values(session: Session) -> list[str]:

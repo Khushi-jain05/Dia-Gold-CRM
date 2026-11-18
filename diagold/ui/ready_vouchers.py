@@ -809,7 +809,8 @@ class ReadyVoucherWidget(_Screen):
                 info = S.describe(s, item)
                 if chart is not None:
                     info = PC.apply(s, chart, info)
-                self.lines[i] = {**ln, **info, **S.value(info, _pydate(self.date), s)}
+                self.lines[i] = {**ln, **info, **S.return_value(
+                    s, self.vr_type, info, _pydate(self.date), account_id=self._account_id())}
         self._render()
 
     def _add_infos(self, infos: list[dict], order_line_id: int | None = None) -> None:
@@ -822,7 +823,8 @@ class ReadyVoucherWidget(_Screen):
                     continue
                 if chart is not None:
                     info = PC.apply(s, chart, info)
-                v = S.return_value(s, self.vr_type, info, _pydate(self.date))
+                v = S.return_value(s, self.vr_type, info, _pydate(self.date),
+                                   account_id=self._account_id())
                 self.lines.append({**info, **v, "old_wt": D(0),
                                    "order_line_id": order_line_id or info.get("order_line_id")})
         self._render()

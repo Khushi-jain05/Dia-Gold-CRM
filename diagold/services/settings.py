@@ -172,6 +172,11 @@ SETTINGS_TREE: tuple[Setting, ...] = (
             "Where product photos are, named <SKU>.jpg as in the legacy app (17 Nov). Several "
             "folders: separate with ;  - e.g. the 2025 and 2026 installs' Images folders. A "
             "photo attached to a SKU is copied into the first one"),
+    Setting("Sales", "sale.repair_bill_only",
+            "Repaired piece back to its client: bill the repair only", "bool", "1",
+            "A piece out of a repair job sold to the client of the repair order is priced "
+            "for the metal added, the NEW stones, setting and labour - not the whole piece "
+            "again (17 Nov, to confirm: Q148). Off = the whole piece"),
     Setting("Production Planning", "pp.issue_net_less_stones",
             "Issue net = gross less the stones going out", "bool", "0",
             "On: an issue sending stones with the step (F3) and net typed equal to gross "
