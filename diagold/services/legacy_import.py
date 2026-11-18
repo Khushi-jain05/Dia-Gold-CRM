@@ -270,7 +270,7 @@ class Importer:
                      self.stone_qualities, self.stone_kinds, self.stone_sizes,
                      self.stones, self.setting_types, self.stone_skus, self.processes,
                      self.families, self.items, self.moulds, self.account_groups,
-                     self.accounts, self.users):
+                     self.accounts, self.worker_processes, self.users):
             step()
             self.s.flush()
         return self.report
@@ -623,6 +623,35 @@ class Importer:
                 "is_active": yes(r["isActive"]),
             }, lambda n=name: self.by_name(Account, n), name,
                 compare=("account_type",))
+
+    def worker_processes(self) -> None:
+        """The Account master's Select Worker Process grid (999999912): a
+        karigar's Allow Metal / Stone Loss % and L Price per process (17 Nov
+        T-01, C-01). A karigar + process already on our grid is left as it is."""
+        from diagold.db.models import WorkerProcess
+        accounts, processes = self.ids.get("account", {}), self.ids.get("process", {})
+
+        def find(ids: dict, lid):
+            return ids.get(lid) or ids.get(int(lid)) if lid is not None else None
+
+        rows = self.L.table("999999912", order="AccountID, SrlNo")
+        res = self._res("999999912 (Select Worker Process)", rows)
+        have = {(w.account_id, w.process_id) for w in self.s.scalars(select(WorkerProcess))}
+        for r in rows:
+            acc, proc = find(accounts, r["AccountID"]), find(processes, r["ProcessID"])
+            if acc is None or proc is None:
+                res.skipped.append(f"account {r['AccountID']} / process {r['ProcessID']}: "
+                                   "not loaded")
+                continue
+            if (acc.id, proc.id) in have:
+                res.matched += 1
+                continue
+            self.s.add(WorkerProcess(account_id=acc.id, process_id=proc.id,
+                                     allow_metal_loss_pct=num(r["MetalLossP"]),
+                                     allow_stone_loss_pct=num(r["StoneLossP"]),
+                                     labour_price=num(r["LPrice"])))
+            have.add((acc.id, proc.id))
+            res.added += 1
 
     def users(self) -> None:
         rows = self.L.table("U00000001", order="UserID")
