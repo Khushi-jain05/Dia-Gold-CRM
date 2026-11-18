@@ -1,6 +1,6 @@
 Namaste Rohit ji,
 
-Thank you for the testing on 17 Nov and for showing us the legacy repair flow. The points are done in the new build **v0.13.2** (link below). Please close the old app and run only the new one, the one connected to the server.
+Thank you for the testing on 17 Nov and for showing us the legacy repair flow. The points are done in the new build **v0.13.7** (link below). Please close the old app and run only the new one, the one connected to the server.
 
 **What changed**
 1. **Number and date boxes** - on your PC they showed empty (Date, Weight, Price, Amount). They now show their values everywhere. Clicking a box selects it, so typing replaces the old value. Metal Purchase Vr 1 and 2 were saved with price 1,33,590 because of this - please open them with Edit and correct the price; the payable follows.
@@ -17,6 +17,12 @@ Thank you for the testing on 17 Nov and for showing us the legacy repair flow. T
 12. Your karigars' Select Worker Process figures are read from the legacy database; L Price is used as his labour per gram on the receipt.
 13. A repaired piece sold back to its client is billed for the repair (metal added, new stones, labour), not the whole piece.
 14. Stock Transfer line in one row like the grid; Sale Return has a "For Repair" tick.
+15. **List beside every box** - wherever a name is picked (customer, karigar, SKU, metal, location ...) the "List of ..." opens beside it as on your screens; typing "S" brings the names starting with S first; click or Enter picks.
+16. Reports: the extra Search box and the "Show:" buttons are removed - use Auto Filter on any column heading.
+17. **Sale > Stone > Sale Return** - stones sold and brought back: back into stock, the client credited.
+18. **Net weight on issue** - your legacy issues to final setting at net = gross with the stones going along (job NS-1430: 49.100 / 49.100 with 53.520 ct) and takes the stones off on the receipt (47.784); we do the same. If you want the stones taken off already on the issue (job 25002: 12.000 -> 11.340), switch on Tools > Option "Issue net = gross less the stones going out".
+
+**Please do once on the server:** Tools > Advance Options > Import from Legacy - this brings every karigar's Select Worker Process figures. Nothing already entered is changed.
 
 **We need from you** (questions 142-154)
 - Check the karigars' wastage figures after we load them from the server.

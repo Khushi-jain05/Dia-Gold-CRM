@@ -181,7 +181,9 @@ SETTINGS_TREE: tuple[Setting, ...] = (
             "Issue net = gross less the stones going out", "bool", "0",
             "On: an issue sending stones with the step (F3) and net typed equal to gross "
             "takes their carats / 5 off the net - job 25002 final setting 12.000 with "
-            "3.300 ct -> 11.340 (17 Nov, to confirm: Q150). Off: they come off on the receipt"),
+            "3.300 ct -> 11.340 (17 Nov, to confirm: Q150). Off: they come off on the receipt "
+            "- as the legacy NS-1430 final setting: issued 49.100 / 49.100 with 53.520 ct, "
+            "received 47.784, loss 2.68 % (on, that job reads -24.45 %)"),
     Setting("Production Planning", "pp.repair_start_process",
             "A repair job's route starts at", "text", "HandMade",
             "Job Mapping on a repair job (a sold piece back on a Repair order) drops the "
