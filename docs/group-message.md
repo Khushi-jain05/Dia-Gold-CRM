@@ -216,4 +216,20 @@ Before the questions, the follow-up from 9 Oct (T-01):
 140. The legacy logins (ST1, PP1, HM1, STONE, STOCK ...) are added with their old passwords and no rights. Please tell us which screens each person may use, or set them in Master > User Right. *(11 Nov)*
 141. Design images: the legacy keeps photos in \\Server2\d\JewelleryER_25\DesignImages (ER-1337.jpg ...). Can our app read that folder too, so every SKU shows its photo? *(11 Nov)*
 
+**Testing review of 17 Nov - thank you for walking us through the legacy repair and ledger.**
+
+142. Wastage per karigar (C-01): Account > Select Worker Process is now in our app (Allow Metal Loss %, Allow Stone Loss %, L Price per process). Please send every karigar's figures from the legacy screen (or we read them from the server - tell us which). *(17 Nov)*
+143. Allowance (C-03 / Q1): we now give ALW % x the weight ISSUED on every receipt, also when the karigar returns more (CHANDAN MONDAL Vr 5844: 3% x 28.710 = 0.861). Why do some legacy rows (CHANDAN Vr 7284) have no %? Is it ever limited to the actual loss? *(17 Nov)*
+144. Allow Stone Loss % (Q6): how is it used - on the stones issued, in carats? *(17 Nov)*
+145. L Price on the karigar's process: is it his labour per gram for that process, charged on the receipt? *(17 Nov)*
+146. Photos (C-02 / Q7): our app now reads <SKU>.jpg from \\Server2\d\JewelleryER_25\Images (Tools > Option > Image folders; several folders allowed). Is that the right folder, and should the 26 install's folder and DesignImages be added? *(17 Nov)*
+147. Cash sale (Q3): a Cash sale is a bill and the cash comes in on the Receipt (AANAND JEWELS 1,07,840.22 - 20,000 = 87,840.22 due). Or should the cash taken at the sale be typed on the sale itself? *(17 Nov)*
+148. Repair return (Q5): when a repaired piece goes back to the client, what is billed - labour only, metal added, stones? *(17 Nov)*
+149. Metal Purchase Vr 1 and Vr 2 (SHRIKANT) were saved with the price 1,33,590 (the boxes showed nothing on your PC - fixed). Please open them with Edit and correct the price; the payable follows. *(17 Nov)*
+150. Net weight on issue (T-12): job 25002 final setting went out G 12.000 / N 12.000 with 3.300 ct stones. Should the issue net already be 12.000 - 3.300/5 = 11.340, or only once the stones are set (on the receipt, as now)? *(17 Nov)*
+151. Fine above weight: one karigar showed Mt Bal 59.488 g / fine 72.594. That can happen when 24KT goes out and 14KT comes back. Is that the case, or should we look at it? *(17 Nov)*
+152. Which copy is live (C-06): two Dia Gold windows had different data (11,609 vs 8 product SKUs). Please test only on the one connected to the server. *(17 Nov)*
+153. Karigar heads (C-04) and the legacy MFG Transfer Day Book / dept-wise report you want "as it is" (C-05): please send an export or screenshot. *(17 Nov)*
+154. Next meeting date (Q2)? *(17 Nov)*
+
 Thank you!
