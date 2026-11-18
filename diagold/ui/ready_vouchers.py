@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -615,6 +615,11 @@ class ReadyVoucherWidget(_Screen):
             self.button("TXT Export", self.txt_export, secondary=True)
             self.button("Tag Print", self.tag_print, secondary=True)
             self.button("Catalog", self.picture_invoice, secondary=True)
+        if vr_type in ("rs_sale", "rs_approval", "rs_repair_issue"):
+            # 14 Nov: "price do not update and metal rate or labour" - the day's
+            # metal rate, labour rate and client chart read again for every line.
+            self.button("Re-price (F6)", self.reprice, secondary=True)
+            QShortcut(QKeySequence("F6"), self, activated=self.reprice)
         self.button("Stone Breakup", self.stone_breakup, secondary=True)
         self.button("Remove Line", self.remove_line, secondary=True)
         self.button("Print", self.print_voucher, secondary=True)
@@ -780,6 +785,24 @@ class ReadyVoucherWidget(_Screen):
                     info = PC.apply(s, chart, info)
                 v = S.value(info, _pydate(self.date), s, metal_rate=ln.get("metal_rate"))
                 self.lines[i] = {**ln, **info, **v}
+        self._render()
+
+    def reprice(self) -> None:
+        """Every piece on the voucher at the date's Daily Metal Rate, its labour
+        rate and the client's chart (when ticked) - rates typed are replaced."""
+        if not self.lines:
+            return
+        with SessionLocal() as s:
+            chart = self._chart(s)
+            for i, ln in enumerate(self.lines):
+                item = s.get(StockItem, ln.get("stock_item_id")) if ln.get("stock_item_id") \
+                    else None
+                if item is None:
+                    continue
+                info = S.describe(s, item)
+                if chart is not None:
+                    info = PC.apply(s, chart, info)
+                self.lines[i] = {**ln, **info, **S.value(info, _pydate(self.date), s)}
         self._render()
 
     def _add_infos(self, infos: list[dict], order_line_id: int | None = None) -> None:
