@@ -1,4 +1,4 @@
-# 17 Nov testing review - task status (v0.13.1)
+# 17 Nov testing review - task status (v0.13.2)
 
 Source: `Dia_Gold_Meeting5_Testing_Feedback_Sales_Repair_Ledger_17Nov2026.pdf` (JewelleryERP_26).
 
@@ -23,6 +23,8 @@ Source: `Dia_Gold_Meeting5_Testing_Feedback_Sales_Repair_Ledger_17Nov2026.pdf` (
 
 **v0.13.1 follow-ups:** Issue screen re-reads Allow Loss % when the karigar changes (asks before replacing a typed one) and shows Last G-Wt / N-Wt; Sale Return "For Repair" tick (those pieces head Ready Repair Issue); repair job shows the original order's remark; Item Search shows ORD between RI and the repair job; Image folders "Check" button; Pending For photo enlarges; MFG Transfer Day Book DIA / POL / CS pcs, carats and value.
 
-Still open (needs the client): legacy Select Worker Process import (C-01); use of Allow Stone Loss % and L Price (Q144-145); repair return billing (Q148); issue net with stones (Q150); legacy report layouts as-is (C-05); Stock Transfer "same format" - the WhatsApp screenshot cannot be read, the stone line already follows the purchase layout (SSKU + Size); "No Ready Stock Sale saved yet" in one copy (C-06).
+**v0.13.2 leftovers:** Import from Legacy loads the Select Worker Process grid (999999912, 220 rows); L Price = the receipt's Manual Price (labour per gram); Option "Allowance limited to the actual loss"; Worker Stone Ledger ALW CT (Allow Stone Loss %); Option "Issue net = gross less the stones going out" (Q150); a repaired piece sold back to its client is billed for the repair only (Option, Q148); Dept-wise balance shows weight too; purity never above pure; Stock Transfer line in one row (SAME FORMAT).
 
-Tests: e2e 222/222, ns1430 30/30, abhijeet_das all rows match, 217 screens opened with no error.
+Still open (only the client can close): legacy report layouts as-is (C-05); MP Vr 1 / 2 prices to be corrected by Edit (Q149); which copy is live (C-06 - the copy saying "No Ready Stock Sale has been saved yet" simply had none); confirm the defaults chosen in Q143-Q150; Windows fix to be seen on the office PC.
+
+Tests: e2e 227/227, ns1430 30/30, abhijeet_das all rows match, 217 screens opened with no error.

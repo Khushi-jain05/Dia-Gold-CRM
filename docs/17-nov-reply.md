@@ -1,6 +1,6 @@
 Namaste Rohit ji,
 
-Thank you for the testing on 17 Nov and for showing us the legacy repair flow. The points are done in the new build **v0.13.0** (link below). Please close the old app and run only the new one, the one connected to the server.
+Thank you for the testing on 17 Nov and for showing us the legacy repair flow. The points are done in the new build **v0.13.2** (link below). Please close the old app and run only the new one, the one connected to the server.
 
 **What changed**
 1. **Number and date boxes** - on your PC they showed empty (Date, Weight, Price, Amount). They now show their values everywhere. Clicking a box selects it, so typing replaces the old value. Metal Purchase Vr 1 and 2 were saved with price 1,33,590 because of this - please open them with Edit and correct the price; the payable follows.
@@ -14,10 +14,13 @@ Thank you for the testing on 17 Nov and for showing us the legacy repair flow. T
 9. **Sales Profit** - cost now includes metal and labour, not only stones.
 10. **Worker Metal Ledger** opens on the worker list (type "CHAN"); As on Today shows the dept-wise balance.
 11. Re-price (F6) on Ready Stock Sale, order delivery more than 6 months warns, M.I.S. Reports once in the menu.
+12. Your karigars' Select Worker Process figures are read from the legacy database; L Price is used as his labour per gram on the receipt.
+13. A repaired piece sold back to its client is billed for the repair (metal added, new stones, labour), not the whole piece.
+14. Stock Transfer line in one row like the grid; Sale Return has a "For Repair" tick.
 
 **We need from you** (questions 142-154)
-- Every karigar's Select Worker Process figures (or permission to read them from the server).
-- Rows with no allowance %, Allow Stone Loss %, and L Price - how they are used.
+- Check the karigars' wastage figures after we load them from the server.
+- Rows with no allowance %, and how Allow Stone Loss % and L Price are used (we chose a default - please confirm).
 - Image folder(s) to use.
 - How a repaired piece is billed when it goes back.
 - Cash taken on the sale itself, or only on the Receipt?
