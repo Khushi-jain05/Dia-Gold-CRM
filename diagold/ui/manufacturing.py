@@ -160,6 +160,8 @@ class PendingForDialog(QDialog):
         self.photo.setObjectName("ImageSlot")
         self.photo.setFixedSize(120, 120)
         self.photo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.photo.setToolTip("Click to enlarge")
+        self.photo.mousePressEvent = lambda _e: self._enlarge()
         top.addWidget(self.photo)
         lay.addLayout(top)
         self.table = _table([""] + [h for _k, h in self.COLS])
@@ -224,6 +226,19 @@ class PendingForDialog(QDialog):
             self.photo.setText("")
             self.photo.setPixmap(pix.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio,
                                             Qt.TransformationMode.SmoothTransformation))
+
+    def _enlarge(self) -> None:
+        sel = self.table.selectionModel().selectedRows()
+        path = self.rows[sel[0].row()].get("_photo") if sel else ""
+        pix = QPixmap(path) if path else QPixmap()
+        if pix.isNull():
+            return
+        from diagold.ui.production import show_in_dialog
+        big = QLabel()
+        big.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        big.setPixmap(pix.scaled(720, 720, Qt.AspectRatioMode.KeepAspectRatio,
+                                 Qt.TransformationMode.SmoothTransformation))
+        show_in_dialog(self, big, "Photo", (760, 760))
 
     def _toggle(self, r: int, _c: int) -> None:
         it = self.table.item(r, 0)
@@ -1394,6 +1409,14 @@ class ItemSearchWidget(_Screen):
 # Manufacturing ▸ Issue / Received - "Issue To <Process>" and
 # "Received From <Process>" (28 Sept §4.4, R4, T-03)
 # --------------------------------------------------------------------------
+def ln_differs(ln: dict) -> bool:
+    """The line's Allow Loss % was typed over (differs from what it started on)."""
+    a, d = ln.get("allow"), ln.get("_allow_default")
+    if a in (None, "") or d in (None, ""):
+        return False
+    return Decimal(str(a)) != Decimal(str(d))
+
+
 class ProcessVoucherWidget(_Screen):
     """One voucher per process per karigar, many jobs on it. Show Pending
     lists only the jobs waiting for this process; F3 / F5 work on the
@@ -1496,6 +1519,9 @@ class ProcessVoucherWidget(_Screen):
             ("pcs", "Pcs", True), ("gross", "GrossWt", True), ("net", "NetWt", True),
             ("mt_price", "Mt\nPrice", True), ("mt_amt", "Mt\nAmt", False)]
         if issue:
+            at = next(i for i, c in enumerate(self.cols) if c[0] == "gross")
+            self.cols[at:at] = [("iss_gross", "Last\nG-Wt", False),
+                                ("iss_net", "Last\nN-Wt", False)]
             self.cols += [("manual_price", "Manual\nPrice", True),
                           ("stone_wt", "Issue\nSt Wt", True),
                           ("extra", "Issue\nExtraMt", True),
@@ -1565,6 +1591,9 @@ class ProcessVoucherWidget(_Screen):
 
     def _worker_changed(self) -> None:
         wid = self.worker.currentData()
+        if wid and self.kind == "issue" and getattr(self, "_edit_vr", None) is None \
+                and self.lines:
+            self._allow_for_worker(wid)
         if wid and getattr(self, "_edit_vr", None) is not None and self.lines:
             # Editing: the lines' From follows the karigar picked (17 Nov T-11).
             with SessionLocal() as s:
@@ -1578,6 +1607,27 @@ class ProcessVoucherWidget(_Screen):
         with SessionLocal() as s:
             wt, fine = production.worker_metal_balance(s, wid, _pydate(self.date))
         self.mt_bal.setText(f"Mt Bal {wt:.3f} g / fine {fine:.3f}")
+
+    def _allow_for_worker(self, wid: int) -> None:
+        """Another karigar picked with jobs on the voucher: each line's Allow
+        Loss % becomes his for the process; one typed over is replaced only
+        when the user says so (17 Nov T-01)."""
+        with SessionLocal() as s:
+            new = {}
+            for i, ln in enumerate(self.lines):
+                step = s.get(JobStep, ln["_step_id"])
+                if step is not None:
+                    new[i] = production.default_allow_loss_pct(s, step, None, wid)
+        typed = [i for i in new if ln_differs(self.lines[i])]
+        replace_typed = bool(typed) and QMessageBox.question(
+            self, "Allow Loss %",
+            f"{len(typed)} line(s) have an Allow Loss % typed over. Replace it with this "
+            "karigar's figure too?") == QMessageBox.StandardButton.Yes
+        for i, pct in new.items():
+            if i in typed and not replace_typed:
+                continue
+            self.lines[i]["allow"] = self.lines[i]["_allow_default"] = pct
+        self._render()
 
     def _line_selected(self) -> None:
         rows = self.grid.selectionModel().selectedRows()
@@ -1620,9 +1670,9 @@ class ProcessVoucherWidget(_Screen):
     # -- lines ----------------------------------------------------------
     def _pending_rows(self) -> list[dict[str, Any]]:
         with SessionLocal() as s:
+            # An issue's rows take the karigar's own Allow Loss % (17 Nov T-01).
             rows = production.pending_steps(s, self.kind, self.process.currentData(),
-                                            worker_id=self.worker.currentData()
-                                            if self.kind == "receive" else None)
+                                            worker_id=self.worker.currentData())
         have = {l["_job_id"] for l in self.lines}
         return [r for r in rows if r["_job_id"] not in have]
 
@@ -1632,6 +1682,7 @@ class ProcessVoucherWidget(_Screen):
             if self.kind == "receive":
                 r["gross"] = r["net"] = r["mt_amt"] = None     # typed from the scale
             r["stones"], r["metal_lines"] = {}, []
+            r["_allow_default"] = r.get("allow")
             self.lines.append(r)
         self._render()
 

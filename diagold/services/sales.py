@@ -331,6 +331,18 @@ def available(session: Session, vr_type: str, account_id: int | None = None,
         except ProductionError:
             continue
         out.append(describe(session, item))
+    if vr_type == "rs_repair_issue":
+        # Pieces taken back "For Repair" (from this party first) head the list.
+        back = {}
+        for l, v in session.execute(select(ReadyVoucherLine, ReadyVoucher).join(ReadyVoucher)
+                                    .where(ReadyVoucher.vr_type == "rs_sale_return",
+                                           ReadyVoucher.for_repair == True)):  # noqa: E712
+            back[l.stock_item_id] = v.account_id
+        out.sort(key=lambda r: (0 if r["stock_item_id"] in back and account_id
+                                and back[r["stock_item_id"]] == account_id
+                                else 1 if r["stock_item_id"] in back else 2))
+        for r in out:
+            r["for_repair"] = r["stock_item_id"] in back
     return out
 
 
@@ -419,7 +431,7 @@ def pieces_for_orders(session: Session, takes: dict[int, int],
 # Posting
 # --------------------------------------------------------------------------
 _HEAD_FIELDS = ("vr_date", "vr_time", "account_id", "ref_no", "currency_code", "credit_days",
-                "mode", "client_chart",
+                "mode", "client_chart", "for_repair",
                 "salesperson", "bank_name", "margin_type", "bill_date", "bill_no",
                 "bill_account_id", "bill_amount", "remark", "ship_by", "ship_no", "ship_date",
                 "expected_date")
@@ -814,6 +826,14 @@ def _group_weights(line: ReadyVoucherLine) -> dict[str, Decimal]:
     for st in json.loads(line.stones_json or "[]"):
         out[stone_block(st)] += _dec(st.get("weight"))
     return {k: v.quantize(Decimal("0.001")) for k, v in out.items()}
+
+
+def _group_pcs(line: Any) -> dict[str, int]:
+    """Stone pieces per block (DIA / POL / CS)."""
+    out = {"DIAMOND": 0, "POLKI": 0, "COLOR STONE": 0}
+    for st in json.loads(line.stones_json or "[]"):
+        out[stone_block(st)] += int(st.get("pcs") or 0)
+    return out
 
 
 def _line_row(session: Session, v: ReadyVoucher, l: ReadyVoucherLine,

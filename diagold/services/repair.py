@@ -33,7 +33,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from diagold.db.models import (Job, Metal, MfgTransfer, MfgTransferLine, Order, ProductSku,
+from diagold.db.models import (Account, Job, Metal, MfgTransfer, MfgTransferLine, Order, ProductSku,
                                StockItem)
 from diagold.db.models.sku import Item
 
@@ -201,6 +201,14 @@ def history_rows(session: Session, item: StockItem) -> list[dict[str, Any]]:
         order = session.get(Order, job.order_id) if job.order_id else None
         on = order.order_date if order else (job.created_at.date() if job.created_at
                                               else date.today())
+        if order is not None:
+            # The repair order between the repair issue and the job, as the
+            # legacy chain RI 309 -> ORD 2036 -> JOB 30283 (17 Nov T-06).
+            client = session.get(Account, order.account_id) if order.account_id else None
+            rows.append({"date": on, "vrtype": "ORD", "vrno": order.order_no,
+                         "party": f"Repair order{' - ' + client.name if client else ''}",
+                         "location": "", "loss_pct": None, "pcs": item.pcs,
+                         "price": None, "amount": None, "_order": (on, 2, order.id)})
         rows.append({"date": on, "vrtype": "RJ", "vrno": job.job_no,
                      "party": f"Repair job {job.job_no}", "location": "", "loss_pct": None,
                      "pcs": item.pcs, "price": _dec(item.price), "amount": _dec(item.cost),

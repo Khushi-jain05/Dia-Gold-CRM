@@ -568,6 +568,13 @@ class ReadyVoucherWidget(_Screen):
             for w in (QLabel("Currency"), self.currency, QLabel("Bill Date"), self.bill_date,
                       self.bill_no, QLabel("Bill Account"), self.bill_acct, self.bill_amt):
                 row2.addWidget(w)
+        self.for_repair = QCheckBox("For Repair")
+        self.for_repair.setToolTip("Taken back to be repaired: the pieces come first on "
+                                   "Ready Repair Issue (legacy credit note, 17 Nov).")
+        if vr_type == "rs_sale_return":
+            row2.addWidget(self.for_repair)
+        else:
+            self.for_repair.setVisible(False)
         if vr_type in CHART_TYPES:
             row2.addWidget(self.chart_cb)
         else:
@@ -1117,6 +1124,7 @@ class ReadyVoucherWidget(_Screen):
             self.chart_cb.blockSignals(True)
             self.chart_cb.setChecked(bool(v.client_chart))
             self.chart_cb.blockSignals(False)
+            self.for_repair.setChecked(bool(v.for_repair))
             self.bill_no.setText(v.bill_no or "")
             self.bill_amt.setText(f"{v.bill_amount or ''}")
             if v.bill_date:
@@ -1150,7 +1158,8 @@ class ReadyVoucherWidget(_Screen):
                 "bill_amount": _num(self.bill_amt.text()) or 0,
                 "remark": self.narration.text().strip(),
                 "mode": self.mode.currentText(),
-                "client_chart": self.vr_type in CHART_TYPES and self.chart_cb.isChecked()}
+                "client_chart": self.vr_type in CHART_TYPES and self.chart_cb.isChecked(),
+                "for_repair": self.vr_type == "rs_sale_return" and self.for_repair.isChecked()}
 
     def save(self) -> None:
         if not self.lines:

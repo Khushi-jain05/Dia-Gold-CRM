@@ -54,6 +54,9 @@ class ReadyVoucher(Base, PKMixin, TimestampMixin):
     mode: Mapped[str] = mapped_column(String(8), default="Bill")
     # Prices From Client Chart was applied (5 Oct T-05).
     client_chart: Mapped[bool] = mapped_column(Boolean, default=False)
+    # A Sale Return taken back to be repaired (legacy credit note's "For
+    # Repair", 17 Nov T-06): its pieces head the Ready Repair Issue list.
+    for_repair: Mapped[bool] = mapped_column(Boolean, default=False)
     # Dispatch (9 Oct §4.17 / §4.26, T-07 / T-08): how and when the goods
     # left, the courier's tracking number and when the customer can expect
     # them - Shipping Analysis, Sales [Voucher Wise] and the WhatsApp message.

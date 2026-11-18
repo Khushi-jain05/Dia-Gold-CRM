@@ -448,8 +448,9 @@ def transfer_day_book(session: Session, date_from: date, date_to: date) -> list[
             job = session.get(Job, l.job_id)
             sku = session.get(ProductSku, job.product_sku_id) if job and job.product_sku_id else None
             item = session.scalar(select(StockItem).where(StockItem.line_id == l.id))
-            from diagold.services.sales import _group_weights
+            from diagold.services.sales import _group_pcs, _group_weights, _groups
             gw = _group_weights(l)      # carats per DIA / POLKI / CS (16 Nov)
+            gp, ga = _group_pcs(l), _groups(l)   # pcs and value too (17 Nov T-10)
             rows.append({
                 "date": t.vr_date, "vrno": t.vr_no, "job_no": job.job_no if job else "",
                 "_job_id": job.id if job else None, "sku": sku.sku_code if sku else "",
@@ -457,6 +458,10 @@ def transfer_day_book(session: Session, date_from: date, date_to: date) -> list[
                 "g_wt": _dec(l.gross_wt), "n_wt": _dec(l.net_wt),
                 "dia": gw["DIAMOND"] or None, "polki": gw["POLKI"] or None,
                 "cs": gw["COLOR STONE"] or None,
+                "dia_pcs": gp["DIAMOND"] or None, "polki_pcs": gp["POLKI"] or None,
+                "cs_pcs": gp["COLOR STONE"] or None,
+                "dia_amt": ga["DIAMOND"] or None, "polki_amt": ga["POLKI"] or None,
+                "cs_amt": ga["COLOR STONE"] or None,
                 "metal_amt": _dec(l.metal_amount), "stone_amt": _dec(l.stone_amount),
                 "labour": _dec(l.labour), "total": _dec(l.total),
                 "price": _dec(l.price_per_pcs), "tag": l.tag_text,

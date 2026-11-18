@@ -117,14 +117,16 @@ def store(src: str, sku_code: str) -> str:
     return dest
 
 
+def count_in(folder: str) -> int | None:
+    """Photos in one folder; None when this PC cannot read it."""
+    try:
+        with os.scandir(folder) as it:
+            return sum(1 for e in it if e.is_file() and e.name.lower().endswith(EXTS))
+    except OSError:
+        return None
+
+
 def check() -> list[tuple[str, int | None]]:
     """Tools > Option 'Check': each folder and how many photos it holds
     (None = not reachable)."""
-    out = []
-    for folder in roots():
-        try:
-            with os.scandir(folder) as it:
-                out.append((folder, sum(1 for e in it if e.name.lower().endswith(EXTS))))
-        except OSError:
-            out.append((folder, None))
-    return out
+    return [(folder, count_in(folder)) for folder in roots()]

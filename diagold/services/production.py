@@ -978,8 +978,22 @@ def job_summary(session: Session, job: Job) -> dict[str, Any]:
         "pnd_mfg_transfer": job.pcs if job.status == "complete" else 0,
         "mfg_transfer": job.pcs if job.status == "transferred" else 0,
         "total_pcs": job.pcs,
-        "order_remark": order.remark if order else "",
+        "order_remark": _order_remark(session, job, order),
     }
+
+
+def _order_remark(session: Session, job: Job, order: Order | None) -> str:
+    """The job's Order Remark; a repair job with none of its own shows the
+    remark of the order the piece was first made on (legacy job 30283 carries
+    29796's 'daank/245/11.03, DIA./62/0.63 ...', 17 Nov T-06)."""
+    own = (order.remark or "").strip() if order else ""
+    if own or not job.repair_item_id:
+        return own
+    from diagold.db.models import StockItem
+    item = session.get(StockItem, job.repair_item_id)
+    first = session.get(Job, item.job_id) if item is not None and item.job_id else None
+    orig = session.get(Order, first.order_id) if first is not None and first.order_id else None
+    return (orig.remark or "").strip() if orig else ""
 
 
 # --------------------------------------------------------------------------
@@ -1852,8 +1866,9 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
             "worker": worker.name if worker else "", "worker_id": issue.worker_id if issue else None,
             "issued_on": issue.vr_date if issue else None, "vr_no": issue.vr_no if issue else None,
             "gross": gross, "net": net, "due": step.due_date, "pcs": job.pcs,
-            "iss_gross": gross if kind == "receive" else None,
-            "iss_net": net if kind == "receive" else None,
+            # Receive: what went out; issue: what came back last - kept in view
+            # beside the weights typed (17 Nov T-03).
+            "iss_gross": gross, "iss_net": net,
             # the rest of the legacy voucher grid
             "c_ref": job.c_ref, "colour": job.colour,
             "metal": (session.get(Metal, job.metal_id).name if job.metal_id else ""),

@@ -286,6 +286,8 @@ with SessionLocal() as s:
     e0 = s.scalar(select(func.count()).select_from(AccountEntry))
     rv = S.post_ready(s, "rs_repair_issue", {"vr_date": T, "account_id": mb.id}, [line(piece)]); s.commit()
     check("Ready Repair Issue posts nothing to the accounts", s.scalar(select(func.count()).select_from(AccountEntry)), e0)
+    import json as _json
+    check("Ready Repair Issue carries the piece's stones", len(_json.loads(rv.lines[0].stones_json or "[]")), len(S.describe(s, piece)["stones"]))
     check("repair register: out", [r["status"] for r in S.repair_register(s, *FY)], ["Out for repair"])
     S.delete_ready(s, rv); s.commit()
     check("repair issue deleted -> in stock", piece.status, "in_stock")
@@ -310,6 +312,7 @@ with SessionLocal() as s:
     P.map_job(s, rj, "Default", T); s.flush(); s.refresh(rj)
     route = [s.get(ManufacturingProcess, st.process_id).name for st in rj.steps]
     check("repair route starts at HandMade - no CAD / CASTING", (route[0], "CAD" in route), ("HandMade", False))
+    check("Item Search: the repair order sits between the issue and the job", [h["vrtype"] for h in S.piece_history(s, piece)][-2:], ["ORD", "RJ"])
     s.rollback()
     rj = s.scalar(select(Job).where(Job.order_id == ro.id))
     refused("sell a piece that is in a repair job", lambda: S.post_ready(s, "rs_sale", {"vr_date": T, "account_id": kk.id}, [line(piece)]))

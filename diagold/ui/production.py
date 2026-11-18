@@ -3237,9 +3237,32 @@ class OptionsWidget(QWidget):
                     else:
                         ed = QLineEdit(value)
                     self.editors[st.key] = ed
+                    if st.key == "img.roots":
+                        # Check: can this PC read each photo folder (17 Nov T-07).
+                        box = QWidget()
+                        row = QHBoxLayout(box)
+                        row.setContentsMargins(0, 0, 0, 0)
+                        row.addWidget(ed, 1)
+                        chk = QPushButton("Check")
+                        chk.clicked.connect(lambda _c=False, e=ed: self._check_images(e))
+                        row.addWidget(chk)
+                        self.tree.setItemWidget(it, 1, box)
+                        continue
                     self.tree.setItemWidget(it, 1, ed)
                 top.setExpanded(True)
         return self.tree
+
+    def _check_images(self, ed: QLineEdit) -> None:
+        """Each image folder typed: reachable from this PC, and how many photos."""
+        from diagold.services import images
+        lines = []
+        for folder in [f.strip() for f in ed.text().split(";") if f.strip()]:
+            n = images.count_in(folder)
+            lines.append(f"{folder}:  " + (f"{n} photo(s)" if n is not None
+                                           else "NOT reachable from this PC"))
+        QMessageBox.information(self, "Image folders",
+                                "\n".join(lines) or "No folder entered.")
+        images.refresh()
 
     def _values(self) -> dict[str, str]:
         out = {}
