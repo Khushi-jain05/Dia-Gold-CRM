@@ -849,6 +849,9 @@ with SessionLocal() as s:
     inw = sum(D(x) + D(y) for x, y in (("52.011", "1.820"), ("6.670", "0.400"), ("8.491", "0.297"), ("17.822", "-0.207")))
     outw = D("52.011") + D("6.670") + D("8.491") + D("17.822")
     check("Balance = Inward - Outward - Allowance", last["bal_wt"], (inw - outw - sum(want)).quantize(D("0.001")))
+    SETM.set_setting(s, "loss.allowance_cap", "1"); s.flush()
+    rowsC = [r for r in P.worker_metal_ledger(s, *FY, worker_id=manik.id) if r["vrtype"] == "RTN"]
+    check("Option 'limited to the actual loss': gain earns none (MANIK JI 5 Nov)", [r["alw_wt"] for r in rowsC], [D("1.820"), D("0.233"), D("0.297"), D("0")])
     s.rollback()
     SETM.set_setting(s, "loss.allowance_basis", "issued"); s.commit()
     P._basis_cache = (0.0, P._basis_cache[1])

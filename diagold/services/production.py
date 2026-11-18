@@ -2587,9 +2587,10 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
     Fine    = weight x the metal's purity (Metal master).
     """
     from diagold.db.models import InvVoucher, InvVoucherLine
+    from diagold.services import settings
     if charge_all_loss is None:
-        from diagold.services import settings
         charge_all_loss = settings.flag(CHARGE_ALL_LOSS_FLAG, False, session=session)
+    cap_at_loss = settings.opt_on("loss.allowance_cap", session)
     q = select(JobVoucher).where(JobVoucher.vr_date <= date_to)
     if worker_id:
         q = q.where(JobVoucher.worker_id == worker_id)
@@ -2686,6 +2687,8 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
                 detail = loss_detail(proc, issues.get(v.issue_id), v)
                 if detail is not None:
                     loss, allowed, alw_pct = detail.loss, detail.allowed, detail.allow_pct
+                    if cap_at_loss:
+                        allowed = min(max(loss, ZERO), allowed)
                     # The karigar is always allowed ALW % x the weight issued,
                     # credited to his balance - on a gain too (16 Nov, client:
                     # 3% x 11.800 = 0.354 though 12.500 came back). Was capped
@@ -3010,7 +3013,9 @@ def worker_stone_ledger(session: Session, date_from: date, date_to: date) -> lis
         events.append((m.mv_date, 0, m.id, m.worker_id, vtype,
                        sign * int(m.pcs or 0), sign * _dec(m.weight),
                        line.particulars if line else "", line.size if line else "",
-                       job.job_no if job else "", job.id if job else None, None))
+                       job.job_no if job else "", job.id if job else None, None,
+                       _stone_allowance(session, m, line) if m.kind in ("break", "lost")
+                       else None))
     # Stones set into the piece leave the karigar with the piece, when the
     # step is received back: "SET", pieces = issued - back on that step.
     linked = {m.ref_id for m in session.scalars(select(JobBagMovement).where(
@@ -3029,7 +3034,7 @@ def worker_stone_ledger(session: Session, date_from: date, date_to: date) -> lis
                 continue
             events.append((rcv.vr_date, 2, rcv.id * 1000 + l.line.id, issue.worker_id, "SET",
                            -l.set_pcs, -per, l.line.particulars, l.line.size,
-                           job.job_no if job else "", job.id if job else None, rcv.vr_no))
+                           job.job_no if job else "", job.id if job else None, rcv.vr_no, None))
     signs = {"stone_issue": ("SI", 1), "stone_receipt": ("SR", -1), "stone_sale": ("SS", 1),
              "stone_approval": ("SA", 1), "stone_approval_return": ("SAR", -1)}
     q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
@@ -3042,12 +3047,12 @@ def worker_stone_ledger(session: Session, date_from: date, date_to: date) -> lis
                        sign * int(line.pcs or 0), sign * _dec(line.weight),
                        (sku.sku_code if sku else line.particulars) or "",
                        line.size or (sku.size if sku else "") or "",
-                       line.job_no or "", None, v.vr_no))
+                       line.job_no or "", None, v.vr_no, None))
     events.sort(key=lambda e: e[:3])
     bal: dict[int, list] = {}
     names: dict[int, tuple[str, str]] = {}
     rows = []
-    for when, _o, _i, wid, vtype, pcs, wt, ssku, size, job_no, job_id, vr_no in events:
+    for when, _o, _i, wid, vtype, pcs, wt, ssku, size, job_no, job_id, vr_no, alw in events:
         b = bal.setdefault(wid, [0, ZERO])
         info_only = vtype in ("BRK", "LOS")
         if not info_only:
@@ -3072,8 +3077,31 @@ def worker_stone_ledger(session: Session, date_from: date, date_to: date) -> lis
                      "out_wt": -wt if wt < 0 and not info_only else None,
                      "brk_pcs": -pcs if info_only else None,
                      "brk_wt": (-wt).quantize(D3) if info_only else None,
+                     "alw_wt": alw,
                      "bal_pcs": b[0], "bal_wt": b[1].quantize(D3)})
     return rows
+
+
+def _stone_allowance(session: Session, m: JobBagMovement, line: JobBagLine | None) -> Decimal | None:
+    """Carats a karigar may break / lose on a step: his Allow Stone Loss % for
+    the process (Select Worker Process) x the carats of that stone issued to
+    him on that step. Shown beside BRK / LOS; the balance is not changed until
+    the client says how the legacy settles it (17 Nov Q144)."""
+    if line is None or not m.worker_id:
+        return None
+    issue = None
+    if m.ref_kind == VOUCHER_REF and m.ref_id:
+        v = session.get(JobVoucher, m.ref_id)
+        issue = v if v is not None and v.kind == "issue" else (
+            _issue_of(session, v) if v is not None else None)
+    step = session.get(JobStep, issue.step_id) if issue is not None else None
+    wp = worker_process(session, m.worker_id, step.process_id if step else None)
+    if wp is None or not _dec(wp.allow_stone_loss_pct):
+        return None
+    issued = sum((_dec(x.weight) for x in line.movements
+                  if x.kind == "iss" and x.worker_id == m.worker_id
+                  and (issue is None or x.ref_id == issue.id)), ZERO)
+    return (issued * _dec(wp.allow_stone_loss_pct) / 100).quantize(D3)
 
 
 STONE_BAL_HEADS = {"ISS": "iss", "SI": "iss", "SS": "iss", "SA": "iss", "BACK": "rtn",

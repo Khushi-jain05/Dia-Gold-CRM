@@ -2092,6 +2092,7 @@ def build_specs() -> dict[str, ReportSpec]:
                             pcs("in_pcs", "IN PCS"), wt("in_wt", "IN WT"),
                             pcs("out_pcs", "OUT PCS"), wt("out_wt", "OUT WT"),
                             pcs("brk_pcs", "BRK/LOS PCS"), wt("brk_wt", "BRK/LOS WT"),
+                            wt("alw_wt", "ALW CT"),
                             Col("bal_pcs", "BAL PCS", "measure", 0),
                             Col("bal_wt", "BAL WT", "measure", 3)]),
             query=lambda s, a, b, **_k: P.worker_stone_ledger(s, a, b),

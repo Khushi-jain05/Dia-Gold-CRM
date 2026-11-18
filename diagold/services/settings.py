@@ -190,6 +190,10 @@ SETTINGS_TREE: tuple[Setting, ...] = (
     Setting("Manufacturing", "loss.allowance_basis", "Loss allowance worked on", "choice",
             "issued", "Allowance % x the weight issued (5 Oct) or received back",
             (("issued", "Weight issued"), ("received", "Weight received back"))),
+    Setting("Manufacturing", "loss.allowance_cap", "Allowance limited to the actual loss",
+            "bool", "0", "Off (17 Nov, CHANDAN MONDAL ledger): ALW % x issued on every receipt, "
+            "a gain too. On: never more than the loss, none on a gain (the MANIK JI rows of "
+            "5 Nov) - until the client confirms (Q143)"),
     Setting("Manufacturing", "flag.loss.charge_all", "Charge the karigar for all loss", "bool",
             "0", "On = every gram lost is owed, not only the excess over the allowed %"),
     Setting("Manufacturing", "repair.carry_stones", "Repair: carry the old stones forward",
