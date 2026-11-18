@@ -634,7 +634,12 @@ class ReportWidget(QWidget):
         self.search.setClearButtonEnabled(True)
         self.search.setMinimumWidth(120)
         self.search.textChanged.connect(self._rebuild)
-        row2.addWidget(self.search, 1)
+        # Every report filters by Auto Filter (any column heading) and Adv.
+        # Filter, so the free search box is not shown (18 Nov: "jahan filter
+        # hai wahan search bar hata do"); it stays for code that fills it.
+        self.search.hide()
+        row2.addWidget(self.search)
+        row2.addStretch(1)
         row2.addWidget(QLabel("Group"))
         self.group = QComboBox()
         self.group.setMinimumWidth(140)
