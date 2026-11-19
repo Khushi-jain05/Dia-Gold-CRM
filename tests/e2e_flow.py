@@ -1017,6 +1017,24 @@ with SessionLocal() as s:
     check("job 25012: Extra 10.000 out -> receipt G-Wt / N-Wt 10.000", (rE["gross"], rE["net"]), (D("10.000"), D("10.000")))
     s.rollback()
 
+    print("\n== N26. Edit an issue's F5 metal in the same voucher (19 Nov)")
+    oF = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(oF); s.flush(); s.add(OrderLine(order_id=oF.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(oF)
+    _v, mkF = P.explode_orders(s, [{"order_id": oF.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+    jF = s.scalar(select(Job).where(Job.job_no == mkF[0]))
+    from diagold.db.models import ManufacturingProcess as MPf
+    hmF = s.scalar(select(MPf).where(MPf.name.ilike("handmade")))
+    P.set_job_steps(s, jF, [{"process_id": hmF.id, "due_date": T}]); s.flush(); s.refresh(jF)
+    m0 = P.stock_balance(s, prim.id, "metal", g24.id, "")[1]
+    vF = P.post_multi_voucher(s, "issue", chand.id, [{"job_id": jF.id, "step_id": jF.steps[0].id, "metal": [{"location_id": prim.id, "metal_id": g24.id, "weight": D("3"), "pcs": 0}]}], vr_date=T)
+    vF_line = s.scalar(select(JobVoucher).where(JobVoucher.vr_no == vF))
+    _st, metalF = P.voucher_parts(s, vF_line)
+    check("Edit opens with the saved F5 metal", [(m["metal_id"], m["weight"]) for m in metalF], [(g24.id, D("3"))])
+    P.replace_job_voucher(s, vF, "issue", chand.id, [{"job_id": jF.id, "step_id": jF.steps[0].id, "metal": [{"location_id": prim.id, "metal_id": g24.id, "weight": D("5"), "pcs": 0}]}], vr_date=T)
+    vF2 = s.scalar(select(JobVoucher).where(JobVoucher.vr_no == vF))
+    check("same Vr No, Extra 5, location down 5 not 8", (vF2 is not None, D(str(vF2.extra)), (m0 - P.stock_balance(s, prim.id, "metal", g24.id, "")[1]).quantize(D("0.001"))), (True, D("5"), D("5.000")))
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

@@ -2087,7 +2087,7 @@ def worker_metal_balance(session: Session, worker_id: int,
 def post_multi_voucher(session: Session, kind: str, worker_id: int | None,
                        lines: list[dict[str, Any]], *, vr_date: date | None = None,
                        vr_time: str = "", allow_loss_pct: Any = None,
-                       user_id: int | None = None) -> int:
+                       user_id: int | None = None, vr_no: int | None = None) -> int:
     """One issue or receive voucher carrying several jobs, as the legacy
     "Issue To <Process>" does (Buddha Polish Vr 2333 received four jobs).
     Every line gets the same voucher number. A receive goes back from
@@ -2099,7 +2099,7 @@ def post_multi_voucher(session: Session, kind: str, worker_id: int | None,
     weight, pcs}] - F5, issue only)."""
     if not lines:
         raise ProductionError("Tick at least one job.")
-    vr_no = next_number(session, JobVoucher.vr_no)
+    vr_no = vr_no or next_number(session, JobVoucher.vr_no)
     for ln in lines:
         _post_line_full(session, kind, worker_id, ln, vr_no, vr_date=vr_date,
                         vr_time=vr_time, allow_loss_pct=allow_loss_pct, user_id=user_id,
@@ -2379,6 +2379,45 @@ VOUCHER_EDIT_FIELDS = ("pcs", "gross_wt", "net_wt", "stone_wt", "finding", "moul
 def voucher_lines(session: Session, vr_no: int) -> list[JobVoucher]:
     return list(session.scalars(select(JobVoucher).where(JobVoucher.vr_no == vr_no)
                                 .order_by(JobVoucher.id)))
+
+
+def voucher_parts(session: Session, v: JobVoucher) -> tuple[dict[int, dict], list[dict]]:
+    """What a saved voucher line carried besides weights: its F3 stones
+    ({bag line: pcs / wt (+ break / lost on a receipt)}) and F5 metal lines -
+    so Edit can open them and change them (19 Nov)."""
+    stones: dict[int, dict] = {}
+    for m in session.scalars(select(JobBagMovement).where(JobBagMovement.voucher_id == v.id)):
+        sp = stones.setdefault(m.line_id, {"pcs": 0, "wt": ZERO, "break_pcs": 0,
+                                           "break_wt": ZERO, "lost_pcs": 0, "lost_wt": ZERO})
+        if m.kind in ("iss", "back"):
+            sp["pcs"] += int(m.pcs or 0)
+            sp["wt"] += _dec(m.weight)
+        elif m.kind in ("break", "lost"):
+            sp[m.kind + "_pcs"] += int(m.pcs or 0)
+            sp[m.kind + "_wt"] += _dec(m.weight)
+    for sp in stones.values():          # a receipt's back includes the broken / lost
+        sp["pcs"] -= sp["break_pcs"] + sp["lost_pcs"]
+        sp["wt"] -= sp["break_wt"] + sp["lost_wt"]
+    metal = [{"location_id": m.location_id, "metal_id": m.ref_id, "weight": -_dec(m.weight),
+              "pcs": -int(m.pcs or 0)}
+             for m in session.scalars(select(StockMovement).where(
+                 StockMovement.ref_kind == VOUCHER_REF, StockMovement.ref_no == v.vr_no,
+                 StockMovement.job_id == v.job_id, StockMovement.material_class == "metal"))]
+    return stones, metal
+
+
+def replace_job_voucher(session: Session, vr_no: int, kind: str, worker_id: int | None,
+                        lines: list[dict[str, Any]], *, vr_date: date | None = None,
+                        vr_time: str = "", user_id: int | None = None) -> int:
+    """Edit a saved issue / receive in full, in the same voucher (19 Nov: "pehle
+    Vr. ko delete karke entry kijiye - same voucher me nhi ho rha"): its jobs,
+    F3 stones and F5 metal change too. The old voucher comes out (kept in the
+    deletion log, refused if a later step already followed it) and posts
+    again under its own number - all or nothing."""
+    delete_job_voucher(session, vr_no, user_id=user_id, reason="edited (replaced)")
+    session.flush()
+    return post_multi_voucher(session, kind, worker_id, lines, vr_date=vr_date,
+                              vr_time=vr_time, user_id=user_id, vr_no=vr_no)
 
 
 def voucher_rows(session: Session, vr_no: int) -> list[dict[str, Any]]:

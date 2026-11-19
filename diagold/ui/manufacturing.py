@@ -1725,12 +1725,12 @@ class ProcessVoucherWidget(_Screen):
 
     # -- Add / Edit / Delete a saved voucher (28 Sept §4.4) -----------
     def _editing_blocked(self) -> bool:
-        if self._edit_vr is None:
-            return False
-        _info(self, "Edit", f"Vr {self._edit_vr} is open for editing - only its weights, "
-              "prices, date, RefNo and narration can change. To change which jobs, stones "
-              "or metal are on it, Delete it and make it again (Add).")
-        return True
+        """A saved voucher open for editing may change in full now - jobs, F3
+        stones, F5 metal (19 Nov: no more "delete it and make it again"). Such
+        a change is saved by replacing the voucher under its own number."""
+        if self._edit_vr is not None:
+            self._structural = True
+        return False
 
     def attach_doc(self) -> None:
         """Attach Doc (legacy receipt header): documents kept with the voucher."""
@@ -1830,8 +1830,12 @@ class ProcessVoucherWidget(_Screen):
         self.time.setText(first["vr_time"] or "")
         self.vr_ref.setText(first["vr_ref"] or "")
         self.narration.setText(first["remark"] or "")
-        for r in rows:
-            r["stones"], r["metal_lines"] = {}, []
+        with SessionLocal() as s:
+            for r in rows:
+                # Its F3 stones and F5 metal, to be changed in place (19 Nov).
+                r["stones"], r["metal_lines"] = production.voucher_parts(
+                    s, s.get(JobVoucher, r["_voucher_id"]))
+        self._structural = False
         self.lines = rows
         self._edit_vr = self._last_vr = vr
         self.refresh()
@@ -1872,14 +1876,7 @@ class ProcessVoucherWidget(_Screen):
             r = self.grid.rowCount()
             self.grid.insertRow(r)
             for c, (key, _h, editable) in enumerate(self.cols):
-                if key == "f3f5" and self._edit_vr is not None:
-                    parts = []
-                    if ln.get("saved_stones"):
-                        parts.append(f"{ln['saved_stones']} st")
-                    if ln.get("saved_metal"):
-                        parts.append(f"{ln['saved_metal']} g")
-                    v = " · ".join(parts)
-                elif key == "f3f5":
+                if key == "f3f5":
                     parts = []
                     if ln.get("stones"):
                         from diagold.services import production as _P
@@ -2013,26 +2010,7 @@ class ProcessVoucherWidget(_Screen):
                 else f"receipt of {len(self.lines)} job(s)")
         if not confirm_save(self, what):
             return
-        payload = []
-        for ln in self.lines:
-            payload.append({
-                "job_id": ln["_job_id"], "step_id": ln["_step_id"],
-                "pcs": int(Decimal(str(ln.get("pcs") or 0))) or None,
-                # Fewer pieces than the row offers: a part goes / comes back.
-                "share": (Decimal(str(ln["pcs"])) if ln.get("pcs") not in (None, "")
-                          and ln.get("_avail") is not None
-                          and Decimal(str(ln["pcs"])) < Decimal(str(ln["_avail"])) else None),
-                "gross": ln.get("gross"), "net": ln.get("net"),
-                "stone_wt": ln.get("stone_wt"), "rej_pcs": ln.get("rej_pcs"),
-                "rej_wt": ln.get("rej_wt"), "scrap": ln.get("scrap"), "dust": ln.get("dust"),
-                "allow": ln.get("allow"), "stones": ln.get("stones") or {},
-                "metal": ln.get("metal_lines") or [], "remark": self.narration.text().strip(),
-                "extra": ln.get("extra"), "finding": ln.get("finding"),
-                "mould": ln.get("mould"), "mt_price": ln.get("mt_price"),
-                "mt_amt": ln.get("mt_amt"), "manual_price": ln.get("manual_price"),
-                "manual_amt": ln.get("manual_amt"), "rej_type": ln.get("rej_type"),
-                "price_on": ln.get("price_on") or "NetWt", "ref_no": self.vr_ref.text().strip(),
-            })
+        payload = self._payload()
         with SessionLocal() as s:
             try:
                 vr = production.post_multi_voucher(
@@ -2055,9 +2033,50 @@ class ProcessVoucherWidget(_Screen):
         self.refresh()
         self.totals.setText(f"Saved Vr {vr}: {n} job(s). Print Voucher prints it.")
 
+    def _payload(self) -> list[dict[str, Any]]:
+        payload = []
+        for ln in self.lines:
+            payload.append({
+                "job_id": ln["_job_id"], "step_id": ln["_step_id"],
+                "pcs": int(Decimal(str(ln.get("pcs") or 0))) or None,
+                # Fewer pieces than the row offers: a part goes / comes back.
+                "share": (Decimal(str(ln["pcs"])) if ln.get("pcs") not in (None, "")
+                          and ln.get("_avail") is not None
+                          and Decimal(str(ln["pcs"])) < Decimal(str(ln["_avail"])) else None),
+                "gross": ln.get("gross"), "net": ln.get("net"),
+                "stone_wt": ln.get("stone_wt"), "rej_pcs": ln.get("rej_pcs"),
+                "rej_wt": ln.get("rej_wt"), "scrap": ln.get("scrap"), "dust": ln.get("dust"),
+                "allow": ln.get("allow"), "stones": ln.get("stones") or {},
+                "metal": ln.get("metal_lines") or [], "remark": self.narration.text().strip(),
+                "extra": ln.get("extra"), "finding": ln.get("finding"),
+                "mould": ln.get("mould"), "mt_price": ln.get("mt_price"),
+                "mt_amt": ln.get("mt_amt"), "manual_price": ln.get("manual_price"),
+                "manual_amt": ln.get("manual_amt"), "rej_type": ln.get("rej_type"),
+                "price_on": ln.get("price_on") or "NetWt", "ref_no": self.vr_ref.text().strip(),
+            })
+        return payload
+
     def _save_edit(self) -> None:
         vr = self._edit_vr
         if not confirm_save(self, f"the changes to Vr {vr}"):
+            return
+        if getattr(self, "_structural", False):
+            # Jobs, stones or metal changed: the voucher is replaced in full,
+            # under its own number (19 Nov).
+            with SessionLocal() as s:
+                try:
+                    production.replace_job_voucher(
+                        s, vr, self.kind, self.worker.currentData() or None, self._payload(),
+                        vr_date=_pydate(self.date), vr_time=self.time.text().strip(),
+                        user_id=getattr(self.user, "id", None))
+                    s.commit()
+                except ProductionError as exc:
+                    s.rollback()
+                    _warn(self, "Cannot save", str(exc))
+                    return
+            self.new_voucher()
+            self._last_vr = vr
+            self.totals.setText(f"Vr {vr} updated. Print Voucher prints it.")
             return
         changes = {}
         for ln in self.lines:
