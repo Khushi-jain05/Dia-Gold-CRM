@@ -104,6 +104,14 @@ class ReadyVoucherLine(Base, PKMixin):
     labour_per: Mapped[str] = mapped_column(String(4), default="gm")
     other_amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     total: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    # Ready Items purchase, as the legacy line (19 Nov video): Margin % on the
+    # Total Amount gives the Total Value the piece is priced at; Tag % on it
+    # (or a Tag Price typed, in thousands as the tag prints: 630) the tag.
+    margin_pct: Mapped[float] = mapped_column(Numeric(9, 2), default=0)
+    margin_amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    total_value: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    tag_pct: Mapped[float] = mapped_column(Numeric(9, 2), default=0)
+    tag_price: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     # Stone breakup as valued: [{label, s_type, size, pcs, weight, unit, price}].
     stones_json: Mapped[str] = mapped_column(Text, default="[]")
     # Sold against an order line (From Order): updates its Shipped / Bal.

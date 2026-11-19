@@ -262,7 +262,59 @@ class StoneBreakupDialog(QDialog):
         amt = QTableWidgetItem("")
         amt.setFlags(amt.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.grid.setItem(r, len(STONE_COLS), amt)
+        if self.full:
+            self._pickers(r, st)
         self.grid.blockSignals(False)
+
+    # -- SSKU / Size picked from the Stone SKU master (19 Nov: "stone breakup me
+    # sku list nhi aa rhi") - the stone's name, then its sizes, as the legacy
+    # List of Stone SKU; the size's S Type and cost fill in.
+    def _sizes(self) -> dict:
+        if not hasattr(self, "_size_map"):
+            from diagold.ui.stock_transfer import _stone_sizes
+            self._size_map = _stone_sizes()
+        return self._size_map
+
+    def _pickers(self, r: int, st: dict) -> None:
+        sizes = self._sizes()
+        name = QComboBox()
+        name.addItem("")
+        name.addItems(list(sizes))
+        size = QComboBox()
+        size.setEditable(True)
+        label = (st.get("label") or "").strip()
+        stone = label if label in sizes else next(
+            (n for n in sizes if label.upper().startswith(n.upper() + " ")), label)
+        name.setCurrentText(stone)
+        size.addItems([z for z, *_x in sizes.get(stone, [])])
+        size.setCurrentText(str(st.get("size") or ""))
+
+        def stone_changed(_i: int = 0, n=name, z=size) -> None:
+            z.blockSignals(True)
+            z.clear()
+            rows = sizes.get(n.currentText(), [])
+            z.addItems([x for x, *_y in rows])
+            z.setCurrentText(rows[0][0] if len(rows) == 1 else "")
+            z.blockSignals(False)
+            size_changed()
+
+        def size_changed(_t: str = "", n=name, z=size, row=r) -> None:
+            hit = next((x for x in sizes.get(n.currentText(), [])
+                        if x[0].lower() == z.currentText().strip().lower()), None)
+            self.grid.blockSignals(True)
+            self.grid.item(row, 0).setText(n.currentText())
+            self.grid.item(row, 2).setText(z.currentText())
+            if hit is not None:
+                self.grid.item(row, 1).setText(hit[2] or self.grid.item(row, 1).text())
+                if not _num(self.grid.item(row, 6).text()):
+                    self.grid.item(row, 6).setText(str(hit[3]))
+            self.grid.blockSignals(False)
+            self._recalc()
+        name.currentIndexChanged.connect(stone_changed)
+        size.currentTextChanged.connect(size_changed)
+        self.grid.setCellWidget(r, 0, name)
+        self.grid.setCellWidget(r, 2, size)
+        self.grid.setColumnWidth(0, max(self.grid.columnWidth(0), 170))
 
     def _remove(self) -> None:
         r = self.grid.currentRow()
@@ -274,6 +326,13 @@ class StoneBreakupDialog(QDialog):
         out = []
         for r in range(self.grid.rowCount()):
             st = {k: self.grid.item(r, c).text().strip() for c, (k, _h) in enumerate(STONE_COLS)}
+            if self.full:
+                st["label"] = self.grid.cellWidget(r, 0).currentText().strip()
+                st["size"] = self.grid.cellWidget(r, 2).currentText().strip()
+                hit = next((x for x in self._sizes().get(st["label"], [])
+                            if x[0].lower() == st["size"].lower()), None)
+                if hit is not None:
+                    st["stone_sku_id"] = hit[1]
             st["pcs"] = int(st["pcs"]) if st["pcs"].isdigit() else 0
             st["weight"] = str(_num(st["weight"]) or 0)
             st["price"] = str(_num(st["price"]) or 0)
@@ -453,10 +512,30 @@ LINE_COLS: list[tuple[str, str, bool]] = [
     ("labour", "Labour", False), ("other_amount", "Other\nAmt", True),
     ("total", "Total", False),
 ]
+# Ready Items purchase / Opening, column for column as the legacy Ready Stock
+# Purchase (19 Nov video): metal, stones, labour, Total Amount, then Margin %,
+# Margin Amount, Price Per, Total Value, Tag %, Tag Price.
+PURCHASE_COLS: list[tuple[str, str, bool]] = [
+    ("location", "Location", False), ("job_no", "Job No", False), ("sku", "SKU", False),
+    ("c_ref", "C Ref", False), ("metal", "Metal", False), ("title", "Title", False),
+    ("loss_pct", "Loss%", False), ("colour", "Color", False), ("size", "Size", False),
+    ("pcs", "Pcs", False), ("gross_wt", "Gross Wt", True), ("net_wt", "Net Wt", True),
+    ("st_wt", "St Wt", False), ("fine_wt", "FineWt", False),
+    ("fine_loss", "Fine With\nLoss", False), ("metal_rate", "Metal\nRate", True),
+    ("metal_amount", "Metal\nAmount", False), ("stone_amount", "Stone\nAmount", False),
+    ("setting_amount", "Setting\nAmount", True), ("other_amount", "Ex Metal /\nOther", True),
+    ("labour_rate", "Labour\nPrice", True), ("labour_per", "Unit", False),
+    ("labour", "Labour", False), ("total", "Total\nAmount", False),
+    ("margin_pct", "Margin %", True), ("margin_amount", "Margin\nAmount", False),
+    ("price_per", "Price Per", False), ("total_value", "Total\nValue", False),
+    ("tag_pct", "Tag %", True), ("tag_price", "Tag Price", True),
+]
 _DECIMALS = {"title": 0, "loss_pct": 2, "old_wt": 3, "gross_wt": 3, "net_wt": 3, "fine_wt": 3,
              "fine_loss": 3,
              "st_wt": 3, "metal_rate": 2, "metal_amount": 2, "stone_amount": 2,
-             "setting_amount": 2, "labour_rate": 2, "labour": 2, "other_amount": 2, "total": 2}
+             "setting_amount": 2, "labour_rate": 2, "labour": 2, "other_amount": 2, "total": 2,
+             "margin_pct": 2, "margin_amount": 2, "price_per": 2, "total_value": 2,
+             "tag_pct": 2, "tag_price": 0}
 
 
 class ReadyVoucherWidget(_Screen):
@@ -471,6 +550,7 @@ class ReadyVoucherWidget(_Screen):
         self._edit_id: int | None = None
         self._last_id: int | None = None
         new = vr_type in S.NEW_PIECES
+        self.cols = PURCHASE_COLS if new else LINE_COLS
 
         # header
         self.vr = QLabel("")
@@ -646,14 +726,14 @@ class ReadyVoucherWidget(_Screen):
                 self.button("Tag Print", self.tag_print, secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
 
-        self.grid = _table([h for _k, h, _e in LINE_COLS], ledger=True)
+        self.grid = _table([h for _k, h, _e in self.cols], ledger=True)
         self.grid.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
                                   | QAbstractItemView.EditTrigger.EditKeyPressed
                                   | QAbstractItemView.EditTrigger.AnyKeyPressed)
         self.grid.itemChanged.connect(self._edited)
         self.grid.itemSelectionChanged.connect(self._line_selected)
         self.grid.cellDoubleClicked.connect(lambda r, c: self.stone_breakup()
-                                            if LINE_COLS[c][0] in ("st_wt", "stone_amount")
+                                            if self.cols[c][0] in ("st_wt", "stone_amount")
                                             else None)
         auto_fit(self.grid)
         self.outer.addWidget(self.grid, 1)
@@ -665,7 +745,117 @@ class ReadyVoucherWidget(_Screen):
         self.accounts = QLabel("")
         self.accounts.setObjectName("Muted")
         self.outer.addWidget(self.accounts)
+        self.acc_table: QTableWidget | None = None
+        if new:
+            self._legacy_layout(row2, rd)
         self.refresh()
+
+    def _legacy_layout(self, row2, rd) -> None:
+        """Ready Stock Purchase laid out as the legacy screen (19 Nov video):
+        Vr No / Ref no / Currency, Date, Account / Margin Type / Prices From
+        Client Chart across the top; the grid; ACCOUNT INFORMATION; Bill Date,
+        Bill Number, Bill Account, Bill Amt and Remark; the buttons at the foot."""
+        from PySide6.QtWidgets import QGridLayout, QPushButton
+        from diagold.ui.flow import FlowLayout
+        buttons: dict[str, QPushButton] = {}
+        for lay in (self.toolbar, self.secondary):
+            for i in reversed(range(lay.count())):
+                w = lay.itemAt(i).widget()
+                if w is None:
+                    continue
+                lay.removeWidget(w)
+                if isinstance(w, QPushButton):
+                    buttons[w.text()] = w
+                else:
+                    w.setParent(None)
+                    w.hide()
+        for i in reversed(range(row2.count())):
+            w = row2.itemAt(i).widget()
+            if w is not None:
+                row2.removeWidget(w)
+                w.hide()
+        self.reader.hide()
+        # -- header -------------------------------------------------------
+        head = QGridLayout()
+        head.setHorizontalSpacing(10)
+        head.setVerticalSpacing(6)
+
+        def cap(t: str) -> QLabel:
+            lab = QLabel(t)
+            lab.setObjectName("Muted")
+            return lab
+        self.ref.setPlaceholderText("")
+        self.ref.setMaximumWidth(220)
+        self.margin_type.setPlaceholderText("")
+        party = "Supplier" if self.t.party == "supplier" else "Account"
+        grid_items = [
+            (0, 0, cap("Vr No")), (0, 1, self.vr), (1, 0, cap("Ref no")), (1, 1, self.ref),
+            (2, 0, cap("Currency")), (2, 1, self.currency),
+            (0, 3, cap("Date")), (0, 4, self.date), (0, 5, self.time),
+        ]
+        if self.t.party != "none":
+            grid_items += [(0, 7, cap(party)), (0, 8, self.account), (0, 9, self.cl_bal),
+                           (2, 7, cap("Margin Type")), (2, 8, self.margin_type)]
+        if self.vr_type in CHART_TYPES:
+            grid_items.append((2, 9, self.chart_cb))
+        self.cl_bal.setMinimumWidth(160)
+        for r, c, w in grid_items:
+            head.addWidget(w, r, c)
+            w.show()
+        head.setColumnMinimumWidth(2, 30)
+        head.setColumnMinimumWidth(6, 30)
+        head.setColumnStretch(10, 1)
+        head.addWidget(self.photo, 0, 11, 3, 1)
+        self.photo.show()
+        self.outer.insertLayout(1, head)
+        # -- ACCOUNT INFORMATION (Dr Purchase A/c / Cr the supplier) --------
+        self.outer.removeWidget(self.accounts)
+        self.accounts.hide()
+        acap = QLabel("ACCOUNT INFORMATION")
+        acap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        acap.setStyleSheet("font-weight: 600; letter-spacing: 2px;")
+        self.acc_table = QTableWidget(2, 5)
+        self.acc_table.setHorizontalHeaderLabels(["Sno", "Dr/Cr", "Account", "Debit", "Credit"])
+        self.acc_table.verticalHeader().setVisible(False)
+        self.acc_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.acc_table.setFixedHeight(92)
+        self.acc_table.horizontalHeader().setStretchLastSection(True)
+        for c, wdt in enumerate((40, 50, 320, 140)):
+            self.acc_table.setColumnWidth(c, wdt)
+        idx = self.outer.indexOf(self.narration)
+        self.outer.removeWidget(self.narration)
+        self.outer.insertWidget(idx, acap)
+        self.outer.insertWidget(idx + 1, self.acc_table)
+        # -- Bill Date / Bill Number / Bill Account / Bill Amt, Remark ------
+        bill = QGridLayout()
+        bill.setHorizontalSpacing(10)
+        self.narration.setPlaceholderText("")
+        if self.vr_type == "rp_purchase":
+            self.bill_no.setPlaceholderText("")
+            self.bill_amt.setPlaceholderText("")
+            for c, w in enumerate((cap("Bill Date"), self.bill_date, cap("Bill Number"),
+                                   self.bill_no, cap("Bill Account"), self.bill_acct,
+                                   cap("Bill Amt"), self.bill_amt)):
+                bill.addWidget(w, 0, c)
+                w.show()
+        bill.addWidget(cap("Remark"), 1, 0)
+        bill.addWidget(self.narration, 1, 1, 1, 5)
+        bill.setColumnStretch(8, 1)
+        self.outer.insertLayout(idx + 2, bill)
+        # -- the buttons, at the foot, in the legacy order -------------------
+        foot = FlowLayout(spacing=6)
+        order = ["Add", "Edit", "Save", "Delete", "Add Piece", "Stone Breakup", "Remove Line",
+                 "BreakUp Sheet", "Tag Print", "Print", "Packing List", "Picture Invoice",
+                 "SKU Search", "St. Summ.", "Attach Doc"]
+        names = {"Picture Invoice": "Catalog / Picture Invoice"}
+        for label in order + [k for k in buttons if k not in order and k != "Exit"] + ["Exit"]:
+            b = buttons.pop(label, None)
+            if b is not None:
+                b.setText(names.get(label, label))
+                foot.addWidget(b)
+                b.show()
+        self.outer.addLayout(foot)
+        self.account.currentIndexChanged.connect(lambda _i: self._render())
 
     # -- header ---------------------------------------------------------
     def refresh(self) -> None:
@@ -905,7 +1095,12 @@ class ReadyVoucherWidget(_Screen):
             return
         dlg = NewPieceDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.lines.append(dlg.values())
+            ln = dlg.values()
+            if self.lines:          # the Margin % / Tag % of the line above carry on
+                for k in ("margin_pct", "tag_pct"):
+                    ln.setdefault(k, self.lines[-1].get(k))
+            self._margin(ln)
+            self.lines.append(ln)
             self._render()
 
     # -- grid -------------------------------------------------------------
@@ -920,7 +1115,7 @@ class ReadyVoucherWidget(_Screen):
             fine, loss = ln.get("fine_wt"), ln.get("loss_pct")
             ln["fine_loss"] = ((D(str(fine)) * (1 + D(str(loss or 0)) / 100)).quantize(D("0.001"))
                                if fine not in (None, "") else None)
-            for c, (k, _h, editable) in enumerate(LINE_COLS):
+            for c, (k, _h, editable) in enumerate(self.cols):
                 v = ln.get(k)
                 if k in _DECIMALS and v not in (None, ""):
                     v = f"{D(str(v)):,.{_DECIMALS[k]}f}"
@@ -957,10 +1152,20 @@ class ReadyVoucherWidget(_Screen):
         }
         text = lines.get(self.vr_type, "No accounting - the pieces only change hands.")
         self.accounts.setText(f"Account Information: {text}")
+        if self.acc_table is not None:
+            who = self.account.currentText() or ""
+            dr = S.PURCHASE_LEDGER if self.vr_type == "rp_purchase" else "Opening Stock"
+            rows = [("1", "Dr", dr, f"{total:,.2f}", ""), ("", "Cr", who, "", f"{total:,.2f}")]
+            if self.vr_type != "rp_purchase":
+                rows = [("", "", "No accounting - opening stock only.", "", ""),
+                        ("", "", "", "", "")]
+            for r, row in enumerate(rows):
+                for c, v in enumerate(row):
+                    self.acc_table.setItem(r, c, QTableWidgetItem(v))
 
     def _edited(self, it: QTableWidgetItem) -> None:
         r, c = it.row(), it.column()
-        k = LINE_COLS[c][0]
+        k = self.cols[c][0]
         ln = self.lines[r]
         val = _num(it.text())
         ln[k] = val if val is not None else D(0)
@@ -968,6 +1173,10 @@ class ReadyVoucherWidget(_Screen):
             # N-Wt = G-Wt less the stones in the piece (19 Oct meeting, item 3).
             ln["net_wt"] = S.net_from_gross(ln[k], ln.get("stones") or [])
             self._refine(ln)
+        elif k == "net_wt":
+            self._refine(ln)
+        elif k == "tag_price":
+            ln["_tag_typed"] = bool(ln[k])          # a tag typed stays (630)
         self._recalc_line(ln)
         self._render()
         self.grid.selectRow(r)
@@ -989,6 +1198,25 @@ class ReadyVoucherWidget(_Screen):
         ln["total"] = (ln["metal_amount"] + ln["stone_amount"]
                        + D(str(ln.get("setting_amount") or 0)) + ln["labour"]
                        + D(str(ln.get("other_amount") or 0))).quantize(D("0.01"))
+        self._margin(ln)
+
+    @staticmethod
+    def _margin(ln: dict) -> None:
+        """Margin % of the Total Amount, Total Value = Total Amount + Margin,
+        Price Per = Total Value / Pcs, Tag Price from the value and Tag %
+        unless typed (legacy: Margin 50 % on 4,20,257.63 = 2,10,128.82 ->
+        6,30,386.45, tag 630)."""
+        total = D(str(ln.get("total") or 0))
+        margin = (total * D(str(ln.get("margin_pct") or 0)) / 100).quantize(D("0.01"))
+        ln["margin_amount"] = margin
+        ln["total_value"] = (total + margin).quantize(D("0.01"))
+        pcs = max(int(ln.get("pcs") or 1), 1)
+        ln["price_per"] = (ln["total_value"] / pcs).quantize(D("0.01"))
+        if not ln.get("_tag_typed"):
+            tagged = ln["total_value"] * (1 + D(str(ln.get("tag_pct") or 0)) / 100)
+            from diagold.services import mfg_pricing
+            shown = mfg_pricing.tag_display(tagged)
+            ln["tag_price"] = _num(shown) or D(0)
 
     def _revalue(self) -> None:
         """The date moved: metal at that day's rate, unless typed."""
@@ -1137,10 +1365,14 @@ class ReadyVoucherWidget(_Screen):
                 item = s.get(StockItem, l.stock_item_id) if l.stock_item_id else None
                 info = S.describe(s, item) if item else {}
                 self.lines.append({**info, "_line_id": l.id,
-                                   **{k: getattr(l, k) for k, _h, _e in LINE_COLS
+                                   **{k: getattr(l, k) for k, _h, _e in self.cols
                                       if hasattr(l, k)},
                                    "stock_no": item.stock_no if item else "",
                                    "stones": json.loads(l.stones_json or "[]")})
+                if self.vr_type in S.NEW_PIECES:
+                    ln = self.lines[-1]
+                    ln["_tag_typed"] = bool(l.tag_price)
+                    self._margin(ln)
         self._edit_id = self._last_id = vid
         self.account.setEnabled(False)
         self.refresh()

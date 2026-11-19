@@ -475,6 +475,7 @@ _LINE_FIELDS = ("location_id", "job_id", "product_sku_id", "c_ref", "metal_id", 
                 "loss_pct", "colour", "size", "pcs", "old_wt", "gross_wt", "net_wt", "fine_wt",
                 "metal_rate", "metal_amount", "st_wt", "stone_amount", "setting_amount",
                 "labour_rate", "labour_per", "labour", "other_amount", "total",
+                "margin_pct", "margin_amount", "total_value", "tag_pct", "tag_price",
                 "order_line_id", "source_line_id", "remark")
 
 
@@ -550,7 +551,11 @@ def post_ready(session: Session, vr_type: str, head: dict[str, Any],
                 raise ProductionError(f"Line {sno}: choose the SKU.")
             if _dec(ln.get("gross_wt")) <= 0:
                 raise ProductionError(f"Line {sno}: enter the gross weight.")
-            if _dec(ln.get("price") or ln.get("total")) <= 0:
+            # Priced at its Total Value (Total Amount + Margin, 19 Nov); the tag
+            # as typed (630) or from that value.
+            sell = (_dec(ln.get("total_value")) if _dec(ln.get("margin_pct"))
+                    else _dec(ln.get("price") or ln.get("total")))
+            if sell <= 0:
                 from diagold.services import settings
                 if settings.opt("stock.refuse_tag_zero", session) == "1":
                     raise ProductionError(f"Line {sno}: the piece has no price, so its TAG "
@@ -563,9 +568,9 @@ def post_ready(session: Session, vr_type: str, head: dict[str, Any],
                 product_sku_id=ln.get("product_sku_id"), location_id=ln.get("location_id"),
                 pcs=int(ln.get("pcs") or 1), gross_wt=_dec(ln.get("gross_wt")),
                 net_wt=_dec(ln.get("net_wt")), cost=_dec(ln.get("total")),
-                price=_dec(ln.get("price") or ln.get("total")),
-                tag_price=_dec(ln.get("price") or ln.get("total")),
-                tag_text=mfg_pricing.tag_display(ln.get("price") or ln.get("total")),
+                price=sell, tag_price=sell,
+                tag_text=(f"{_dec(ln.get('tag_price')).normalize():f}"
+                          if _dec(ln.get("tag_price")) else mfg_pricing.tag_display(sell)),
                 cert_no=(ln.get("cert_no") or "")[:40], huid=(ln.get("huid") or "")[:16],
                 source="purchase" if vr_type == "rp_purchase" else "opening",
                 in_line_id=row.id, metal_id=ln.get("metal_id"), colour=ln.get("colour") or "",
@@ -691,9 +696,19 @@ def update_ready(session: Session, v: ReadyVoucher, head: dict[str, Any],
         ch = lines.get(line.id) or {}
         for k in ("metal_rate", "metal_amount", "fine_wt", "st_wt", "stone_amount",
                   "setting_amount", "labour_rate", "labour_per", "labour", "other_amount",
-                  "total", "old_wt", "remark"):
+                  "total", "old_wt", "remark", "margin_pct", "margin_amount", "total_value",
+                  "tag_pct", "tag_price"):
             if k in ch:
                 setattr(line, k, ch[k])
+        if v.vr_type in NEW_PIECES and line.stock_item_id and ch:
+            # Margin / Tag changed on a purchase: the piece's price and tag follow.
+            item = session.get(StockItem, line.stock_item_id)
+            if item is not None:
+                item.cost = _dec(line.total)
+                if _dec(line.margin_pct):
+                    item.price = item.tag_price = _dec(line.total_value)
+                if _dec(line.tag_price):
+                    item.tag_text = f"{_dec(line.tag_price).normalize():f}"
         if "stones" in ch:
             line.stones_json = json.dumps(ch["stones"], default=str)
         total += _dec(line.total)
