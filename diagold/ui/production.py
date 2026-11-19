@@ -514,11 +514,34 @@ class _Screen(QWidget):
     close_requested = Signal()
 
     def __init__(self, title: str, with_picker: bool = True, parent=None,
-                 scroll: bool = False):
+                 scroll: bool = False, pin_header: bool = False):
         super().__init__(parent)
         self.user = None
         self.job_id: int | None = None
-        if scroll:
+        top_lay = None
+        if scroll and pin_header:
+            # The title, buttons and job card stay put; only what is below them
+            # scrolls (19 Nov: Job History's product details fixed on top).
+            wrap = QVBoxLayout(self)
+            wrap.setContentsMargins(0, 0, 0, 0)
+            wrap.setSpacing(0)
+            top = QWidget()
+            top.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            top_lay = QVBoxLayout(top)
+            top_lay.setContentsMargins(24, 20, 24, 6)
+            top_lay.setSpacing(10)
+            wrap.addWidget(top)
+            self.scroll_area = QScrollArea()
+            self.scroll_area.setObjectName("FormScroll")
+            self.scroll_area.setWidgetResizable(True)
+            self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+            self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            body = QWidget()
+            body.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            self.scroll_area.setWidget(body)
+            wrap.addWidget(self.scroll_area, 1)
+            self.outer = QVBoxLayout(body)
+        elif scroll:
             # The whole screen scrolls like a page, so grids can show every
             # row instead of hiding them behind small inner scroll areas.
             wrap = QVBoxLayout(self)
@@ -535,11 +558,12 @@ class _Screen(QWidget):
             self.outer = QVBoxLayout(body)
         else:
             self.outer = QVBoxLayout(self)
-        self.outer.setContentsMargins(24, 20, 24, 20)
+        self.outer.setContentsMargins(24, 6 if top_lay is not None else 20, 24, 20)
         self.outer.setSpacing(10)
+        head = top_lay if top_lay is not None else self.outer
         h1 = QLabel(title)
         h1.setObjectName("H1")
-        self.outer.addWidget(h1)
+        head.addWidget(h1)
         # Two rows of buttons, not one: the things done to the job (issue,
         # receive, return...) sit beside the job picker; prints, reports and
         # links to other screens go on a second row. One row of nine buttons
@@ -558,11 +582,11 @@ class _Screen(QWidget):
             self.picker.changed.connect(self._on_job)
             self.job_id = self.picker.job_id()  # the first emit happened before connect
             self.toolbar.addWidget(self.picker, 1)
-        self.outer.addLayout(self.toolbar)
-        self.outer.addLayout(self.secondary)
+        head.addLayout(self.toolbar)
+        head.addLayout(self.secondary)
         self.secondary.addStretch(1)
         self.header = JobHeaderCard()
-        self.outer.addWidget(self.header)
+        head.addWidget(self.header)
 
     def button(self, label: str, slot: Callable, primary: bool = False,
                secondary: bool = False) -> QPushButton:
@@ -1537,7 +1561,7 @@ class JobHistoryWidget(_Screen):
     """The complete life of a job in one view (R5, §4.6)."""
 
     def __init__(self, user=None, parent=None):
-        super().__init__("Job History", parent=parent, scroll=True)
+        super().__init__("Job History", parent=parent, scroll=True, pin_header=True)
         self.user = user
         # One compact row (5 Nov T-10): the everyday actions as buttons, the
         # rest under More.
