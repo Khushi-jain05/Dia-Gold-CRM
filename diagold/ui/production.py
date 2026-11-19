@@ -3320,6 +3320,9 @@ class StoneReturnWidget(_Screen):
         self.user = user
         self.btn_pending = self.button("Show Pending", self._show_pending, primary=True)
         self.button("Save", self._save)
+        # A saved return changed or taken back (19 Nov): pick it below.
+        self.button("Edit", self._edit_return, secondary=True)
+        self.button("Delete", self._delete_return, secondary=True)
         self.button("Print", self._print, secondary=True)
         self.button("Job Card Bag",
                     lambda: self.open_requested.emit("production_planning.job_card_bag"),
@@ -3392,6 +3395,7 @@ class StoneReturnWidget(_Screen):
             job = s.get(Job, self.job_id) if self.job_id else None
             self.header.set_job(s, job)
             self.history.setRowCount(0)
+            self._hist_ids: list[int] = []
             if job is not None:
                 locs = {l.id: l for l in s.scalars(select(Location))}
                 for ret in s.scalars(select(InventoryReturn)
@@ -3404,6 +3408,7 @@ class StoneReturnWidget(_Screen):
                         loc = locs.get(l.location_id or ret.location_id)
                         r = self.history.rowCount()
                         self.history.insertRow(r)
+                        self._hist_ids.append(ret.id)
                         for c, v in enumerate([ret.vr_no, ret.vr_date, l.rtn_type,
                                                sku.sku_code if sku else l.particulars, l.size,
                                                l.pcs, l.weight, loc.name if loc else "",
@@ -3521,6 +3526,48 @@ class StoneReturnWidget(_Screen):
                              "location's stock is up. The list now shows what is still "
                              "in the bag.")
 
+    def _picked_return(self, what: str) -> int | None:
+        rows = self.history.selectionModel().selectedRows() if self.history.selectionModel() \
+            else []
+        r = rows[0].row() if rows else self.history.currentRow()
+        if r < 0 or r >= len(getattr(self, "_hist_ids", [])):
+            _info(self, what, "Pick the return voucher in 'Return vouchers on this job' first.")
+            return None
+        return self._hist_ids[r]
+
+    def _edit_return(self) -> None:
+        rid = self._picked_return("Edit")
+        if rid is None:
+            return
+        dlg = StoneReturnEditDialog(rid, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._pending_for = None
+            self.refresh()
+            self._show_pending()
+
+    def _delete_return(self) -> None:
+        rid = self._picked_return("Delete")
+        if rid is None:
+            return
+        with SessionLocal() as s:
+            vr = s.get(InventoryReturn, rid).vr_no
+        if QMessageBox.question(self, "Delete", f"Delete return Vr {vr}? Its stones go back "
+                                "into the job's bag and off the location.") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        with SessionLocal() as s:
+            try:
+                production.delete_stone_return(s, s.get(InventoryReturn, rid),
+                                               user_id=getattr(self.user, "id", None))
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot delete", str(exc))
+                return
+        self._pending_for = None
+        self.refresh()
+        self._show_pending()
+
     def _print(self) -> None:
         if not self.job_id:
             return
@@ -3537,6 +3584,88 @@ class StoneReturnWidget(_Screen):
     def show_job(self, job_id: int) -> None:
         super().show_job(job_id)
         self._show_pending()
+
+
+class StoneReturnEditDialog(QDialog):
+    """Edit a saved Rtn To Inv - Stone: per line the pieces, weight, type and
+    location; its date and remark. A line set to 0 is taken off."""
+
+    def __init__(self, return_id: int, parent=None):
+        super().__init__(parent)
+        self.return_id = return_id
+        lay = QVBoxLayout(self)
+        head = QHBoxLayout()
+        self.date = QDateEdit()
+        self.date.setDisplayFormat("yyyy-MM-dd")
+        self.remark = QLineEdit()
+        head.addWidget(QLabel("Date"))
+        head.addWidget(self.date)
+        head.addWidget(QLabel("Remark"))
+        head.addWidget(self.remark, 1)
+        lay.addLayout(head)
+        self.grid = _table(["SSKU", "Size", "Type", "Location", "Pcs", "Weight"])
+        lay.addWidget(self.grid, 1)
+        self._ids: list[int] = []
+        with SessionLocal() as s:
+            ret = s.get(InventoryReturn, return_id)
+            self.setWindowTitle(f"Edit return Vr {ret.vr_no}")
+            self.date.setDate(_qdate(ret.vr_date))
+            self.remark.setText(ret.remark or "")
+            locs = [(l.id, l.name) for l in s.scalars(select(Location).order_by(Location.name))]
+            for l in ret.lines:
+                bag = s.get(JobBagLine, l.bag_line_id) if l.bag_line_id else None
+                sku = s.get(StoneSku, bag.stone_sku_id) if bag and bag.stone_sku_id else None
+                bal_pcs, bal_wt = production.bag_row(bag)["bal"] if bag else (0, Decimal(0))
+                r = self.grid.rowCount()
+                self.grid.insertRow(r)
+                self._ids.append(l.id)
+                self.grid.setItem(r, 0, _item(sku.sku_code if sku else l.particulars))
+                self.grid.setItem(r, 1, _item(l.size))
+                typ = QComboBox()
+                typ.addItems(list(InventoryReturnLine.RTN_TYPES))
+                typ.setCurrentText(l.rtn_type or "Returned")
+                self.grid.setCellWidget(r, 2, typ)
+                loc = QComboBox()
+                for lid, name in locs:
+                    loc.addItem(name, lid)
+                loc.setCurrentIndex(max(loc.findData(l.location_id or ret.location_id), 0))
+                self.grid.setCellWidget(r, 3, loc)
+                pcs = QSpinBox()
+                pcs.setRange(0, int(l.pcs or 0) + max(int(bal_pcs), 0))   # what it took + the bag
+                pcs.setValue(int(l.pcs or 0))
+                self.grid.setCellWidget(r, 4, pcs)
+                wt = QDoubleSpinBox()
+                wt.setDecimals(4)
+                wt.setRange(0, float(Decimal(str(l.weight or 0)) + max(bal_wt, Decimal(0))))
+                wt.setValue(float(l.weight or 0))
+                self.grid.setCellWidget(r, 5, wt)
+        self.grid.resizeColumnsToContents()
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Save
+                              | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(self._save)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        self.resize(820, 360)
+
+    def _save(self) -> None:
+        lines = {}
+        for r, lid in enumerate(self._ids):
+            lines[lid] = {"rtn_type": self.grid.cellWidget(r, 2).currentText(),
+                          "location_id": self.grid.cellWidget(r, 3).currentData(),
+                          "pcs": self.grid.cellWidget(r, 4).value(),
+                          "weight": Decimal(str(self.grid.cellWidget(r, 5).value()))}
+        with SessionLocal() as s:
+            try:
+                production.update_stone_return(
+                    s, s.get(InventoryReturn, self.return_id), lines,
+                    vr_date=_pydate(self.date), remark=self.remark.text().strip(),
+                    user_id=getattr(getattr(self.parent(), "user", None), "id", None))
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                _warn(self, "Cannot save", str(exc))
+                return
+        self.accept()
 
 
 # --------------------------------------------------------------------------

@@ -1928,15 +1928,15 @@ _register(CrudSpec(
         Field("remark", "Remark", in_list=False),
         Field("lines", "Stones", type="child",
               help_text="Each line leaves its Location and lands in the job's bag as "
-                        "Received. Leave Job blank to use the header's job; fill it "
-                        "to issue to several jobs on one voucher (For Multiple).",
+                        "Received in the bag of the Job No above.",
               child=ChildSpec(
                   model=StoneIssueLine, fk_attr="issue_id", order_by="sno",
                   summary=_stone_issue_summary, height=190,
                   row_template={"price_unit": "Cts"},
                   fields=[
                       Field("sno", "SNo", type="int", default=1),
-                      Field("job_id", "Job", type="fk", fk_model=Job, fk_label=_job_fk_label),
+                      # No Job column on the line (19 Nov): every line goes to
+                      # the Job No above.
                       Field("location_id", "Location", type="fk", fk_model=Location,
                             fk_label=_location_label),
                       # SSKU = the stone's name once, Size = that stone's sizes;

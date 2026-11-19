@@ -3426,6 +3426,85 @@ def post_stone_return(session: Session, job: Job, lines: list[dict[str, Any]], *
     return ret
 
 
+def unapply_stone_return(session: Session, ret: InventoryReturn) -> None:
+    """Take a saved Rtn To Inv - Stone back out: the stones go back into the
+    job's bag and off the location they were returned to. Refused when the
+    location no longer holds them (issued or sold since)."""
+    for m in session.scalars(select(JobBagMovement).where(
+            JobBagMovement.ref_kind == "inv_return", JobBagMovement.ref_id == ret.vr_no)).all():
+        session.delete(m)
+    for m in session.scalars(select(StockMovement).where(
+            StockMovement.ref_kind == "inv_return", StockMovement.ref_no == ret.vr_no,
+            StockMovement.material_class == "stone")).all():
+        row = stock_row(session, m.location_id, m.material_class, m.ref_id, m.size, m.ref_text)
+        if row is not None:
+            row.pcs = int(row.pcs) - int(m.pcs)
+            row.weight = (_dec(row.weight) - _dec(m.weight)).quantize(D4)
+            if (row.pcs < 0 or _dec(row.weight) < -D3) and int(m.pcs or 0) + _dec(m.weight) > 0:
+                loc = session.get(Location, m.location_id)
+                raise ProductionError(
+                    f"{loc.name if loc else 'The location'} no longer holds the stones of "
+                    f"return Vr {ret.vr_no} - they have been issued or sold since. Undo that "
+                    "first.")
+        session.delete(m)
+    session.flush()
+
+
+def update_stone_return(session: Session, ret: InventoryReturn,
+                        lines: dict[int, dict[str, Any]], *, vr_date: date | None = None,
+                        remark: str | None = None, account_id: Any = "",
+                        user_id: int | None = None) -> InventoryReturn:
+    """Edit a saved Rtn To Inv - Stone (19 Nov): per line ({line id: {pcs,
+    weight, rtn_type, location_id}}) the new figures; a line set to 0 goes.
+    The old postings come out and the voucher posts again."""
+    from diagold.db.models import DeletionLog
+    before = {"voucher": {c.name: getattr(ret, c.name) for c in ret.__table__.columns},
+              "lines": [{c.name: getattr(l, c.name) for c in l.__table__.columns}
+                        for l in ret.lines]}
+    unapply_stone_return(session, ret)
+    for l in list(ret.lines):
+        ch = lines.get(l.id)
+        if ch is None:
+            continue
+        l.pcs, l.weight = int(ch.get("pcs") or 0), _dec(ch.get("weight"))
+        l.rtn_type = ch.get("rtn_type") or l.rtn_type
+        l.location_id = ch.get("location_id") or l.location_id
+        if not l.pcs and not _dec(l.weight):
+            session.delete(l)
+    if vr_date is not None:
+        ret.vr_date = vr_date
+    if remark is not None:
+        ret.remark = remark
+    if account_id != "":
+        ret.account_id = account_id
+    session.flush()
+    session.refresh(ret)
+    if not ret.lines:
+        raise ProductionError("Every line is 0 - delete the voucher instead.")
+    ret.location_id = ret.lines[0].location_id or ret.location_id
+    apply_inventory_return(session, ret)
+    session.add(DeletionLog(user_id=user_id, kind="inv_return_edit",
+                            ref=f"Rtn To Inv Vr {ret.vr_no}", reason="edited",
+                            before_json=json.dumps(before, default=str)))
+    session.flush()
+    return ret
+
+
+def delete_stone_return(session: Session, ret: InventoryReturn, *,
+                        user_id: int | None = None, reason: str = "") -> None:
+    """Delete a saved Rtn To Inv - Stone: the stones go back into the bag."""
+    from diagold.db.models import DeletionLog
+    image = {"voucher": {c.name: getattr(ret, c.name) for c in ret.__table__.columns},
+             "lines": [{c.name: getattr(l, c.name) for c in l.__table__.columns}
+                       for l in ret.lines]}
+    unapply_stone_return(session, ret)
+    session.add(DeletionLog(user_id=user_id, kind="inv_return",
+                            ref=f"Rtn To Inv Vr {ret.vr_no}", reason=reason,
+                            before_json=json.dumps(image, default=str)))
+    session.delete(ret)
+    session.flush()
+
+
 # --------------------------------------------------------------------------
 # Reports
 # --------------------------------------------------------------------------
