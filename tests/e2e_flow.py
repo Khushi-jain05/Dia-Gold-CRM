@@ -1004,6 +1004,19 @@ with SessionLocal() as s:
     check("delete: all 10 back in the bag, location as before", (P.bag_row(blR)["bal"][0], P.stock_balance(s, prim.id, "stone", polki.id, polki.size or "")[0] - st0), (10, 0))
     s.rollback()
 
+    print("\n== N25. HandMade issued unweighed with Extra metal: the receipt starts at it (19 Nov)")
+    oE = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(oE); s.flush(); s.add(OrderLine(order_id=oE.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(oE)
+    _v, mkE = P.explode_orders(s, [{"order_id": oE.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+    jE = s.scalar(select(Job).where(Job.job_no == mkE[0]))
+    from diagold.db.models import ManufacturingProcess as MPe
+    hmE = s.scalar(select(MPe).where(MPe.name.ilike("handmade")))
+    P.set_job_steps(s, jE, [{"process_id": hmE.id, "due_date": T}]); s.flush(); s.refresh(jE)
+    P.post_multi_voucher(s, "issue", chand.id, [{"job_id": jE.id, "step_id": jE.steps[0].id, "extra": D("10.000")}], vr_date=T)
+    rE = [r for r in P.pending_steps(s, "receive") if r["_job_id"] == jE.id][0]
+    check("job 25012: Extra 10.000 out -> receipt G-Wt / N-Wt 10.000", (rE["gross"], rE["net"]), (D("10.000"), D("10.000")))
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

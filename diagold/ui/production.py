@@ -990,7 +990,8 @@ class VoucherDialog(QDialog):
                 step = next((st for st in job.steps if st.id == self.step.currentData()), None)
                 issue = production.open_issue(s, step) if step is not None else None
                 if issue is not None and bearing:
-                    self._iss = (issue.gross_wt, issue.net_wt)
+                    # Unweighed issue with Extra metal: that metal (19 Nov).
+                    self._iss = production.issued_weights(issue)
                     who = s.get(Account, issue.worker_id) if issue.worker_id else None
                     g, n = (f"{Decimal(str(x)):.3f}" if x is not None else "—"
                             for x in self._iss)

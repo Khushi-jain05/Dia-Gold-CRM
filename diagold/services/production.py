@@ -669,6 +669,18 @@ def step_available(session: Session, job: Job, step: JobStep) -> Decimal:
     return max(base - issued, ZERO)
 
 
+def issued_weights(issue: JobVoucher) -> tuple[Decimal | None, Decimal | None]:
+    """What a receipt starts at: the issued gross / net, or - an issue that
+    went out unweighed with Extra metal (HandMade: Extra 10.000) - that metal
+    as the gross and net (19 Nov; legacy job 30093: Extra 6.785, received
+    6.785 / 6.785)."""
+    gross = _dec(issue.gross_wt) if issue.gross_wt is not None else None
+    net = _dec(issue.net_wt) if issue.net_wt is not None else None
+    if gross is None and net is None and _dec(issue.extra) > 0:
+        gross = net = _dec(issue.extra)
+    return gross, net
+
+
 def available_weights(session: Session, job: Job,
                       step: JobStep) -> tuple[Decimal | None, Decimal | None]:
     """Gross and net that may go out on this step: what came back from the
@@ -1976,8 +1988,7 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
             # Back at what went out until the karigar's weight is typed (17 Nov
             # T-03: COLOUR at FACTORY 30.530 -> 30.530); the issued pair stays
             # in view beside it. A part already back is off the issue's weight.
-            gross = _dec(issue.gross_wt) if issue.gross_wt is not None else None
-            net = _dec(issue.net_wt) if issue.net_wt is not None else None
+            gross, net = issued_weights(issue)
             for r in receipts_of(session, issue):
                 gross = gross - _dec(r.gross_wt) if gross is not None else None
                 net = net - _dec(r.net_wt) if net is not None else None

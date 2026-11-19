@@ -1681,7 +1681,15 @@ class ProcessVoucherWidget(_Screen):
         for r in rows:
             r = dict(r)
             if self.kind == "receive":
-                r["gross"] = r["net"] = r["mt_amt"] = None     # typed from the scale
+                extra = r.get("extra")
+                if extra and r.get("iss_gross") is not None \
+                        and Decimal(str(r["iss_gross"])) == Decimal(str(extra)):
+                    # Went out unweighed with Extra metal (HandMade): that metal
+                    # is the weight coming back until typed over (19 Nov).
+                    r["gross"] = r["net"] = Decimal(str(extra))
+                    r["mt_amt"] = None
+                else:
+                    r["gross"] = r["net"] = r["mt_amt"] = None     # typed from the scale
             r["stones"], r["metal_lines"] = {}, []
             r["_allow_default"] = r.get("allow")
             self.lines.append(r)
