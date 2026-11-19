@@ -1912,7 +1912,10 @@ class ProcessVoucherWidget(_Screen):
         key = self.cols[c][0]
         text = it.text().replace(",", "").strip()
         ln = self.lines[r]
-        if key in ("pcs", "rej_pcs"):
+        if key == "pcs":
+            # A part of the piece (0.5 back of 1 pc, 19 Nov): pcs may be a fraction.
+            ln[key] = _num(text) or Decimal(0)
+        elif key == "rej_pcs":
             ln[key] = int(text) if text.isdigit() else 0
         elif key == "rej_type":
             ln[key] = it.text().strip()
@@ -2005,7 +2008,12 @@ class ProcessVoucherWidget(_Screen):
         payload = []
         for ln in self.lines:
             payload.append({
-                "job_id": ln["_job_id"], "step_id": ln["_step_id"], "pcs": ln.get("pcs"),
+                "job_id": ln["_job_id"], "step_id": ln["_step_id"],
+                "pcs": int(Decimal(str(ln.get("pcs") or 0))) or None,
+                # Fewer pieces than the row offers: a part goes / comes back.
+                "share": (Decimal(str(ln["pcs"])) if ln.get("pcs") not in (None, "")
+                          and ln.get("_avail") is not None
+                          and Decimal(str(ln["pcs"])) < Decimal(str(ln["_avail"])) else None),
                 "gross": ln.get("gross"), "net": ln.get("net"),
                 "stone_wt": ln.get("stone_wt"), "rej_pcs": ln.get("rej_pcs"),
                 "rej_wt": ln.get("rej_wt"), "scrap": ln.get("scrap"), "dust": ln.get("dust"),

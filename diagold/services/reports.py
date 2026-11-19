@@ -570,7 +570,9 @@ def data_quality(session: Session, date_from: date, date_to: date,
                 if r.receive is None and check in ("all", "never_received"):
                     add("never_received", job.job_no,
                         f"{name} issued {r.issue.vr_date} Vr {r.issue.vr_no}, nothing back", job.id)
-                if r.receive is not None and check in ("all", "weight_drop"):
+                # A part receipt brings back only part of the weight (19 Nov).
+                if r.receive is not None and r.receive.share is None \
+                        and check in ("all", "weight_drop"):
                     iss = Decimal(str(r.issue.gross_wt or 0))
                     rcv = Decimal(str(r.receive.gross_wt or 0))
                     if iss > 0 and rcv < iss / 2 and not (r.receive.rej_wt or r.receive.scrap):

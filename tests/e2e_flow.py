@@ -956,6 +956,36 @@ with SessionLocal() as s:
     check("deleting the receipt takes the break out too - bag as before", P.bag_row(blX)["bal"], bal0)
     s.rollback()
 
+    print("\n== N23. Part receipts: 1 pc out, back as 0.5 + 0.5, each part goes on (legacy job 30083, 19 Nov)")
+    from diagold.db.models import ManufacturingProcess as MPx
+    oP = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(oP); s.flush(); s.add(OrderLine(order_id=oP.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(oP)
+    _v, mkP = P.explode_orders(s, [{"order_id": oP.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+    jP = s.scalar(select(Job).where(Job.job_no == mkP[0]))
+    hmP, clP = (s.scalar(select(MPx).where(MPx.name.ilike(n))) for n in ("handmade", "colour"))
+    P.set_job_steps(s, jP, [{"process_id": hmP.id, "due_date": T}, {"process_id": clP.id, "due_date": T}]); s.flush(); s.refresh(jP)
+    sHM, sCL = jP.steps
+    def pend(kind, step):
+        return [r for r in P.pending_steps(s, kind) if r["_job_id"] == jP.id and r["_step_id"] == step.id]
+    P.post_multi_voucher(s, "issue", chand.id, [{"job_id": jP.id, "step_id": sHM.id, "gross": D("17.500"), "net": D("17.500")}], vr_date=T)
+    P.post_multi_voucher(s, "receive", chand.id, [{"job_id": jP.id, "step_id": sHM.id, "gross": D("6.755"), "net": D("6.755"), "share": D("0.5")}], vr_date=T)
+    check("0.5 back: 0.5 still at HandMade, 0.5 ready for COLOUR at its own weight", ([r["pcs"] for r in pend("receive", sHM)], [(r["pcs"], r["gross"]) for r in pend("issue", sCL)]), ([D("0.5")], [(D("0.5"), D("6.755"))]))
+    P.post_multi_voucher(s, "issue", rahul.id, [{"job_id": jP.id, "step_id": sCL.id, "gross": D("6.755"), "net": D("6.755")}], vr_date=T)
+    check("COLOUR out with 0.5 while the other 0.5 is at HandMade", (pend("issue", sCL), [r["pcs"] for r in pend("receive", sCL)], [r["pcs"] for r in pend("receive", sHM)]), ([], [D("0.5")], [D("0.5")]))
+    refused("more back than is out", lambda: P.post_multi_voucher(s, "receive", chand.id, [{"job_id": jP.id, "step_id": sHM.id, "gross": D("10.530"), "net": D("10.530"), "share": D("1")}], vr_date=T))
+    P.post_multi_voucher(s, "receive", chand.id, [{"job_id": jP.id, "step_id": sHM.id, "gross": D("10.530"), "net": D("10.530")}], vr_date=T)
+    check("second part: COLOUR takes 0.5 at 10.530", [(r["pcs"], r["gross"]) for r in pend("issue", sCL)], [(D("0.5"), D("10.530"))])
+    hmRows = [r for r in P.history_rows(s, jP) if r.step.id == sHM.id]
+    check("Job History: the issue, then a row per part", ([r.cont for r in hmRows], sum((r.loss for r in hmRows), D(0))), ([False, True], D("0.215")))
+    P.post_multi_voucher(s, "issue", rahul.id, [{"job_id": jP.id, "step_id": sCL.id, "gross": D("10.530"), "net": D("10.530")}], vr_date=T)
+    P.post_multi_voucher(s, "receive", rahul.id, [{"job_id": jP.id, "step_id": sCL.id, "gross": D("6.755"), "net": D("6.755")}], vr_date=T)
+    s.refresh(jP)
+    check("not complete with one part still out", jP.status != "complete", True)
+    P.post_multi_voucher(s, "receive", rahul.id, [{"job_id": jP.id, "step_id": sCL.id, "gross": D("10.530"), "net": D("10.530")}], vr_date=T)
+    s.refresh(jP)
+    check("both parts through the last step: complete", jP.status, "complete")
+    s.rollback()
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])

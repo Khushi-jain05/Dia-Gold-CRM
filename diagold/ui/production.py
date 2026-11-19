@@ -807,13 +807,11 @@ class VoucherDialog(QDialog):
                     tag += " — design only, no weights"
                 self._bearing[st.id] = bool(st.weight_bearing)
                 self.step.addItem(f"{st.seq} · {p.name if p else '?'}{tag}", st.id)
-                issued, _out, _o = production.step_shares(s, job, st)
-                if open_iss and issued < Decimal(job.pcs or 1):
+                avail = production.step_available(s, job, st)
+                if avail > 0 and (open_iss or avail < Decimal(job.pcs or 1)):
                     self.step.setItemText(self.step.count() - 1, self.step.itemText(
-                        self.step.count() - 1) + f" — {Decimal(job.pcs or 1) - issued:g} pc "
-                        "left to issue")
-                if kind == "issue" and first_free is None and st.weight_bearing and \
-                        issued < Decimal(job.pcs or 1):
+                        self.step.count() - 1) + f" — {avail.normalize():f} pc to issue")
+                if kind == "issue" and first_free is None and st.weight_bearing and avail > 0:
                     first_free = self.step.count() - 1
                 if kind == "receive" and open_iss:
                     self.step.setCurrentIndex(self.step.count() - 1)
@@ -828,7 +826,9 @@ class VoucherDialog(QDialog):
         with SessionLocal() as s:
             nxt, out = production.current_step(s, s.get(Job, job_id))
         nxt_i = self.step.findData(nxt.id) if nxt is not None else -1
-        if kind == "issue" and nxt_i >= 0 and out is None:
+        if kind == "issue" and first_free is not None and out is not None:
+            self.step.setCurrentIndex(first_free)       # a part ready for the next step
+        elif kind == "issue" and nxt_i >= 0 and out is None:
             # Open on the job's next step in route order (19 Oct: the process
             # sequence) - CAD / CAMMING too, they just carry no weights.
             self.step.setCurrentIndex(nxt_i)
@@ -868,6 +868,12 @@ class VoucherDialog(QDialog):
         form.addRow("Worker *", self.worker)
         if kind == "issue":
             form.addRow("Split share (pcs)", self.share)
+        else:
+            # A part back (19 Nov, legacy job 30083: 1 pc out, 0.5 + 0.5 back).
+            self.share.setSpecialValueText("all that is still out")
+            self.share.setToolTip("Only part of the piece back now: e.g. 0.5 of 1 pc. The "
+                                  "rest stays with the karigar; this part goes on by itself.")
+            form.addRow("Pcs back (part)", self.share)
         form.addRow("Date", self.date)
         form.addRow("Time", self.time)
         form.addRow("Pcs", self.pcs)
@@ -967,7 +973,11 @@ class VoucherDialog(QDialog):
             # item 1: after a receipt with loss the next issue must pick the
             # new gross / net by itself).
             with SessionLocal() as s:
-                gross, net = production.last_weights(s, s.get(Job, self.job_id))
+                job_ = s.get(Job, self.job_id)
+                st_ = next((x for x in job_.steps if x.id == self.step.currentData()), None)
+                # The part's own weight when parts go on separately (19 Nov).
+                gross, net = (production.available_weights(s, job_, st_) if st_ is not None
+                              else production.last_weights(s, job_))
             self._setting_net = True       # the carried-forward pair, as weighed
             self.gross.setValue(float(gross or 0))
             self.net.setValue(float(net or 0))
@@ -1639,9 +1649,10 @@ class JobHistoryWidget(_Screen):
                 r = self.grid.rowCount()
                 self.grid.insertRow(r)
                 self._row_steps.append(row.step.id)
-                self.grid.setItem(r, 0, _item(row.process.name if row.process else "",
+                self.grid.setItem(r, 0, _item("" if row.cont else
+                                              (row.process.name if row.process else ""),
                                               bold=row.issue is not None))
-                self.grid.setItem(r, 1, _item(row.worker))
+                self.grid.setItem(r, 1, _item("" if row.cont else row.worker))
                 loss_item = _item(row.loss, right=True, bold=True)
                 pct_item = _item(f"{row.detail.loss_pct:.2f}" if row.detail else "", right=True)
                 if row.detail is not None:
@@ -1659,12 +1670,17 @@ class JobHistoryWidget(_Screen):
                 self.grid.setItem(r, 3, pct_item)
                 c = 4
                 for key, _ in ISSUE_COLS:
-                    v = getattr(row.issue, key, None) if row.issue else None
+                    # A further part receipt: the issue is on the row above.
+                    v = getattr(row.issue, key, None) if row.issue and not row.cont else None
+                    if key == "pcs" and v is not None and row.issue.share is not None:
+                        v = Decimal(str(row.issue.share)).normalize()
                     self.grid.setItem(r, c, _item(v, TINT_ISSUE, right=key not in
                                                   ("vr_date", "vr_time")))
                     c += 1
                 for key, _ in RECEIVE_COLS:
                     v = getattr(row.receive, key, None) if row.receive else None
+                    if key == "pcs" and row.receive is not None and row.receive.share is not None:
+                        v = Decimal(str(row.receive.share)).normalize()     # 0.5 back
                     if key == "labour":
                         v = f"{Decimal(str(v)):,.2f}" if v else ""
                     elif key == "allow_loss_pct" and v is not None:

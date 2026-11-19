@@ -604,16 +604,10 @@ def pending_jobs(session: Session) -> list[Job]:
 # Issue / receive vouchers
 # --------------------------------------------------------------------------
 def open_issue(session: Session, step: JobStep) -> JobVoucher | None:
-    """The issue on this step that no receive has closed yet."""
-    closed = select(JobVoucher.issue_id).where(
-        JobVoucher.kind == "receive", JobVoucher.issue_id.is_not(None)
-    )
-    return session.scalars(
-        select(JobVoucher)
-        .where(JobVoucher.step_id == step.id, JobVoucher.kind == "issue",
-               JobVoucher.id.not_in(closed))
-        .order_by(JobVoucher.id)
-    ).first()
+    """The first issue on this step not yet received back in full."""
+    job = session.get(Job, step.job_id)
+    return next((v for v in _step_issues(session, step)
+                 if issue_left(session, job, v) > 0), None)
 
 
 def issue_share(job: Job, issue: JobVoucher) -> Decimal:
@@ -621,20 +615,83 @@ def issue_share(job: Job, issue: JobVoucher) -> Decimal:
     return _dec(issue.share) if issue.share is not None else _dec(job.pcs or 1)
 
 
+# Part receipts (19 Nov, legacy job 30083 NS-2341): one issue of 1 pc to the
+# karigar comes back as 0.5 + 0.5 on two receipts, and each part goes on
+# through the route by itself (COLOUR 0.5 while the other 0.5 is still at
+# HandMade). A receipt's share is the pieces it brought back; none = all that
+# was left of its issue.
+def _step_issues(session: Session, step: JobStep) -> list[JobVoucher]:
+    return list(session.scalars(select(JobVoucher).where(
+        JobVoucher.step_id == step.id, JobVoucher.kind == "issue").order_by(JobVoucher.id)))
+
+
+def receipts_of(session: Session, issue: JobVoucher) -> list[JobVoucher]:
+    return list(session.scalars(select(JobVoucher).where(
+        JobVoucher.kind == "receive", JobVoucher.issue_id == issue.id).order_by(JobVoucher.id)))
+
+
+def back_share(job: Job, issue: JobVoucher, receive: JobVoucher) -> Decimal:
+    """The pieces one receipt brought back."""
+    return _dec(receive.share) if receive.share is not None else issue_share(job, issue)
+
+
+def issue_left(session: Session, job: Job, issue: JobVoucher) -> Decimal:
+    """Pieces of an issue still with the karigar."""
+    back = sum((back_share(job, issue, r) for r in receipts_of(session, issue)), ZERO)
+    return max(issue_share(job, issue) - back, ZERO)
+
+
 def step_shares(session: Session, job: Job, step: JobStep) -> tuple[Decimal, Decimal, list]:
     """(issued, still out, open issues) on a step, in pieces."""
-    issues = session.scalars(select(JobVoucher).where(
-        JobVoucher.step_id == step.id, JobVoucher.kind == "issue").order_by(JobVoucher.id)).all()
-    closed = set(session.scalars(select(JobVoucher.issue_id).where(
-        JobVoucher.step_id == step.id, JobVoucher.kind == "receive")))
-    open_ = [v for v in issues if v.id not in closed]
+    issues = _step_issues(session, step)
+    left = {v.id: issue_left(session, job, v) for v in issues}
+    open_ = [v for v in issues if left[v.id] > 0]
     return (sum((issue_share(job, v) for v in issues), ZERO),
-            sum((issue_share(job, v) for v in open_), ZERO), open_)
+            sum((left[v.id] for v in open_), ZERO), open_)
+
+
+def step_received(session: Session, job: Job, step: JobStep) -> Decimal:
+    """Pieces received back on a step, all its issues together."""
+    return sum((back_share(job, v, r) for v in _step_issues(session, step)
+                for r in receipts_of(session, v)), ZERO)
+
+
+def step_available(session: Session, job: Job, step: JobStep) -> Decimal:
+    """Pieces that may go out on this step now: what came back from the step
+    before it (the whole job for the first step), less what is issued here."""
+    pcs = _dec(job.pcs or 1)
+    steps = list(job.steps)
+    at = next((i for i, s_ in enumerate(steps) if s_.id == step.id), 0)
+    # A step done twice (rework: HandMade -> Repair HM -> HandMade again, job
+    # 28853) counts once - nothing gives more pieces than the job has.
+    base = min(step_received(session, job, steps[at - 1]), pcs) if at > 0 else pcs
+    issued = sum((issue_share(job, v) for v in _step_issues(session, step)), ZERO)
+    return max(base - issued, ZERO)
+
+
+def available_weights(session: Session, job: Job,
+                      step: JobStep) -> tuple[Decimal | None, Decimal | None]:
+    """Gross and net that may go out on this step: what came back from the
+    step before, less what is already issued here - the part's own weight
+    (job 30083: COLOUR issues 6.755, then 10.530). Else the last weights."""
+    steps = list(job.steps)
+    at = next((i for i, s_ in enumerate(steps) if s_.id == step.id), 0)
+    if at == 0:
+        return last_weights(session, job)
+    prev = steps[at - 1]
+    backs = [r for v in _step_issues(session, prev) for r in receipts_of(session, v)]
+    if not backs or any(r.net_wt is None for r in backs):
+        return last_weights(session, job)
+    out = [v for v in _step_issues(session, step) if v.net_wt is not None]
+    gross = sum((_dec(r.gross_wt) for r in backs), ZERO) - sum((_dec(v.gross_wt) for v in out), ZERO)
+    net = sum((_dec(r.net_wt) for r in backs), ZERO) - sum((_dec(v.net_wt) for v in out), ZERO)
+    if net <= 0:
+        return last_weights(session, job)
+    return max(gross, ZERO).quantize(D3), net.quantize(D3)
 
 
 def step_done(session: Session, job: Job, step: JobStep) -> bool:
-    issued, out, _open = step_shares(session, job, step)
-    return issued > 0 and out == 0 and issued >= _dec(job.pcs or 1)
+    return step_received(session, job, step) >= _dec(job.pcs or 1)
 
 
 def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
@@ -716,6 +773,21 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
         # Work issued to one karigar is received from that karigar (17 Nov
         # T-11: Vr 54 went on SUBROTO PALASH while job 25007 was out with
         # SUBROTO MAITI, and PALASH's Mt Bal fell to -91.763).
+        # A part back (0.5 of 1 pc): the receipt keeps its share; without one
+        # it brings back all that is still out on the issue.
+        left = issue_left(session, job, issue_ref)
+        if extra.get("share") not in (None, "", 0):
+            share = _dec(extra.get("share"))
+            if share <= 0:
+                raise ProductionError("The pieces received must be more than 0.")
+            if share > left:
+                raise ProductionError(
+                    f"Only {left.normalize():f} pc of Vr {issue_ref.vr_no} is still out with "
+                    "the karigar.")
+        else:
+            share = left
+        if share >= issue_share(job, issue_ref):
+            share = None                       # the whole issue back at once
         if worker_id is None:
             worker_id = issue_ref.worker_id
         elif issue_ref.worker_id and issue_ref.worker_id != worker_id:
@@ -728,23 +800,25 @@ def post_voucher(session: Session, job: Job, step: JobStep, kind: str,
     else:
         issued, out, open_ = step_shares(session, job, step)
         total = _dec(job.pcs or 1)
+        avail = step_available(session, job, step)
         if extra.get("share") not in (None, "", 0):
             share = _dec(extra.get("share"))
             if share <= 0:
                 raise ProductionError("The split share must be more than 0.")
-        if open_:
-            left = total - issued
-            if left <= 0:
-                raise ProductionError(
-                    "This step is already out in full - receive it back first.")
-            if share is None:
-                share = left
-            if share > left:
-                raise ProductionError(
-                    f"Only {left.normalize():f} pc of this step is left to issue.")
-        elif share is not None and share > total:
-            raise ProductionError(f"The job has {job.pcs} pc - a share cannot be more.")
-        if share is not None and share >= total and not open_:
+            if share > total:
+                raise ProductionError(f"The job has {job.pcs} pc - a share cannot be more.")
+        if avail <= 0 and not open_ and step_done(session, job, step):
+            avail = total                      # rework: the whole piece goes again
+        if avail <= 0:
+            raise ProductionError(
+                "This step is already out in full - receive it back first." if open_
+                else "Nothing has come back from the step before yet - receive it first.")
+        if share is None:
+            share = avail
+        if share > avail:
+            raise ProductionError(
+                f"Only {avail.normalize():f} pc of this step is left to issue.")
+        if share >= total:
             share = None                       # the whole job: no split
     allow = extra.get("allow_loss_pct")
     if allow in (None, ""):
@@ -831,13 +905,25 @@ def default_allow_loss_pct(session: Session, step: JobStep,
     return _dec(process.loss_percent if process else 0)
 
 
+def part_net(issue: JobVoucher, receive: JobVoucher | None) -> Decimal | None:
+    """The issued net weight a receipt answers for: all of it, or a part
+    receipt's share of it (0.5 of 1 pc -> half; the parts add up to the
+    issue, so the step's loss totals right)."""
+    if issue.net_wt is None:
+        return None
+    if receive is None or receive.share is None:
+        return _dec(issue.net_wt)
+    whole = _dec(issue.share) if issue.share is not None else _dec(issue.pcs or 1) or Decimal(1)
+    return (_dec(issue.net_wt) * _dec(receive.share) / whole).quantize(D3)
+
+
 def step_loss(issue: JobVoucher | None, receive: JobVoucher | None) -> Decimal | None:
     """Loss on one issue/receive pair, or None when it cannot be known yet."""
     if issue is None or receive is None:
         return None
     if issue.net_wt in (None, 0) or receive.net_wt is None:
         return None
-    return (_dec(issue.net_wt) - _dec(receive.net_wt)
+    return (part_net(issue, receive) - _dec(receive.net_wt)
             - _dec(receive.scrap) - _dec(receive.dust)).quantize(D3)
 
 
@@ -894,7 +980,7 @@ def allowed_loss(receive: JobVoucher, allow_pct: Decimal,
     base = receive.net_wt
     if basis == "issued" and issue is not None and issue.net_wt is not None \
             and _dec(issue.net_wt) > 0:
-        base = issue.net_wt
+        base = part_net(issue, receive)
     return (_dec(base) * allow_pct / Decimal("100")).quantize(D3)
 
 
@@ -916,7 +1002,7 @@ def loss_detail(process: ManufacturingProcess | None, issue: JobVoucher | None,
         return LossDetail(loss=allowed, loss_pct=allow_pct.quantize(Decimal("0.01")),
                           allow_pct=allow_pct, allowed=allowed, excess=ZERO,
                           from_allowance=True)
-    pct = (actual / _dec(issue.net_wt) * 100).quantize(Decimal("0.01"))
+    pct = (actual / part_net(issue, receive) * 100).quantize(Decimal("0.01"))
     return LossDetail(loss=actual, loss_pct=pct, allow_pct=allow_pct, allowed=allowed,
                       excess=(actual - allowed).quantize(D3))
 
@@ -930,6 +1016,7 @@ class HistoryRow:
     worker: str = ""
     loss: Decimal | None = None
     detail: LossDetail | None = None
+    cont: bool = False          # a further part receipt of the issue above
 
 
 def history_rows(session: Session, job: Job) -> list[HistoryRow]:
@@ -938,7 +1025,10 @@ def history_rows(session: Session, job: Job) -> list[HistoryRow]:
     vouchers = session.scalars(
         select(JobVoucher).where(JobVoucher.job_id == job.id).order_by(JobVoucher.id)
     ).all()
-    receives = {v.issue_id: v for v in vouchers if v.kind == "receive" and v.issue_id}
+    receives: dict[int, list[JobVoucher]] = {}
+    for v in vouchers:
+        if v.kind == "receive" and v.issue_id:
+            receives.setdefault(v.issue_id, []).append(v)
     steps = {s.id: s for s in job.steps}
     procs = {s.id: session.get(ManufacturingProcess, s.process_id) for s in job.steps}
     rows: list[HistoryRow] = []
@@ -950,15 +1040,18 @@ def history_rows(session: Session, job: Job) -> list[HistoryRow]:
         if step is None:
             continue
         touched.add(step.id)
-        rcv = receives.get(v.id)
         worker = session.get(Account, v.worker_id)
-        detail = loss_detail(procs.get(step.id), v, rcv) if step.weight_bearing else None
         name = worker.name if worker else ""
         if v.share is not None:
             name += f" ({_dec(v.share).normalize():f} pc)"
-        rows.append(HistoryRow(step=step, process=procs.get(step.id), issue=v,
-                               receive=rcv, worker=name,
-                               loss=detail.loss if detail else None, detail=detail))
+        # One row per receipt: a part receipt (0.5 back of 1 pc) gets a row of
+        # its own under the issue, as the legacy Job History shows (19 Nov).
+        for n, rcv in enumerate(receives.get(v.id) or [None]):
+            detail = loss_detail(procs.get(step.id), v, rcv) if step.weight_bearing else None
+            rows.append(HistoryRow(step=step, process=procs.get(step.id), issue=v,
+                                   receive=rcv, worker=name,
+                                   loss=detail.loss if detail else None, detail=detail,
+                                   cont=n > 0))
     for s in job.steps:
         if s.id not in touched:
             rows.append(HistoryRow(step=s, process=procs.get(s.id), issue=None,
@@ -1551,15 +1644,13 @@ VOUCHER_REF = "job_voucher"
 
 def _open_issue_for_worker(session: Session, job_id: int,
                            worker_id: int) -> JobVoucher | None:
-    closed = select(JobVoucher.issue_id).where(
-        JobVoucher.kind == "receive", JobVoucher.issue_id.is_not(None))
-    return session.scalars(
+    job = session.get(Job, job_id)
+    return next((v for v in session.scalars(
         select(JobVoucher).where(JobVoucher.job_id == job_id,
                                  JobVoucher.worker_id == worker_id,
-                                 JobVoucher.kind == "issue",
-                                 JobVoucher.id.not_in(closed))
-        .order_by(JobVoucher.id.desc())
-    ).first()
+                                 JobVoucher.kind == "issue")
+        .order_by(JobVoucher.id.desc()))
+        if issue_left(session, job, v) > 0), None)
 
 
 def _last_issue_for_worker(session: Session, job_id: int,
@@ -1804,10 +1895,10 @@ def current_step(session: Session, job: Job) -> tuple[JobStep | None, JobVoucher
     """The step a job is at: the first route step not yet received back, and
     the issue that has it out (None when it is waiting to be issued)."""
     for step in job.steps:
-        issued, _out, open_ = step_shares(session, job, step)
+        _issued, _out, open_ = step_shares(session, job, step)
         if open_:
             return step, open_[0]
-        if issued < _dec(job.pcs or 1):        # not started, or a split share left
+        if step_available(session, job, step) > 0:   # not started, or a part left
             return step, None
     return None, None
 
@@ -1875,25 +1966,21 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
     rows = []
     jobs = session.scalars(select(Job).where(Job.status.in_(ACTIVE_STATUSES))
                            .order_by(Job.job_no)).all()
-    for job in jobs:
-        step, issue = current_step(session, job)
-        if step is None:
-            continue
-        if (kind == "issue") != (issue is None):
-            continue
-        if process_id and step.process_id != process_id:
-            continue
+    for job, step, issue, part in _pending_pairs(session, jobs, kind, process_id):
         if kind == "receive" and worker_id and issue.worker_id != worker_id:
             continue
         proc = session.get(ManufacturingProcess, step.process_id)
         worker = session.get(Account, issue.worker_id) if issue else None
-        gross, net = last_weights(session, job)
+        gross, net = available_weights(session, job, step)
         if kind == "receive":
             # Back at what went out until the karigar's weight is typed (17 Nov
             # T-03: COLOUR at FACTORY 30.530 -> 30.530); the issued pair stays
-            # in view beside it.
+            # in view beside it. A part already back is off the issue's weight.
             gross = _dec(issue.gross_wt) if issue.gross_wt is not None else None
             net = _dec(issue.net_wt) if issue.net_wt is not None else None
+            for r in receipts_of(session, issue):
+                gross = gross - _dec(r.gross_wt) if gross is not None else None
+                net = net - _dec(r.net_wt) if net is not None else None
         client = session.get(Account, job.account_id) if job.account_id else None
         order = session.get(Order, job.order_id) if job.order_id else None
         rows.append({
@@ -1905,7 +1992,10 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
             "weight_bearing": bool(step.weight_bearing),
             "worker": worker.name if worker else "", "worker_id": issue.worker_id if issue else None,
             "issued_on": issue.vr_date if issue else None, "vr_no": issue.vr_no if issue else None,
-            "gross": gross, "net": net, "due": step.due_date, "pcs": job.pcs,
+            "gross": gross, "net": net, "due": step.due_date,
+            # The pieces this row can move: all of a plain job, the part left.
+            "pcs": part.normalize() if part != part.to_integral_value() else int(part),
+            "_avail": part,
             # Receive: what went out; issue: what came back last - kept in view
             # beside the weights typed (17 Nov T-03).
             "iss_gross": gross, "iss_net": net,
@@ -1929,6 +2019,23 @@ def pending_steps(session: Session, kind: str, process_id: int | None = None,
         row["mt_amt"] = ((row["mt_price"] * row["net"]).quantize(D2)
                          if row["mt_price"] and row["net"] else None)
     return rows
+
+
+def _pending_pairs(session: Session, jobs, kind: str, process_id: int | None):
+    """(job, step, open issue or None, pieces) for every step a job can move
+    on - several per job when its parts are at different steps (19 Nov)."""
+    for job in jobs:
+        for step in job.steps:
+            if process_id and step.process_id != process_id:
+                continue
+            if kind == "issue":
+                avail = step_available(session, job, step)
+                if avail > 0:
+                    yield job, step, None, avail
+            else:
+                _i, _o, open_ = step_shares(session, job, step)
+                for v in open_:
+                    yield job, step, v, issue_left(session, job, v)
 
 
 def _order_line_size(session: Session, job: Job) -> str:
@@ -2843,16 +2950,21 @@ def party_metal_balance(session: Session, date_from: date, date_to: date) -> lis
         a["bal_fine"] += delta * r["_pf"]
     # WIP: what each karigar holds on job steps not yet received back.
     closed = select(JobVoucher.issue_id).where(JobVoucher.kind == "receive",
-                                               JobVoucher.issue_id.is_not(None))
+                                               JobVoucher.issue_id.is_not(None),
+                                               JobVoucher.share.is_(None))
     wip: dict[tuple[int, int | None], list] = {}
     for v in session.scalars(select(JobVoucher).where(
             JobVoucher.kind == "issue", JobVoucher.id.not_in(closed),
             JobVoucher.vr_date <= date_to, JobVoucher.net_wt.is_not(None))):
         job = session.get(Job, v.job_id)
+        left = issue_left(session, job, v)
+        if left <= 0:
+            continue
         step = session.get(JobStep, v.step_id)
         proc = session.get(ManufacturingProcess, step.process_id) if step else None
         w = wip.setdefault((v.worker_id, job.metal_id), [ZERO, set()])
-        w[0] += _dec(v.net_wt)
+        # A part still out: its share of the issued net (19 Nov).
+        w[0] += (_dec(v.net_wt) * left / issue_share(job, v)).quantize(D3)
         if proc:
             w[1].add(proc.name)
     rows = []
