@@ -839,9 +839,13 @@ class VoucherDialog(QDialog):
         self.date.setDisplayFormat("yyyy-MM-dd")
         self.time = QLineEdit(datetime.now().strftime("%H:%M"))
         self.time.setMaximumWidth(80)
-        self.pcs = QSpinBox()
+        # Pcs may be a part of the piece (0.5 of 1 pc, 19 Nov): it starts at what
+        # the step can move now; fewer is a part going out / coming back.
+        self.pcs = QDoubleSpinBox()
+        self.pcs.setDecimals(3)
         self.pcs.setRange(0, 100000)
         self.pcs.setValue(1)
+        self._full = Decimal(1)
         self.gross = self._wt()
         self.net = self._wt()
         # Net follows Gross - stones in the piece / 5 (5 Nov T-02) until it is
@@ -962,6 +966,7 @@ class VoucherDialog(QDialog):
         rather than letting the figures be typed and refusing the save."""
         bearing = self._bearing.get(self.step.currentData(), True)
         self._refresh_allow()
+        self._refresh_pcs()
         self.allow.setEnabled(bearing)
         for w in (self.gross, self.net):
             w.setEnabled(bearing)
@@ -1006,6 +1011,23 @@ class VoucherDialog(QDialog):
             if bearing else
             "This step is design only (no metal goes out or comes back), so the weight "
             "boxes are off. Pick a step like CASTING or HandMade to enter weights.")
+
+    def _refresh_pcs(self) -> None:
+        """Pcs: all the step can move now - the part still out on a receipt,
+        what came back from the step before on an issue."""
+        with SessionLocal() as s:
+            job = s.get(Job, self.job_id)
+            step = next((st for st in job.steps if st.id == self.step.currentData()), None)
+            if step is None:
+                return
+            if self.kind == "receive":
+                issue = production.open_issue(s, step)
+                full = production.issue_left(s, job, issue) if issue is not None \
+                    else Decimal(job.pcs or 1)
+            else:
+                full = production.step_available(s, job, step) or Decimal(job.pcs or 1)
+        self._full = full
+        self.pcs.setValue(float(full))
 
     def _refresh_allow(self) -> None:
         """Allow Loss %: the karigar's figure for the process, else the
@@ -1111,9 +1133,13 @@ class VoucherDialog(QDialog):
                 # out with an issue.
                 ln = {**{k: v for k, v in extras.items() if v not in (None, "")},
                       "job_id": job.id, "step_id": step.id if step else None,
-                      "pcs": self.pcs.value(), "gross": val(self.gross), "net": val(self.net),
+                      "pcs": int(self.pcs.value()) or None,
+                      "gross": val(self.gross), "net": val(self.net),
                       "allow": Decimal(str(self.allow.value())),
-                      "share": Decimal(str(self.share.value())) if self.share.value() else None,
+                      # Fewer pieces than the step can move: a part (19 Nov).
+                      "share": (Decimal(str(self.share.value())) if self.share.value() else
+                                Decimal(str(self.pcs.value()))
+                                if 0 < Decimal(str(self.pcs.value())) < self._full else None),
                       "stones": self.stone_moves, "metal": self.metal_lines}
                 if step is None:
                     raise ProductionError("Choose the step.")
