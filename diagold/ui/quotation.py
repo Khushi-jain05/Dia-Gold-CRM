@@ -71,7 +71,7 @@ def _quick_add(dialog, text: str) -> list[dict]:
     return [d]
 
 
-def _excel(widget, q) -> None:
+def _excel(widget, q, images: bool = True) -> None:
     """Excel Format: the client's quotation sheet with photos and stone rows."""
     if not _need(widget, q, "Excel Format"):
         return
@@ -83,7 +83,7 @@ def _excel(widget, q) -> None:
         return
     with SessionLocal() as s:
         try:
-            Q.excel_format(s, s.get(Quotation, q.id), path)
+            Q.excel_format(s, s.get(Quotation, q.id), path, images=images)
         except Exception as exc:  # noqa: BLE001 - a locked file, say so
             QMessageBox.warning(widget, "Excel Format", f"Could not save: {exc}")
             return
@@ -393,3 +393,411 @@ _register(CrudSpec(
               )),
     ],
 ))
+
+
+# --------------------------------------------------------------------------
+# The Quotation screen, laid out and worked as the legacy one (19 Nov video,
+# Quotation 176): header on top, Barcode / SKU box, the line grid, Account
+# Information / Narration / photo under it, the buttons at the foot; it opens
+# on a new Quot No and Edit picks a saved one from the Edit List.
+# --------------------------------------------------------------------------
+from PySide6.QtCore import QDate, Qt, Signal  # noqa: E402
+from PySide6.QtGui import QPixmap  # noqa: E402
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog,  # noqa: E402
+                               QDialogButtonBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton,
+                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from sqlalchemy import select  # noqa: E402
+
+
+class EditListDialog(QDialog):
+    """Edit List: From / To, VrNo, Ref No, SKU, C-Ref, Particulars - pick the
+    quotation to open (legacy)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit List")
+        self.picked: int | None = None
+        lay = QVBoxLayout(self)
+        g = QGridLayout()
+        today = date.today()
+        fy = date(today.year if today.month >= 4 else today.year - 1, 4, 1)
+        self.d_from, self.d_to = QDateEdit(QDate(fy.year, fy.month, fy.day)), QDateEdit(
+            QDate(today.year, today.month, today.day))
+        for d in (self.d_from, self.d_to):
+            d.setDisplayFormat("dd-MM-yyyy")
+            d.dateChanged.connect(lambda _d: self._load())
+        self.f_vr, self.f_ref, self.f_sku, self.f_cref, self.f_party = (
+            QLineEdit() for _ in range(5))
+        for i, (label, w) in enumerate((("From", self.d_from), ("To", self.d_to),
+                                        ("VrNo", self.f_vr), ("Ref No", self.f_ref),
+                                        ("SKU", self.f_sku), ("C-Ref", self.f_cref),
+                                        ("Particulars", self.f_party))):
+            g.addWidget(QLabel(label), i // 4, (i % 4) * 2)
+            g.addWidget(w, i // 4, (i % 4) * 2 + 1)
+            if isinstance(w, QLineEdit):
+                w.textChanged.connect(lambda _t: self._filter())
+        lay.addLayout(g)
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["VrNo", "Date", "RefNo", "Particulars"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.cellDoubleClicked.connect(lambda r, _c: self._take(r))
+        lay.addWidget(self.table, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(lambda: self._take(self.table.currentRow()))
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        self.resize(640, 520)
+        self._rows: list[dict] = []
+        self._load()
+
+    def _load(self) -> None:
+        a, b = self.d_from.date().toPython(), self.d_to.date().toPython()
+        with SessionLocal() as s:
+            self._rows = Q.edit_list(s, a, b)
+        self._filter()
+
+    def _filter(self) -> None:
+        want = [(self.f_vr, "vr_no"), (self.f_ref, "ref"), (self.f_sku, "skus"),
+                (self.f_cref, "c_refs"), (self.f_party, "party")]
+        self.table.setRowCount(0)
+        self._shown = []
+        for r in self._rows:
+            if any(box.text().strip() and box.text().strip().lower() not in str(r[k]).lower()
+                   for box, k in want):
+                continue
+            n = self.table.rowCount()
+            self.table.insertRow(n)
+            for c, v in enumerate((r["vr_no"], r["date"].strftime("%d-%m-%Y"), r["ref"],
+                                   r["party"])):
+                self.table.setItem(n, c, QTableWidgetItem(str(v)))
+            self._shown.append(r["id"])
+        if self._shown:
+            self.table.selectRow(0)
+
+    def _take(self, row: int) -> None:
+        if 0 <= row < len(self._shown):
+            self.picked = self._shown[row]
+            self.accept()
+
+
+class QuotationWidget(QWidget):
+    close_requested = Signal()
+    open_requested = Signal(str)
+
+    def __init__(self, user=None, parent=None):
+        super().__init__(parent)
+        from diagold.ui.crud import ChildTableEditor
+        from diagold.ui.flow import FlowLayout
+        from diagold.ui.specs import SPECS
+        self.user = user
+        self._id: int | None = None
+        # The legacy "List of Account / SKU ..." panel down the right side, not
+        # a list over the boxes (19 Nov).
+        from diagold.ui.side_list import SideList
+        page = QHBoxLayout(self)
+        page.setContentsMargins(0, 0, 0, 0)
+        main = QWidget()
+        page.addWidget(main, 1)
+        outer = QVBoxLayout(main)
+        outer.setContentsMargins(24, 16, 12, 12)
+        h1 = QLabel("Quotation")
+        h1.setObjectName("H1")
+        outer.addWidget(h1)
+
+        # -- header, as the legacy rows ----------------------------------
+        g = QGridLayout()
+        g.setHorizontalSpacing(8)
+        self.quot_no = QLabel("")
+        self.quot_no.setStyleSheet("font-weight: 600; font-size: 15px;")
+        self.date = QDateEdit()
+        self.date.setDisplayFormat("dd-MM-yyyy")
+        self.account = QComboBox()
+        self.account.addItem("", None)
+        with SessionLocal() as s:
+            for a in s.scalars(select(Account).where(Account.is_active == True)  # noqa: E712
+                               .order_by(Account.name)):
+                self.account.addItem(_account_label(a), a.id)
+        self.ref, self.terms, self.salesperson, self.tracking, self.quot_type = (
+            QLineEdit() for _ in range(5))
+        self.currency = QComboBox()
+        self.currency.addItems(["INR", "USD", "AED", "EUR"])
+        self.chart = QCheckBox("Prices From Client Chart")
+        self.barcode = QLineEdit()
+        self.barcode.setPlaceholderText("Barcode / SKU, Enter")
+        self.barcode.setStyleSheet("background: #FDECEA;")
+        self.barcode.returnPressed.connect(self._barcode)
+        cells = [(0, "Quot No.", self.quot_no), (1, "Date", self.date), (2, "Account", self.account),
+                 (3, "Barcode", self.barcode),
+                 (4, "Ref", self.ref), (5, "Terms", self.terms),
+                 (6, "Sales Person", self.salesperson), (7, None, self.chart),
+                 (8, "Currency", self.currency), (9, "Quot Type", self.quot_type),
+                 (10, "Tracking No.", self.tracking)]
+        for i, label, w in cells:
+            r, c = divmod(i, 4)
+            if label:
+                g.addWidget(QLabel(label), r, c * 2)
+            g.addWidget(w, r, c * 2 + 1)
+        g.setColumnStretch(5, 2)
+        outer.addLayout(g)
+
+        # -- the line grid -----------------------------------------------
+        child = next(f.child for f in SPECS["quotation.quotation"].fields if f.name == "lines")
+        self.lines = ChildTableEditor(child)
+        orig = self.lines._refresh_summary
+
+        def refreshed(*a) -> None:
+            orig(*a)
+            self._totals()
+        self.lines._refresh_summary = refreshed     # Account Information follows the lines
+        self.lines.table.itemSelectionChanged.connect(self._photo)
+        self.lines.table.setMinimumHeight(260)
+        outer.addWidget(self.lines, 1)
+
+        # -- Account Information | Narration | photo ---------------------
+        foot = QHBoxLayout()
+        acc_box = QVBoxLayout()
+        cap = QLabel("Account Information")
+        cap.setStyleSheet("font-weight: 600;")
+        acc_box.addWidget(cap)
+        self.acc_info = QTableWidget(2, 4)
+        self.acc_info.setHorizontalHeaderLabels(["Dr/Cr", "Account", "Debit", "Credit"])
+        self.acc_info.verticalHeader().setVisible(False)
+        self.acc_info.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.acc_info.setFixedHeight(100)
+        self.acc_info.horizontalHeader().setStretchLastSection(True)
+        for c, wdt in enumerate((50, 200, 110)):
+            self.acc_info.setColumnWidth(c, wdt)
+        acc_box.addWidget(self.acc_info)
+        foot.addLayout(acc_box, 3)
+        nar_box = QVBoxLayout()
+        cap2 = QLabel("Narration")
+        cap2.setStyleSheet("font-weight: 600;")
+        nar_box.addWidget(cap2)
+        self.narration = QPlainTextEdit()
+        self.narration.setFixedHeight(100)
+        nar_box.addWidget(self.narration)
+        foot.addLayout(nar_box, 3)
+        self.photo = QLabel("no photo")
+        self.photo.setFixedSize(120, 120)
+        self.photo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.photo.setObjectName("ImageSlot")
+        foot.addWidget(self.photo)
+        outer.addLayout(foot)
+
+        # -- the buttons, at the foot as the legacy screen ----------------
+        bar = FlowLayout(spacing=6)
+        for label, slot, primary in (
+                ("Add", self.new_quote, False), ("Edit", self.edit, False),
+                ("Save", self.save, True), ("Delete", self.delete, False),
+                ("Requirement Sheet", lambda: self._on_saved(
+                    lambda q: _print_pdf(self, q, "Requirement Sheet", stones=True)), False),
+                ("Detailed Sheet", lambda: self._on_saved(
+                    lambda q: _print_pdf(self, q, "Print")), False),
+                ("Catalog 2", lambda: self._on_saved(
+                    lambda q: _print_pdf(self, q, "Catalog 2", images=True)), False),
+                ("Excel Formats", self._excel_formats, False),
+                ("Copy Selected Row", self._copy_row, False),
+                ("Convert to Order", lambda: self._on_saved(lambda q: _convert(self, q)), False),
+                ("Status", lambda: self._on_saved(lambda q: _status(self, q)), False),
+                ("Slide Show File…", lambda: self._on_saved(lambda q: _slide_show(self, q)),
+                 False),
+                ("SKU Search", self._sku_search, False),
+                ("Day Book", lambda: _day_book(self, None), False),
+                ("Exit", self.close_requested.emit, False)):
+            b = QPushButton(label)
+            if primary:
+                b.setObjectName("Primary")
+            b.clicked.connect(slot)
+            bar.addWidget(b)
+        outer.addLayout(bar)
+        self.side_list = SideList(self, {self.account: "Account", self.currency: "Currency"})
+        page.addWidget(self.side_list)
+        self.new_quote()
+
+    # -- state -----------------------------------------------------------
+    def new_quote(self) -> None:
+        self._id = None
+        with SessionLocal() as s:
+            from sqlalchemy import func
+            nxt = (s.scalar(select(func.max(Quotation.quot_no))) or 0) + 1
+        self.quot_no.setText(str(nxt))
+        t = date.today()
+        self.date.setDate(QDate(t.year, t.month, t.day))
+        self.account.setCurrentIndex(0)
+        for w in (self.ref, self.terms, self.salesperson, self.tracking, self.quot_type,
+                  self.barcode):
+            w.clear()
+        self.currency.setCurrentText("INR")
+        self.chart.setChecked(False)
+        self.narration.clear()
+        self.lines.set_rows([])
+        self._totals()
+        self.barcode.setFocus()
+
+    def load(self, quot_id: int) -> None:
+        with SessionLocal() as s:
+            q = s.get(Quotation, quot_id)
+            if q is None:
+                return
+            self._id = q.id
+            self.quot_no.setText(f"{q.quot_no}  ({q.status})")
+            self.date.setDate(QDate(q.quot_date.year, q.quot_date.month, q.quot_date.day))
+            self.account.setCurrentIndex(max(self.account.findData(q.account_id), 0))
+            self.ref.setText(q.ref or "")
+            self.terms.setText(q.terms or "")
+            self.salesperson.setText(q.salesperson or "")
+            self.tracking.setText(q.tracking_no or "")
+            self.quot_type.setText(q.quot_type or "")
+            self.currency.setCurrentText(q.currency_code or "INR")
+            self.chart.setChecked(bool(q.client_chart))
+            self.narration.setPlainText(q.remark or "")
+            names = [f.name for f in self.lines.spec.fields]
+            self.lines.set_rows([{n: getattr(l, n, None) for n in names} for l in q.lines])
+        self._totals()
+
+    def reload(self) -> None:          # the shared actions call this after a change
+        if self._id:
+            self.load(self._id)
+
+    def _head(self) -> dict:
+        return {"quot_date": self.date.date().toPython(),
+                "quot_time": datetime.now().strftime("%H:%M:%S"),
+                "ref": self.ref.text().strip(), "terms": self.terms.text().strip(),
+                "account_id": self.account.currentData(),
+                "salesperson": self.salesperson.text().strip(),
+                "tracking_no": self.tracking.text().strip(),
+                "quot_type": self.quot_type.text().strip(),
+                "currency_code": self.currency.currentText(),
+                "client_chart": self.chart.isChecked(),
+                "remark": self.narration.toPlainText().strip()}
+
+    # -- actions ---------------------------------------------------------
+    def _barcode(self) -> None:
+        text = self.barcode.text().strip()
+        if not text:
+            return
+        with SessionLocal() as s:
+            try:
+                d = Q.line_for_code(s, text, self.date.date().toPython(),
+                                    account_id=self.account.currentData(),
+                                    client_chart=self.chart.isChecked())
+            except ProductionError as exc:
+                QMessageBox.warning(self, "Barcode", str(exc))
+                return
+        d["sno"] = self.lines.table.rowCount() + 1
+        self.lines.add_row(d)
+        self.lines.table.selectRow(self.lines.table.rowCount() - 1)
+        self.barcode.clear()
+        self.barcode.setFocus()
+
+    def _sku_search(self) -> None:
+        text, ok = QInputDialog.getText(self, "SKU Search", "SKU code or Stock No:")
+        if ok and text.strip():
+            self.barcode.setText(text.strip())
+            self._barcode()
+
+    def save(self) -> None:
+        from diagold.ui.confirm import confirm_save
+        if not confirm_save(self, "this quotation"):
+            return
+        with SessionLocal() as s:
+            try:
+                q = Q.save_quotation(s, self._head(), self.lines.rows(), self._id)
+                s.commit()
+                qid, no = q.id, q.quot_no
+            except ProductionError as exc:
+                s.rollback()
+                QMessageBox.warning(self, "Cannot save", str(exc))
+                return
+        self.load(qid)
+        QMessageBox.information(self, "Saved", f"Quotation {no} saved.")
+
+    def edit(self) -> None:
+        dlg = EditListDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.picked:
+            self.load(dlg.picked)
+
+    def delete(self) -> None:
+        if not self._id:
+            QMessageBox.information(self, "Delete", "Open a saved quotation first (Edit).")
+            return
+        if QMessageBox.question(self, "Delete", f"Delete quotation {self.quot_no.text()}?") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        with SessionLocal() as s:
+            try:
+                Q.delete_quotation(s, s.get(Quotation, self._id))
+                s.commit()
+            except ProductionError as exc:
+                s.rollback()
+                QMessageBox.warning(self, "Cannot delete", str(exc))
+                return
+        self.new_quote()
+
+    def _on_saved(self, fn) -> None:
+        """An action on the saved quotation (prints, Excel, convert ...)."""
+        if not self._id:
+            QMessageBox.information(self, "Quotation", "Save the quotation first (or open one "
+                                    "with Edit).")
+            return
+        with SessionLocal() as s:
+            q = s.get(Quotation, self._id)
+        fn(q)
+
+    def _excel_formats(self) -> None:
+        """Excel Formats: the legacy Format - 1 / Format - 2 choice."""
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.addAction("Format - 1  (with photos)",
+                       lambda: self._on_saved(lambda q: _excel(self, q, images=True)))
+        menu.addAction("Format - 2  (without photos)",
+                       lambda: self._on_saved(lambda q: _excel(self, q, images=False)))
+        menu.exec(QCursor.pos())
+
+    def _copy_row(self) -> None:
+        r = self.lines.table.currentRow()
+        if r < 0:
+            QMessageBox.information(self, "Copy Selected Row", "Select a line first.")
+            return
+        row = dict(self.lines.rows()[r])
+        row.pop("id", None)
+        row["sno"] = self.lines.table.rowCount() + 1
+        self.lines.add_row(row)
+
+    # -- the foot ----------------------------------------------------------
+    def _totals(self) -> None:
+        tot = sum((Decimal(str(r.get("total") or 0)) for r in self.lines.rows()), Decimal("0"))
+        client = self.account.currentText().split(" - ")[-1] if self.account.currentData() \
+            else "(client)"
+        for r, vals in enumerate((("Cr", "Sales A/c", "", f"{tot:,.2f}"),
+                                  ("Dr", client, f"{tot:,.2f}", ""))):
+            for c, v in enumerate(vals):
+                it = QTableWidgetItem(v)
+                if c >= 2:
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self.acc_info.setItem(r, c, it)
+
+    def _photo(self) -> None:
+        r = self.lines.table.currentRow()
+        path = ""
+        if r >= 0:
+            sku_id = self.lines.cell_value(r, "product_sku_id")
+            if sku_id:
+                with SessionLocal() as s:
+                    sku = s.get(ProductSku, sku_id)
+                    path = sku.photo if sku else ""
+        from diagold.ui import photo_cache
+        pix = photo_cache.load(path)
+        if pix.isNull():
+            self.photo.setPixmap(QPixmap())
+            self.photo.setText("no photo")
+        else:
+            self.photo.setText("")
+            self.photo.setPixmap(pix.scaled(116, 116, Qt.AspectRatioMode.KeepAspectRatio,
+                                            Qt.TransformationMode.SmoothTransformation))

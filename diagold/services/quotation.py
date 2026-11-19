@@ -318,3 +318,73 @@ def excel_format(session: Session, q: Quotation, path: str, *, images: bool = Tr
     ws.cell(row, 3, "TOTAL").font = bold
     ws.cell(row, 14, float(_dec(q.total))).font = bold
     wb.save(path)
+
+
+_HEAD = ("quot_date", "quot_time", "ref", "currency_code", "quot_type", "terms", "account_id",
+         "salesperson", "tracking_no", "client_chart", "remark")
+
+
+def save_quotation(session: Session, head: dict[str, Any], lines: list[dict[str, Any]],
+                   quot_id: int | None = None) -> Quotation:
+    """Save the Quotation screen (19 Nov, legacy Quotation 176): a new one
+    takes the next Quot No; an open one is written over. Every line is priced
+    again from its SKU (typed weights and rate kept)."""
+    if quot_id:
+        q = session.get(Quotation, quot_id)
+        if q is None:
+            raise ProductionError("That quotation no longer exists.")
+        if q.order_id:
+            raise ProductionError(f"Quotation {q.quot_no} is converted to an order - it "
+                                  "cannot change.")
+    else:
+        q = Quotation(quot_no=next_no(session))
+        session.add(q)
+    kept = [r for r in lines if r.get("product_sku_id") or (r.get("sku_desc") or "").strip()]
+    if not kept:
+        raise ProductionError("A quotation needs at least one SKU line.")
+    for k in _HEAD:
+        if k in head and head[k] is not None:
+            setattr(q, k, head[k])
+    q.quot_date = q.quot_date or date.today()
+    session.flush()
+    for old in list(q.lines):
+        session.delete(old)
+    session.flush()
+    cols = {c.name for c in QuotationLine.__table__.columns} - {"id", "quotation_id"}
+    total = ZERO
+    for n, r in enumerate(kept, start=1):
+        d = price_line(session, r, q.quot_date, account_id=q.account_id,
+                       client_chart=bool(q.client_chart))
+        d["sno"] = n
+        session.add(QuotationLine(quotation_id=q.id, **{k: d[k] for k in d if k in cols}))
+        total += _dec(d.get("total"))
+    q.total = _money(total)
+    session.flush()
+    session.refresh(q)
+    return q
+
+
+def delete_quotation(session: Session, q: Quotation) -> None:
+    if q.order_id:
+        raise ProductionError(f"Quotation {q.quot_no} is converted to an order - delete the "
+                              "order first.")
+    session.delete(q)
+    session.flush()
+
+
+def edit_list(session: Session, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """The legacy Edit List: VrNo, Date, RefNo, Particulars (the client), with
+    the SKUs and C-Refs on it for the search boxes."""
+    out = []
+    for q in session.scalars(select(Quotation).where(Quotation.quot_date >= date_from,
+                                                     Quotation.quot_date <= date_to)
+                             .order_by(Quotation.quot_no.desc())):
+        a = session.get(Account, q.account_id) if q.account_id else None
+        skus = []
+        for l in q.lines:
+            sku = session.get(ProductSku, l.product_sku_id) if l.product_sku_id else None
+            skus.append(sku.sku_code if sku else "")
+        out.append({"id": q.id, "vr_no": q.quot_no, "date": q.quot_date, "ref": q.ref or "",
+                    "party": a.name if a else "-", "status": q.status,
+                    "skus": " ".join(skus), "c_refs": " ".join(l.c_ref or "" for l in q.lines)})
+    return out

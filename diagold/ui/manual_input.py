@@ -254,7 +254,8 @@ class _Filter(QObject):
         if et == QEvent.Type.KeyPress and ev.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             # A form with a "List of ..." panel: Enter takes the first name
             # it shows before the entry is checked (17 Nov T-04).
-            side = getattr(combo.window(), "side_list", None)
+            from diagold.ui.side_list import owner_side_list
+            side = owner_side_list(combo)
             if side is not None:
                 side.take_first()
             else:

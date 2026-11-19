@@ -30,6 +30,9 @@ from diagold.ui.specs import SPECS
 # Menu keys that get a real screen but not via a plain CrudSpec.
 _CUSTOM: dict[str, Callable[[CurrentUser], QWidget]] = {
     "master.user_right": lambda user: PermissionMatrixWidget(user),
+    # The legacy Quotation screen (19 Nov video), not the list + form.
+    "quotation.quotation": lambda user: __import__(
+        "diagold.ui.quotation", fromlist=["QuotationWidget"]).QuotationWidget(user),
     "production_planning.job_card": lambda user: JobCardWidget(user),
     "production_planning.job_mapping": lambda user: JobMappingWidget(user),
     "production_planning.job_card_bag": lambda user: JobBagWidget(user),

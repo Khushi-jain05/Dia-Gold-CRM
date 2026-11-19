@@ -259,9 +259,21 @@ def _pick_box(w: QWidget | None) -> QComboBox | None:
     from diagold.ui.manual_input import MANUAL
     if combo is None or not combo.property(MANUAL) or not combo.isEnabled():
         return None
-    if getattr(combo.window(), "side_list", None) is not None:
-        return None                         # the form has its own panel
+    if owner_side_list(combo) is not None:
+        return None                         # the screen has its own panel
     return combo
+
+
+def owner_side_list(w: QWidget) -> "SideList | None":
+    """The 'List of ...' panel of the form or screen a box sits on, if any -
+    a dialog's own, or a screen's inside a tab (Quotation, 19 Nov)."""
+    p = w
+    while p is not None:
+        side = getattr(p, "side_list", None)
+        if isinstance(side, SideList):
+            return side
+        p = p.parentWidget()
+    return None
 
 
 def floating_for(win: QWidget, make: bool = True) -> FloatingList | None:
