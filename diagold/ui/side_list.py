@@ -90,6 +90,11 @@ class SideList(QWidget):
         lay.addWidget(self.title)
         self.list = QListWidget()
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # A click on the list never takes the cursor out of the box: leaving
+        # the box checks what is typed, so "pri" + a click on PRIMARY warned
+        # "not in the list" before the click could put the name in (19 Nov).
+        self.list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.list.itemClicked.connect(self._pick)
         self.list.itemActivated.connect(self._pick)
         lay.addWidget(self.list, 1)
@@ -140,6 +145,8 @@ class SideList(QWidget):
         if combo is None:
             return
         combo.setCurrentIndex(int(item.data(Qt.ItemDataRole.UserRole)))
+        if combo.lineEdit() is not None:
+            combo.lineEdit().setText(combo.itemText(combo.currentIndex()))
         combo.setFocus()
 
     def take_first(self) -> bool:
