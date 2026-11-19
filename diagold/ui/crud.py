@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -226,6 +226,10 @@ class CrudSpec:
     # The legacy "List of ..." panel beside the form (17 Nov T-04) - on every
     # New / Edit form, as on the Inventory vouchers (18 Nov).
     side_list: bool = True
+    # A box over the line grid: type a code, Enter adds the line(s) it names
+    # (Quotation's Barcode / SKU box, 19 Nov) - (placeholder, fn(dialog, text)
+    # -> rows, raising ValueError / ProductionError with the reason).
+    quick_add: tuple[str, Callable[..., list[dict]]] | None = None
     # Lay the fields out in this many side-by-side columns (5 Nov T-11: the
     # Product SKU form took several scrolls in one long column). Sections
     # start a new group box: {"field name that starts it": "Title"}.
@@ -371,6 +375,93 @@ def _type_to_pick(w: QComboBox) -> None:
     name any more (was: "camm" + Enter took CAMMING)."""
     from diagold.ui.manual_input import make_manual
     make_manual(w)
+
+
+class NumberCell(QLineEdit):
+    """A number in a line grid, as a plain text box (19 Nov): the spin boxes
+    there showed nothing on the client's Windows PC - Metal Purchase Weight,
+    Price, Amount typed but not seen - while plain text boxes always show.
+    Speaks the spin box's value() / setValue() / valueChanged, so the grid's
+    code and the screens' on_change hooks are unchanged; the whole value is
+    selected on entering it, and the wheel never touches it."""
+
+    valueChanged = Signal(float)
+
+    def __init__(self, decimals: int = 0, minimum: float = 0.0,
+                 maximum: float = 1_000_000_000, parent=None):
+        super().__init__(parent)
+        self._decimals, self._min, self._max = decimals, minimum, maximum
+        self._value = 0.0
+        self._entering = False
+        self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.textEdited.connect(self._typed)
+        self.editingFinished.connect(self._tidy)
+        self._show()
+
+    # the spin box's API, as far as the grids use it
+    def value(self):
+        return int(round(self._value)) if self._decimals == 0 else self._value
+
+    def setValue(self, value) -> None:
+        try:
+            v = float(value or 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        v = min(max(v, self._min), self._max)
+        changed = v != self._value
+        self._value = v
+        self._show()
+        if changed:
+            self.valueChanged.emit(v)
+
+    def decimals(self) -> int:
+        return self._decimals
+
+    def setDecimals(self, n: int) -> None:
+        self._decimals = n
+        self._show()
+
+    def setRange(self, lo, hi) -> None:
+        self._min, self._max = float(lo), float(hi)
+
+    def minimum(self) -> float:
+        return self._min
+
+    def maximum(self) -> float:
+        return self._max
+
+    def setButtonSymbols(self, _symbols) -> None:      # nothing to hide
+        pass
+
+    def _show(self) -> None:
+        self.setText(f"{self._value:.{self._decimals}f}")
+
+    def _typed(self, text: str) -> None:
+        t = text.replace(",", "").strip()
+        try:
+            v = float(t) if t not in ("", "-", ".", "-.") else 0.0
+        except ValueError:
+            return
+        if self._decimals == 0:
+            v = float(int(v))
+        v = min(max(v, self._min), self._max)
+        if v != self._value:
+            self._value = v
+            self.valueChanged.emit(v)
+
+    def _tidy(self) -> None:
+        self._show()
+
+    def focusInEvent(self, event) -> None:  # noqa: N802 - Qt name
+        super().focusInEvent(event)
+        self._entering = event.reason() == Qt.FocusReason.MouseFocusReason
+        QTimer.singleShot(0, self.selectAll)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt name
+        super().mouseReleaseEvent(event)
+        if self._entering:                 # a click into it: the whole value, to type over
+            self._entering = False
+            QTimer.singleShot(0, self.selectAll)
 
 
 class ChildTableEditor(QWidget):
@@ -662,19 +753,9 @@ class ChildTableEditor(QWidget):
             return
 
     def _cell(self, f: Field, value: Any) -> QWidget:
-        if f.type == "float":
-            w = QDoubleSpinBox()
-            w.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-            w.setDecimals(f.decimals)
-            w.setRange(f.minimum, 1_000_000_000)
-            w.setValue(float(value) if value not in (None, "") else 0.0)
-            w.valueChanged.connect(self._refresh_summary)
-            return w
-        if f.type == "int":
-            w = QSpinBox()
-            w.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-            w.setRange(int(f.minimum), 1_000_000_000)
-            w.setValue(int(value) if value not in (None, "") else 0)
+        if f.type in ("float", "int"):
+            w = NumberCell(f.decimals if f.type == "float" else 0, f.minimum)
+            w.setValue(value if value not in (None, "") else 0)
             w.valueChanged.connect(self._refresh_summary)
             return w
         if f.type == "choice":
@@ -967,6 +1048,12 @@ class FormDialog(QDialog):
             self.child_editors[f.name] = editor
             box = QGroupBox(f.label)
             box_layout = QVBoxLayout(box)
+            if spec.quick_add is not None and not getattr(self, "quick_box", None):
+                self.quick_box = QLineEdit()
+                self.quick_box.setPlaceholderText(spec.quick_add[0])
+                self.quick_box.returnPressed.connect(
+                    lambda ed=editor: self._quick_add(ed))
+                box_layout.addWidget(self.quick_box)
             if f.help_text:
                 hint = QLabel(f.help_text)
                 hint.setStyleSheet("color: gray; font-size: 11px;")
@@ -1031,6 +1118,20 @@ class FormDialog(QDialog):
         self._fit_to_screen(body)
         if spec.form_maximized:
             self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
+
+    def _quick_add(self, editor: "ChildTableEditor") -> None:
+        text = self.quick_box.text().strip()
+        if not text:
+            return
+        try:
+            rows = self.spec.quick_add[1](self, text)
+        except Exception as exc:  # noqa: BLE001 - the reason is the user's to read
+            QMessageBox.warning(self, "Add", str(exc))
+            return
+        for r in rows:
+            editor.add_row(r)
+        self.quick_box.clear()
+        self.quick_box.setFocus()
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt name
         """Enter moves to the next box, as in the legacy screens (17 Nov T-04:

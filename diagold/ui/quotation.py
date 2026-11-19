@@ -33,10 +33,61 @@ def _fill_from_sku(grid, row: int, sku_id) -> None:
             grid.set_cell_value(row, k, d.get(k))
 
 
+def _recalc(grid, row: int, _value) -> None:
+    """A weight, Pcs or Metal Rate typed: Tot GWt, Mt Amt and Total follow at
+    once (legacy Quotation 176: G-Wt 11.650 typed on BANG-204)."""
+    d = lambda k: Decimal(str(grid.cell_value(row, k) or 0))  # noqa: E731
+    pcs = max(int(d("pcs")), 1)
+    mt = (d("nwt_pcs") * pcs * d("metal_rate")).quantize(Decimal("0.01"))
+    grid.set_cell_value(row, "tot_gwt", d("gwt_pcs") * pcs)
+    grid.set_cell_value(row, "mt_amt", mt)
+    grid.set_cell_value(row, "total", mt + d("stone_amt") + d("labour"))
+
+
 def _lines_summary(rows: list[dict]) -> str:
     pcs = sum(int(r.get("pcs") or 0) for r in rows)
+    gwt = sum(Decimal(str(r.get("tot_gwt") or 0)) for r in rows)
     tot = sum(Decimal(str(r.get("total") or 0)) for r in rows)
-    return f"{len(rows)} line(s) · {pcs} pcs · total {tot:,.2f} (worked again on save)"
+    # Account Information as the legacy screen shows it - Dr the client /
+    # Cr Sales A/c - for reading only: a quotation posts nothing (9 Oct Q6).
+    return (f"{len(rows)} line(s) · {pcs} pcs · Tot GWt {gwt:,.3f} · total {tot:,.2f}"
+            f"      Account Information: Dr client / Cr Sales A/c {tot:,.2f} (not posted)")
+
+
+def _quick_add(dialog, text: str) -> list[dict]:
+    """Barcode / SKU box: a SKU code or Stock No + Enter adds the priced line."""
+    values = {}
+    for name in ("account_id", "quot_date", "client_chart"):
+        ed = dialog.editors.get(name)
+        if ed is not None:
+            f = next(x for x in dialog.spec.fields if x.name == name)
+            values[name] = dialog._editor_value(f)
+    with SessionLocal() as s:
+        d = Q.line_for_code(s, text, values.get("quot_date"),
+                            account_id=values.get("account_id"),
+                            client_chart=bool(values.get("client_chart")))
+    editor = dialog.child_editors["lines"]
+    d["sno"] = editor.table.rowCount() + 1
+    return [d]
+
+
+def _excel(widget, q) -> None:
+    """Excel Format: the client's quotation sheet with photos and stone rows."""
+    if not _need(widget, q, "Excel Format"):
+        return
+    from PySide6.QtWidgets import QFileDialog
+    from diagold.services import documents
+    default = str(documents.PRINT_DIR / f"quotation_{q.quot_no}.xlsx")
+    path, _ = QFileDialog.getSaveFileName(widget, "Excel Format", default, "Excel (*.xlsx)")
+    if not path:
+        return
+    with SessionLocal() as s:
+        try:
+            Q.excel_format(s, s.get(Quotation, q.id), path)
+        except Exception as exc:  # noqa: BLE001 - a locked file, say so
+            QMessageBox.warning(widget, "Excel Format", f"Could not save: {exc}")
+            return
+    QMessageBox.information(widget, "Excel Format", f"Saved {path}")
 
 
 def _validate(values: dict, children: dict) -> str | None:
@@ -281,7 +332,9 @@ _register(CrudSpec(
     validate=_validate,
     before_save=_prepare,
     form_width=1240,
-    extra_buttons=[("Convert to Order", _convert), ("Status", _status),
+    form_maximized=True,
+    quick_add=("Barcode / SKU - type a SKU code or Stock No, Enter adds the line", _quick_add),
+    extra_buttons=[("Excel Format", _excel), ("Convert to Order", _convert), ("Status", _status),
                    ("Copy Selected Row", _copy_row), ("Prices From Client Chart", _client_chart),
                    ("Print", lambda w, q: _print_pdf(w, q, "Print")),
                    ("Requirement Sheet", lambda w, q: _print_pdf(w, q, "Requirement Sheet",
@@ -325,11 +378,11 @@ _register(CrudSpec(
                       Field("loss_pct", "Loss%", type="float", decimals=2),
                       Field("colour", "Color", type="choice", choices=["Y", "W", "R", ""]),
                       Field("size", "Size"),
-                      Field("pcs", "Pcs", type="int", default=1),
-                      Field("gwt_pcs", "G-Wt/Pcs", type="float", decimals=3),
-                      Field("nwt_pcs", "N-Wt/Pcs", type="float", decimals=3),
+                      Field("pcs", "Pcs", type="int", default=1, on_change=_recalc),
+                      Field("gwt_pcs", "G-Wt/Pcs", type="float", decimals=3, on_change=_recalc),
+                      Field("nwt_pcs", "N-Wt/Pcs", type="float", decimals=3, on_change=_recalc),
                       Field("tot_gwt", "Tot GWt", type="float", decimals=3),
-                      Field("metal_rate", "Metal Rate", type="float"),
+                      Field("metal_rate", "Metal Rate", type="float", on_change=_recalc),
                       Field("unit", "Unit", default="NetWt"),
                       Field("mt_amt", "Mt Amt", type="float"),
                       Field("stone_amt", "Stone Amt", type="float"),

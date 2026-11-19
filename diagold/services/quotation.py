@@ -59,6 +59,8 @@ def sku_stones(session: Session, sku: ProductSku) -> list[dict[str, Any]]:
         size = session.get(StoneSize, st.size_id) if st.size_id else None
         price = _dec(st.sale_price) or (_dec(ssku.sale_price) if ssku else ZERO)
         out.append({"label": (ssku.sku_code if ssku else "") or st.description,
+                    # The stone's own name, as the legacy Excel lists it (DAANK, POLKI ...).
+                    "stone": ((ssku.stone if ssku else "") or st.description or "").strip(),
                     "s_type": ssku.stone_type if ssku else "",
                     "size": (size.name if size else "") or (ssku.size if ssku else ""),
                     "pcs": int(st.pieces or 0), "weight": str(_dec(st.weight_cts)),
@@ -210,3 +212,109 @@ def day_book(session: Session, date_from: date, date_to: date) -> list[dict[str,
                          "stone_amt": _dec(l.stone_amt), "labour": _dec(l.labour),
                          "total": _dec(l.total), "order_no": order.order_no if order else ""})
     return rows
+
+
+def line_for_code(session: Session, text: str, on_date: date | None = None, *,
+                  account_id: int | None = None, client_chart: bool = False) -> dict[str, Any]:
+    """The quotation's Barcode / SKU box (19 Nov, legacy Quotation 176): a SKU
+    code - or a Stock No, whose piece's own weights come along - gives a
+    priced line."""
+    from diagold.db.models import StockItem
+    code = (text or "").strip()
+    if not code:
+        raise ProductionError("Type a SKU code or a Stock No.")
+    sku = session.scalar(select(ProductSku).where(func.lower(ProductSku.sku_code) == code.lower()))
+    ln: dict[str, Any] = {"pcs": 1}
+    if sku is None and code.isdigit():
+        item = session.scalar(select(StockItem).where(StockItem.stock_no == int(code)))
+        if item is not None and item.product_sku_id:
+            sku = session.get(ProductSku, item.product_sku_id)
+            ln.update(gwt_pcs=_dec(item.gross_wt), nwt_pcs=_dec(item.net_wt),
+                      c_ref=item.c_ref or "", metal_id=item.metal_id)
+    if sku is None:
+        raise ProductionError(f"No SKU or Stock No '{code}'.")
+    ln["product_sku_id"] = sku.id
+    return price_line(session, ln, on_date, account_id=account_id, client_chart=client_chart)
+
+
+def excel_format(session: Session, q: Quotation, path: str, *, images: bool = True) -> None:
+    """The quotation in the client's Excel format (legacy Quotation 176 >
+    Excel Formats): Client / Date / Quote# / Discount on top; per piece its
+    photo, DESCRIPTION (item + metal, size), GROSS WT, PURITY WT (net), MT.
+    RATE, MT. AMT, a STONE 'Total' row and a row per stone (CTS, PRICE, ST
+    AMT), LABOUR, OTH.CHARGE, TOT.VALUE, TAG and DIFF (TAG - TOT.VALUE)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    from diagold.db.models.sku import Item
+    acct = session.get(Account, q.account_id) if q.account_id else None
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Quotation"
+    bold = Font(bold=True)
+    thin = Side(style="thin", color="B0B7C3")
+    box = Border(left=thin, right=thin, top=thin, bottom=thin)
+    ws.cell(2, 2, "Client").font = bold
+    ws.cell(2, 3, acct.name if acct else "")
+    ws.cell(3, 2, "Date").font = bold
+    ws.cell(3, 3, q.quot_date.strftime("%d-%m-%Y"))
+    ws.cell(3, 4, f"Quote#{q.quot_no}")
+    ws.cell(4, 2, "Discount").font = bold
+    heads = ["S.NO", "DESIGN", "DESCRIPTION", "GROSS WT", "PURITY WT", "MT. RATE", "MT. AMT",
+             "STONE", "CTS", "PRICE", "ST AMT", "LABOUR", "OTH.CHARGE", "TOT.VALUE", "TAG",
+             "DIFF"]
+    for c, h in enumerate(heads, start=1):
+        cell = ws.cell(5, c, h)
+        cell.font = bold
+        cell.fill = PatternFill("solid", fgColor="E4E7EC")
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = box
+    for col, w in zip("ABCDEFGHIJKLMNOP", (6, 14, 24, 10, 10, 10, 12, 18, 8, 10, 12, 10, 10,
+                                           12, 8, 12)):
+        ws.column_dimensions[col].width = w
+    row = 6
+    for l in q.lines:
+        sku = session.get(ProductSku, l.product_sku_id) if l.product_sku_id else None
+        metal = session.get(Metal, l.metal_id) if l.metal_id else None
+        item = session.get(Item, sku.item_id) if sku is not None and sku.item_id else None
+        pcs = max(int(l.pcs or 1), 1)
+        stones = sku_stones(session, sku) if sku is not None else []
+        from diagold.services import sales
+        st_rows = [(st["stone"] or st["label"], _dec(st["weight"]) * pcs, _dec(st["price"]),
+                    sales.stone_amount(st) * pcs) for st in stones]
+        r0 = row
+        tot_val = _money(_dec(l.mt_amt) + _dec(l.stone_amt) + _dec(l.labour))
+        tag = _dec(sku.tag_price) if sku is not None else ZERO
+        vals = {1: l.sno, 3: f"{(item.name if item else '') or (l.sku_desc or '')} "
+                            f"{metal.name if metal else ''}".strip(),
+                4: float(_dec(l.gwt_pcs) * pcs), 5: float(_dec(l.nwt_pcs) * pcs),
+                6: float(_dec(l.metal_rate)), 7: float(_dec(l.mt_amt)), 8: "Total",
+                9: float(sum((r[1] for r in st_rows), ZERO)),
+                11: float(_dec(l.stone_amt)), 12: float(_dec(l.labour)), 13: 0,
+                14: float(tot_val), 15: float(tag) if tag else "",
+                16: float(tag - tot_val) if tag else ""}
+        for c, v in vals.items():
+            ws.cell(r0, c, v)
+        ws.cell(r0, 2, sku.sku_code if sku else "").font = bold
+        ws.cell(r0 + 1, 3, f"Size :- {l.size or ''}")
+        for i, (name, cts, price, amt) in enumerate(st_rows, start=1):
+            ws.cell(r0 + i, 8, name)
+            ws.cell(r0 + i, 9, float(cts))
+            ws.cell(r0 + i, 10, float(price))
+            ws.cell(r0 + i, 11, float(amt))
+        r1 = max(r0 + len(st_rows), r0 + 4)          # room for the photo
+        if images and sku is not None and sku.photo:
+            try:
+                from openpyxl.drawing.image import Image as XLImage
+                img = XLImage(sku.photo)
+                img.width, img.height = 80, 80
+                ws.add_image(img, f"B{r0 + 1}")
+            except Exception:  # noqa: BLE001 - no Pillow / unreadable image: no picture
+                pass
+        for rr in range(r0, r1 + 1):
+            for c in range(1, len(heads) + 1):
+                ws.cell(rr, c).border = box
+        row = r1 + 2
+    ws.cell(row, 3, "TOTAL").font = bold
+    ws.cell(row, 14, float(_dec(q.total))).font = bold
+    wb.save(path)
