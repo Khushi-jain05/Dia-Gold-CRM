@@ -13,14 +13,34 @@ pick box in the app gets ``FloatingList``, a panel beside its window (18 Nov:
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFrame, QLabel,
-                               QLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFrame,
+                               QHBoxLayout, QLabel, QLayout, QToolButton,
                                QListWidget, QListWidgetItem, QTableWidget, QVBoxLayout,
                                QWidget)
 
 _WIRED = "_side_list_wired"
 _BLANKS = ("", "— none —")
 _SEPARATORS = (" · ", " - ", " — ")
+
+
+def _title_row(owner: QWidget, title: QLabel) -> QHBoxLayout:
+    """The list's heading with a ✕ that closes it (23 Nov); typing in the
+    box again brings it back."""
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 0, 0, 0)
+    row.addWidget(title, 1)
+    close = QToolButton()
+    close.setText("✕")
+    close.setToolTip("Close the list - it opens again when you type in the box")
+    close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    close.setAutoRaise(True)
+    close.setCursor(Qt.CursorShape.PointingHandCursor)
+    close.setStyleSheet("QToolButton { border: none; font-weight: 700; font-size: 15px; "
+                        "padding: 0 6px; color: #8A6D00; }")
+    close.clicked.connect(owner.hide)
+    owner.close_btn = close
+    row.addWidget(close)
+    return row
 
 
 def ranked(combo: QComboBox, typed: str) -> list[int]:
@@ -87,7 +107,7 @@ class SideList(QWidget):
         lay.setContentsMargins(0, 16, 12, 8)
         self.title = QLabel("")
         self.title.setStyleSheet("font-weight: 600;")
-        lay.addWidget(self.title)
+        lay.addLayout(_title_row(self, self.title))
         self.list = QListWidget()
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         # A click on the list never takes the cursor out of the box: leaving
@@ -126,9 +146,14 @@ class SideList(QWidget):
         if not combo.property(_WIRED) and combo.lineEdit() is not None:
             combo.setProperty(_WIRED, True)
             combo.lineEdit().textEdited.connect(
-                lambda text, c=combo: self._fill(text) if c is self.combo else None)
+                lambda text, c=combo: self._typed(text) if c is self.combo else None)
         self._fill("")
         self.setVisible(True)
+
+    def _typed(self, text: str) -> None:
+        self._fill(text)
+        if not self.isVisible():
+            self.setVisible(True)           # closed with ✕, typing brings it back
 
     def _fill(self, typed: str) -> None:
         combo = self.combo
@@ -154,7 +179,8 @@ class SideList(QWidget):
         the list shows goes in (legacy). False when there is nothing to take."""
         combo = self.combo
         w = QApplication.focusWidget()
-        if combo is None or self._combo_of(w) is not combo or self.list.count() == 0:
+        if combo is None or self._combo_of(w) is not combo or self.list.count() == 0 \
+                or not self.isVisible():
             return False
         typed = combo.currentText().strip().casefold()
         if any(combo.itemText(i).strip().casefold() == typed for i in range(combo.count())):
@@ -181,7 +207,7 @@ class FloatingList(QFrame):
         lay.setContentsMargins(6, 4, 6, 6)
         self.title = QLabel("")
         self.title.setStyleSheet("font-weight: 600; border: none;")
-        lay.addWidget(self.title)
+        lay.addLayout(_title_row(self, self.title))
         self.list = QListWidget()
         self.list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.list.itemClicked.connect(self._pick)
@@ -196,11 +222,21 @@ class FloatingList(QFrame):
             if not combo.property(_WIRED) and combo.lineEdit() is not None:
                 combo.setProperty(_WIRED, True)
                 combo.lineEdit().textEdited.connect(
-                    lambda text, c=combo: self._fill(text) if c is self.combo else None)
+                    lambda text, c=combo: self._typed(text) if c is self.combo else None)
         self._fill("")
         self._place(combo)
         self.show()
         self.raise_()
+
+    def _typed(self, text: str) -> None:
+        self._fill(text)
+        if not self.isVisible() and self.combo is not None:
+            try:
+                self._place(self.combo)     # closed with ✕, typing brings it back
+            except RuntimeError:
+                return
+            self.show()
+            self.raise_()
 
     def _place(self, combo: QComboBox) -> None:
         win = self.parentWidget()
