@@ -338,6 +338,21 @@ def specs() -> dict[str, ReportSpec]:
                  "Breakage) and GROUP - OP, IN, OUT, CL in pcs and carats, CL = OP + IN - "
                  "OUT. Double-click a line for its SSKUs, an SSKU for its vouchers with "
                  "the running balance."),
+        "stone_analysis": ReportSpec(
+            key="stone_analysis", title="Stone Analysis",
+            columns=static([Col("location", "LOCATION"), Col("type", "TYPE"),
+                            Col("ssku", "SSKU"), Col("size", "SIZE")] + [
+                Col(f"{k}_{m}", lab, "measure", dec, group=g, total=True)
+                for k, g in (("op", "OPENING"), ("in", "INWARD"), ("out", "OUTWARD"),
+                             ("cl", "CLOSING"))
+                for m, lab, dec in (("pcs", "PCS", 0), ("wt", "WEIGHT", 3))]
+                + [Col("group", "GROUP")]),
+            query=lambda s, a, b, **k: MIS.stone_analysis(s, a, b, **k),
+            filter_column="location", date_default="fy",
+            note="As the legacy Stone Analysis (23 Nov video): every stone by location, type, "
+                 "SSKU and size - opening, inward, outward, closing (pcs / weight) and its "
+                 "group; one Total at the foot, no group totals. Auto Filter / Adv. Filter "
+                 "narrow it (a location, an SSKU)."),
         "stone_wise_inventory": ReportSpec(
             key="stone_wise_inventory", title="Stone Wise Inventory",
             columns=static([Col("location", "LOCATION"), Col("type", "TYPE"),

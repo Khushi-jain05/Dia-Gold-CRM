@@ -1020,3 +1020,29 @@ def stone_ledger_lines(session: Session, date_from: date, date_to: date, locatio
                      "_job_id": job.id if job else None,
                      "_negative": bal[0] < 0 or bal[1] < 0})
     return rows
+
+
+def stone_analysis(session: Session, date_from: date, date_to: date,
+                   **_k: Any) -> list[dict[str, Any]]:
+    """Stone Analysis (23 Nov video, Inventory > Stone > Reports): every
+    stone by LOCATION, TYPE, SSKU and SIZE - OPENING, INWARD, OUTWARD and
+    CLOSING in pcs and weight, then its GROUP. No group totals, only the
+    grand Total; a figure of nought is left blank, as the legacy shows. The
+    same movements as the Stone Ledger, so the two agree."""
+    acc: dict[tuple, list] = defaultdict(lambda: [0, ZERO, 0, ZERO, 0, ZERO])
+    for c, m, loc, typ, grp in _ledger_moves(session, date_to):
+        _opio(acc[(loc, _ssku_name(c, m), (m.size or "").strip() or "-", typ, grp)], m,
+              date_from)
+    rows = []
+    for (loc, ssku, size, typ, grp), a in sorted(
+            acc.items(), key=lambda kv: tuple(str(x).lower() for x in kv[0])):
+        cl_pcs, cl_wt = a[0] + a[2] - a[4], a[1] + a[3] - a[5]
+        if not any(a) and not cl_pcs and not cl_wt:
+            continue
+        blank = lambda v, q=None: (v.quantize(q) if q else v) if v else None  # noqa: E731
+        rows.append({"location": loc, "type": typ, "ssku": ssku, "size": size, "group": grp,
+                     "op_pcs": blank(a[0]), "op_wt": blank(a[1], D3),
+                     "in_pcs": blank(a[2]), "in_wt": blank(a[3], D3),
+                     "out_pcs": blank(a[4]), "out_wt": blank(a[5], D3),
+                     "cl_pcs": blank(cl_pcs), "cl_wt": blank(cl_wt, D3)})
+    return rows
