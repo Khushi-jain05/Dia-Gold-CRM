@@ -446,6 +446,87 @@ class JobHeaderCard(QFrame):
         if not self._photo_path:
             self.photo.setText("—")
 
+    def set_legacy(self) -> None:
+        """Laid out as the legacy Job History card (23 Nov): Job No / SKU /
+        C-Ref / Ord-Ref down the left; the SKU, Client and Ord No / Dt boxed;
+        the metal in large type with the PCS beside it, the route under it;
+        the photo at the right."""
+        g = self._grid
+        for key, _l in self.FIELDS:
+            g.removeWidget(self._labels[key])
+            g.removeWidget(self.values[key])
+        for c in range(8):
+            g.setColumnStretch(c, 0)
+        lay = self.layout()
+        lay.removeItem(g)
+        lay.removeWidget(self.photo)
+        lab, val = self._labels, self.values
+
+        def bold(w: QLabel, pt: int | None = None) -> QLabel:
+            # The app style sheet sets label fonts, so size goes by style sheet.
+            w.setStyleSheet("font-weight: 700;" + (f" font-size: {pt}px;" if pt else ""))
+            return w
+        left = QGridLayout()
+        left.setVerticalSpacing(2)
+        for r, key in enumerate(("job_no", "sku", "c_ref", "ord_ref")):
+            left.addWidget(lab[key], r, 0)
+            left.addWidget(bold(val[key], 17 if key in ("job_no", "sku") else None), r, 1)
+        lay.addLayout(left)
+
+        def boxed(*rows) -> QFrame:
+            fr = QFrame()
+            fr.setObjectName("LegacyBox")
+            fr.setStyleSheet("QFrame#LegacyBox { border: 1px solid #C9CCD3; "
+                             "border-radius: 4px; }")
+            gl = QGridLayout(fr)
+            gl.setContentsMargins(8, 4, 8, 4)
+            gl.setVerticalSpacing(2)
+            for r, items in enumerate(rows):
+                for c, w in enumerate(items):
+                    gl.addWidget(w, r, c)
+            return fr
+        self.sku_big = bold(QLabel("—"), 17)
+        mid = QVBoxLayout()
+        mid.setSpacing(4)
+        mid.addWidget(boxed((self.sku_big,)))
+        mid.addWidget(boxed((lab["client"], bold(val["client"])),
+                            (lab["order"], bold(val["order"]))))
+        lay.addLayout(mid, 2)
+        self.metal_big = val["metal"]
+        bold(self.metal_big, 24)
+        lab["pcs"].setText("PCS")
+        lab["pcs"].setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bold(val["pcs"], 34)
+        val["pcs"].setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pcs = QVBoxLayout()
+        pcs.setSpacing(0)
+        pcs.addWidget(lab["pcs"])
+        pcs.addWidget(val["pcs"])
+        top = QHBoxLayout()
+        top.addWidget(self.metal_big, 1)
+        top.addLayout(pcs)
+        rt = QFrame()
+        rt.setObjectName("LegacyBox")
+        rt.setStyleSheet("QFrame#LegacyBox { border: 1px solid #C9CCD3; border-radius: 4px; }")
+        rl = QVBoxLayout(rt)
+        rl.setContentsMargins(10, 4, 10, 4)
+        rl.setSpacing(2)
+        rl.addLayout(top)
+        bold(val["route"])
+        rl.addWidget(val["route"])
+        dl = QHBoxLayout()
+        dl.addWidget(lab["delivery"])
+        dl.addWidget(val["delivery"], 1)
+        rl.addLayout(dl)
+        lay.addWidget(rt, 3)
+        lab["metal"].hide()
+        lab["route"].hide()
+        self._photo_size = 110
+        self.photo.setFixedSize(110, 110)
+        lay.addWidget(self.photo)
+        lay.setContentsMargins(12, 8, 12, 8)
+        self._legacy = True
+
     def _enlarge(self) -> None:
         if not self._photo_path:
             return
@@ -491,6 +572,9 @@ class JobHeaderCard(QFrame):
         }
         for k, v in vals.items():
             self.values[k].setText(v or "—")
+        if getattr(self, "_legacy", False):
+            self.sku_big.setText(sku.sku_code if sku else "—")
+            self.values["pcs"].setText(f"{Decimal(str(job.pcs or 0)).normalize():f}")
         path = sku.photo if sku else ""
         pix = photo_cache.load(path)
         self._photo_path = path if not pix.isNull() else ""
@@ -619,9 +703,10 @@ class _Screen(QWidget):
 ISSUE_COLS = [("vr_date", "Date"), ("vr_time", "Time"), ("vr_no", "VrNo"), ("pcs", "Pcs"),
               ("gross_wt", "G-Wt"), ("net_wt", "N-Wt"), ("stone_wt", "Stone"),
               ("extra", "Extra"), ("finding", "Finding"), ("mould", "Mould"),
-              ("wip_value", "WIP Value")]
-RECEIVE_COLS = [("del_date", "Del-Date"), ("vr_date", "Date"), ("vr_time", "Time"),
-                ("vr_no", "VrNo"), ("pcs", "Pcs"), ("gross_wt", "G-Wt"), ("net_wt", "N-Wt"),
+              ("wip_value", "WIP Value"), ("del_date", "Del-Date")]
+# Legacy Job History order (23 Nov screenshot): the issue side ends with
+# Del-Date, the receive side starts with its Date; Loss (g) / Loss % follow.
+RECEIVE_COLS = [("vr_date", "Date"), ("vr_time", "Time"), ("vr_no", "VrNo"), ("pcs", "Pcs"), ("gross_wt", "G-Wt"), ("net_wt", "N-Wt"),
                 ("rej_pcs", "Rej Pcs"), ("rej_wt", "Rej Wt"), ("scrap", "Scrap"),
                 ("dust", "Dust"), ("allow_loss_pct", "Alw L %"), ("labour", "Labour")]
 
@@ -1568,33 +1653,28 @@ class JobHistoryWidget(_Screen):
         self.button("+ Issue", lambda: self._voucher("issue"), primary=True)
         self.button("+ Receive", lambda: self._voucher("receive"))
         self.button("Show Pending", self._show_pending)
-        self.button("Job Bag", lambda: self.open_requested.emit("production_planning.job_card_bag"))
         self.button("Update", lambda: self.open_requested.emit("production_planning.job_mapping"))
-        self.button("Print", self._print)
         from PySide6.QtWidgets import QMenu, QToolButton
         more = QToolButton()
         more.setText("More ▾")
         more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(more)
         for label, slot in (
-                ("WIP Costing", self._wip), ("Setting Labour", self._setting_labour),
-                ("MFG Price", self._mfg_price), ("Stone Dtls", lambda: self.stones.setFocus()),
+                ("Setting Labour", self._setting_labour), ("MFG Price", self._mfg_price),
                 ("Link", self._link),
-                ("Stone Bag", lambda: self.open_requested.emit("production_planning.stone_issue")),
-                ("Add Comments", self._add_comment),
-                ("Stone Return", lambda: self.open_requested.emit(
-                    "production_planning.inv_return")),
-                ("Exit", self.close_requested.emit)):
+                ("Stone Bag", lambda: self.open_requested.emit("production_planning.stone_issue"))):
             menu.addAction(label, slot)
         more.setMenu(menu)
         self.toolbar.addWidget(more)
+        # Every column shows, as on the legacy screen (23 Nov); Compact hides
+        # the rarely filled ones when wanted.
         self.compact = QCheckBox("Compact")
-        self.compact.setChecked(True)
+        self.compact.setChecked(False)
         self.compact.setToolTip("Hide the columns rarely filled (Time, Extra, Finding, Mould, "
                                 "WIP Value, Del-Date, Rej, Scrap, Dust)")
         self.compact.toggled.connect(lambda _on: self._apply_compact())
         self.toolbar.addWidget(self.compact)
-        self.header.set_compact()
+        self.header.set_legacy()
 
         legend = QLabel("A step can be split across karigars: + Issue with a Split share "
                         "(0.4 pc, then 0.1 pc); each receives his own share back. "
@@ -1605,23 +1685,23 @@ class JobHistoryWidget(_Screen):
                         "the whole step reads across one row.  F11 opens this screen.  Update "
                         "opens the route in Job Mapping; Stone Return opens the return "
                         "voucher on this job.")
-        legend.setObjectName("Muted")
-        legend.setWordWrap(True)
-        self.outer.addWidget(legend)
+        legend_text = legend.text()
 
         # Loss sits with Process and Worker, not at the far right: it is the
         # number the row exists for, and the reader should never have to
         # scroll twenty columns to find it. The frozen block carries all three.
-        headers = (["Process", "Worker", "Loss\n(g)", "Loss\n%"]
-                   + [f"Iss\n{l}" for _, l in ISSUE_COLS]
-                   + [f"Rcv\n{l}" for _, l in RECEIVE_COLS])
+        # The legacy order: Process, Worker, the issue (pink), the receipt
+        # (green), then Loss (g) and Loss % (23 Nov screenshot).
+        headers = (["Process", "Worker"] + [l for _, l in ISSUE_COLS]
+                   + [l for _, l in RECEIVE_COLS] + ["Loss (g)", "Loss %"])
         self.grid = _table(headers, ledger=True)
+        self.grid.horizontalHeader().setToolTip(legend_text)
         self.grid.verticalHeader().setDefaultSectionSize(24)     # tighter rows (T-10)
         # Every step and every stone line is in view at once: both grids are
         # as tall as their rows and the page itself scrolls (29 Sept - an
         # inner scroll area nobody noticed hid the stone lines).
         self.grid.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.frozen = _FrozenColumns(self.grid, 4)
+        self.frozen = _FrozenColumns(self.grid, 2)
         # Double-click a pink (issue) cell for the issue voucher, a green
         # (receive) cell for the receipt (28 Sept R6 / UX2).
         self.grid.cellDoubleClicked.connect(self._drill)
@@ -1648,25 +1728,42 @@ class JobHistoryWidget(_Screen):
         # Status summary with the Order Remark beside it (T-10).
         foot = QHBoxLayout()
         self.summary = QLabel("")
-        self.summary.setObjectName("Muted")
         self.summary.setWordWrap(True)
         foot.addWidget(self.summary, 1)
-        foot.addWidget(self.remark, 1)
+        foot.addWidget(self.remark, 2)
         self.outer.addLayout(foot)
+        # The legacy buttons along the foot.
+        from diagold.ui.flow import FlowLayout
+        bar = FlowLayout(spacing=6)
+        for label, slot in (
+                ("Print", self._print), ("Stone Dtls", lambda: self.stones.setFocus()),
+                ("WIP Costing", self._wip),
+                ("Job Bag", lambda: self.open_requested.emit("production_planning.job_card_bag")),
+                ("Add Comments", self._add_comment),
+                ("Stone Return", lambda: self.open_requested.emit(
+                    "production_planning.inv_return")),
+                ("Exit", self.close_requested.emit)):
+            b = QPushButton(label)
+            b.clicked.connect(slot)
+            bar.addWidget(b)
+        self._foot_bar = bar
         self.comments = QLabel("")
         self.comments.setObjectName("Muted")
         self.comments.setWordWrap(True)
         self.outer.addWidget(self.comments)
+        self.outer.addLayout(self._foot_bar)
         self.outer.addStretch(1)
         self.refresh()
 
     # Columns rarely filled, hidden while Compact is ticked (5 Nov T-10).
-    _RARE_ISSUE = {"vr_time", "extra", "finding", "mould", "wip_value"}
-    _RARE_RECEIVE = {"del_date", "vr_time", "rej_pcs", "rej_wt", "scrap", "dust"}
+    _RARE_ISSUE = {"vr_time", "extra", "finding", "mould", "wip_value", "del_date"}
+    _RARE_RECEIVE = {"vr_time", "rej_pcs", "rej_wt", "scrap", "dust"}
+    _BLANK_ZERO = {"stone_wt", "extra", "finding", "mould", "rej_pcs", "rej_wt", "scrap",
+                   "dust"}
 
     def _apply_compact(self) -> None:
         on = self.compact.isChecked()
-        base = 4
+        base = 2
         for n, (k, _l) in enumerate(ISSUE_COLS):
             self.grid.setColumnHidden(base + n, on and k in self._RARE_ISSUE)
         base += len(ISSUE_COLS)
@@ -1717,27 +1814,35 @@ class JobHistoryWidget(_Screen):
                         loss_item.setFont(f)
                     loss_item.setToolTip(tip)
                     pct_item.setToolTip(tip)
-                self.grid.setItem(r, 2, loss_item)
-                self.grid.setItem(r, 3, pct_item)
-                c = 4
+                last = 2 + len(ISSUE_COLS) + len(RECEIVE_COLS)
+                self.grid.setItem(r, last, loss_item)
+                self.grid.setItem(r, last + 1, pct_item)
+                c = 2
                 for key, _ in ISSUE_COLS:
                     # A further part receipt: the issue is on the row above.
                     v = getattr(row.issue, key, None) if row.issue and not row.cont else None
                     if key == "pcs" and v is not None and row.issue.share is not None:
                         v = Decimal(str(row.issue.share)).normalize()
+                    if key == "del_date" and row.issue and not row.cont and v is None:
+                        v = job.prod_del_date
+                    if key in self._BLANK_ZERO and v is not None and not Decimal(str(v)):
+                        v = None            # the legacy leaves an empty cell, not 0.000
                     self.grid.setItem(r, c, _item(v, TINT_ISSUE, right=key not in
-                                                  ("vr_date", "vr_time")))
+                                                  ("vr_date", "vr_time", "del_date"),
+                                                  bold=key == "pcs"))
                     c += 1
                 for key, _ in RECEIVE_COLS:
                     v = getattr(row.receive, key, None) if row.receive else None
                     if key == "pcs" and row.receive is not None and row.receive.share is not None:
                         v = Decimal(str(row.receive.share)).normalize()     # 0.5 back
+                    if key in self._BLANK_ZERO and v is not None and not Decimal(str(v)):
+                        v = None
                     if key == "labour":
                         v = f"{Decimal(str(v)):,.2f}" if v else ""
                     elif key == "allow_loss_pct" and v is not None:
                         v = f"{Decimal(str(v)):.2f}"
                     self.grid.setItem(r, c, _item(v, TINT_RECEIVE, right=key not in
-                                                  ("vr_date", "del_date", "vr_time")))
+                                                  ("vr_date", "vr_time"), bold=key == "pcs"))
                     c += 1
             _fit_columns(self.grid)
             self.frozen.sync()
@@ -1780,9 +1885,14 @@ class JobHistoryWidget(_Screen):
                  + (f" ({total_pct}% of the current net)" if total_pct is not None else "")
                  + f"</b> over {n_loss} step(s)    " if n_loss else "")
                 + (f"<b>Setting labour: {labour:,.2f}</b>    " if labour else "")
-                + f"PND: {sm['pnd'] or '—'}    WIP: {sm['wip']}    Rejection: {sm['rejection']}"
-                f"    PND For MFG Transfer: {sm['pnd_mfg_transfer']}    "
-                f"MFG Transfer: {sm['mfg_transfer']}    TOTAL PCS: {sm['total_pcs']}")
+                + "<table cellspacing=2>"
+                + "".join(f"<tr><td><b>{k}</b></td><td>&nbsp;:&nbsp;</td><td>{v}</td></tr>"
+                          for k, v in (("PND", sm["pnd"] or ""), ("WIP", sm["wip"] or ""),
+                                       ("Rejection", sm["rejection"] or ""),
+                                       ("PND For MFG Transfer", sm["pnd_mfg_transfer"] or ""),
+                                       ("MFG Transfer", sm["mfg_transfer"] or "")))
+                + "</table>"
+                + f"<b>TOTAL PCS : {sm['total_pcs']}</b>")
             # Order Remark carries the stone requirement as text in the legacy
             # ("daank/411/19.92, DIA./241/2.81"); show it and what it parses to.
             parsed = production.parse_order_remark(sm["order_remark"])
@@ -1818,7 +1928,7 @@ class JobHistoryWidget(_Screen):
         if not self.job_id or row >= len(getattr(self, "_row_vouchers", [])):
             return
         issue_id, receive_id = self._row_vouchers[row]
-        receive_side = col >= 4 + len(ISSUE_COLS)
+        receive_side = col >= 2 + len(ISSUE_COLS)
         vid = receive_id if receive_side and receive_id else issue_id
         if vid is None:
             _info(self, "Job History", "Nothing has been issued on this step yet.")
@@ -1829,7 +1939,7 @@ class JobHistoryWidget(_Screen):
     def _fit_height(table: QTableWidget, min_rows: int = 1) -> None:
         """Make a grid exactly as tall as its rows (and its sideways scroll bar)."""
         rows = max(table.rowCount(), min_rows)
-        h = table.horizontalHeader().sizeHint().height() + 2 * table.frameWidth() + 2
+        h = table.horizontalHeader().sizeHint().height() + 2 * table.frameWidth() + 8
         h += sum(table.rowHeight(r) for r in range(table.rowCount()))
         h += (rows - table.rowCount()) * table.verticalHeader().defaultSectionSize()
         if table.horizontalScrollBar().maximum() > 0 or table.columnCount() > 12:
