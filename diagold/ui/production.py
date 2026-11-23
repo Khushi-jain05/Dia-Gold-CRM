@@ -1736,7 +1736,9 @@ class JobHistoryWidget(_Screen):
         self.remark.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.remark.hide()
         self.outer.addWidget(self.grid)
-        self.outer.addWidget(self.stone_box)
+        # The stone list takes all the room left above the pinned foot (23 Nov:
+        # no empty band under it on a big screen).
+        self.outer.addWidget(self.stone_box, 1)
 
         # Status summary with the Order Remark beside it (T-10).
         foot = QHBoxLayout()
@@ -1780,7 +1782,6 @@ class JobHistoryWidget(_Screen):
         self.comments.setObjectName("Muted")
         self.comments.setWordWrap(True)
         self.outer.addWidget(self.comments)
-        self.outer.addStretch(1)
         self.refresh()
 
     # Columns rarely filled, hidden while Compact is ticked (5 Nov T-10).
@@ -1813,8 +1814,8 @@ class JobHistoryWidget(_Screen):
         """Process and Worker read in full ("HandMade", not "Hand...")."""
         for c in (0, 1):
             # Measured in the frozen view too - it draws these two columns.
-            need = self.grid.sizeHintForColumn(c)
-            self.grid.setColumnWidth(c, min(need + 8, 170))
+            need = max(self.grid.sizeHintForColumn(c), self.frozen.sizeHintForColumn(c))
+            self.grid.setColumnWidth(c, min(need + 12, 180))
 
     def refresh(self) -> None:
         self.grid.setRowCount(0)
@@ -1996,27 +1997,16 @@ class JobHistoryWidget(_Screen):
         self._apply_compact()
         self._fit_height(self.grid, 3)
         n = self.stones.rowCount()
-        self._fit_height(self.stones, 1)
+        # At least the header and two lines; it grows into the free space and
+        # scrolls inside only when the screen is short.
+        least = (self.stones.horizontalHeader().sizeHint().height()
+                 + 2 * self.stones.frameWidth()
+                 + 2 * self.stones.verticalHeader().defaultSectionSize() + 4)
+        self.stones.setMinimumHeight(least)
+        self.stones.setMaximumHeight(16777215)
         self.stone_box.setTitle(f"Stones on this job — {n} line{'s' if n != 1 else ''}"
                                 if n else "Stones on this job — none issued to it yet")
         self.frozen.sync()
-        self._fit_page()
-
-    def _fit_page(self) -> None:
-        """No page scroll (23 Nov): when the job is longer than the screen,
-        the stone list gives up rows (at least three stay) and scrolls in
-        its own box, so the remark and the buttons are always in view."""
-        area = getattr(self, "scroll_area", None)
-        if area is None or not self.isVisible():
-            return
-        body = area.widget()
-        body.layout().activate()
-        excess = body.minimumSizeHint().height() - area.viewport().height()
-        if excess <= 0:
-            return
-        least = (self.stones.horizontalHeader().height() + 2 * self.stones.frameWidth()
-                 + 2 * self.stones.verticalHeader().defaultSectionSize() + 4)
-        self.stones.setFixedHeight(max(self.stones.height() - excess, least))
 
     def _show_pending(self) -> None:
         dlg = PendingVoucherDialog(getattr(self.user, "id", None), self)
