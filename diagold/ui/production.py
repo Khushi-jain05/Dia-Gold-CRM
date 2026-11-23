@@ -190,6 +190,8 @@ class _FrozenColumns(QTableView):
         t = self.table
         if not shiboken6.isValid(t) or not shiboken6.isValid(self):
             return  # the model resets once more while the screen is torn down
+        if self.font() != t.font():
+            self.setFont(t.font())      # the grid's text steps down to fit; ours too
         for c in range(t.columnCount()):
             self.setColumnHidden(c, c >= self.n)
             if c < self.n:
@@ -470,7 +472,7 @@ class JobHeaderCard(QFrame):
         left.setVerticalSpacing(2)
         for r, key in enumerate(("job_no", "sku", "c_ref", "ord_ref")):
             left.addWidget(lab[key], r, 0)
-            left.addWidget(bold(val[key], 17 if key in ("job_no", "sku") else None), r, 1)
+            left.addWidget(bold(val[key], 13 if key in ("job_no", "sku") else None), r, 1)
         lay.addLayout(left)
 
         def boxed(*rows) -> QFrame:
@@ -479,24 +481,24 @@ class JobHeaderCard(QFrame):
             fr.setStyleSheet("QFrame#LegacyBox { border: 1px solid #C9CCD3; "
                              "border-radius: 4px; }")
             gl = QGridLayout(fr)
-            gl.setContentsMargins(8, 4, 8, 4)
-            gl.setVerticalSpacing(2)
+            gl.setContentsMargins(6, 2, 6, 2)
+            gl.setVerticalSpacing(0)
             for r, items in enumerate(rows):
                 for c, w in enumerate(items):
                     gl.addWidget(w, r, c)
             return fr
-        self.sku_big = bold(QLabel("—"), 17)
+        self.sku_big = bold(QLabel("—"), 13)
         mid = QVBoxLayout()
-        mid.setSpacing(4)
+        mid.setSpacing(2)
         mid.addWidget(boxed((self.sku_big,)))
         mid.addWidget(boxed((lab["client"], bold(val["client"])),
                             (lab["order"], bold(val["order"]))))
         lay.addLayout(mid, 2)
         self.metal_big = val["metal"]
-        bold(self.metal_big, 24)
+        bold(self.metal_big, 15)
         lab["pcs"].setText("PCS")
         lab["pcs"].setAlignment(Qt.AlignmentFlag.AlignCenter)
-        bold(val["pcs"], 34)
+        bold(val["pcs"], 18)
         val["pcs"].setAlignment(Qt.AlignmentFlag.AlignCenter)
         pcs = QVBoxLayout()
         pcs.setSpacing(0)
@@ -509,8 +511,8 @@ class JobHeaderCard(QFrame):
         rt.setObjectName("LegacyBox")
         rt.setStyleSheet("QFrame#LegacyBox { border: 1px solid #C9CCD3; border-radius: 4px; }")
         rl = QVBoxLayout(rt)
-        rl.setContentsMargins(10, 4, 10, 4)
-        rl.setSpacing(2)
+        rl.setContentsMargins(8, 2, 8, 2)
+        rl.setSpacing(0)
         rl.addLayout(top)
         bold(val["route"])
         rl.addWidget(val["route"])
@@ -521,10 +523,12 @@ class JobHeaderCard(QFrame):
         lay.addWidget(rt, 3)
         lab["metal"].hide()
         lab["route"].hide()
-        self._photo_size = 110
-        self.photo.setFixedSize(110, 110)
+        self._photo_size = 64
+        self.photo.setFixedSize(64, 64)
         lay.addWidget(self.photo)
-        lay.setContentsMargins(12, 8, 12, 8)
+        lay.setContentsMargins(10, 4, 10, 4)
+        lay.setSpacing(10)
+        left.setVerticalSpacing(0)
         self._legacy = True
 
     def _enlarge(self) -> None:
@@ -1709,9 +1713,10 @@ class JobHistoryWidget(_Screen):
 
         self.stone_box = QGroupBox("Stones on this job")
         sl = QVBoxLayout(self.stone_box)
-        sl.setContentsMargins(10, 8, 10, 8)
+        sl.setContentsMargins(6, 4, 6, 4)
         self.stones = _table(["Location", "SSKU", "Description", "Size", "LotNo", "Wt/Pcs",
                               "Pcs", "Weight", "Rtn", "Break", "Loss", "S Type", "Remark"])
+        self.stones.verticalHeader().setDefaultSectionSize(22)      # one page (23 Nov)
         self.stones.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         sl.addWidget(self.stones)
         # Order Remark carries what the client asked for (stones, notes), so it
@@ -1773,8 +1778,16 @@ class JobHistoryWidget(_Screen):
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
         super().resizeEvent(event)
         _fit_columns(self.grid)
+        self._names_whole()
         self.frozen.sync()
         self._fit_stones()
+
+    def _names_whole(self) -> None:
+        """Process and Worker read in full ("HandMade", not "Hand...")."""
+        for c in (0, 1):
+            # Measured in the frozen view too - it draws these two columns.
+            need = self.grid.sizeHintForColumn(c)
+            self.grid.setColumnWidth(c, min(need + 8, 170))
 
     def refresh(self) -> None:
         self.grid.setRowCount(0)
@@ -1845,6 +1858,7 @@ class JobHistoryWidget(_Screen):
                                                   ("vr_date", "vr_time"), bold=key == "pcs"))
                     c += 1
             _fit_columns(self.grid)
+            self._names_whole()
             self.frozen.sync()
             for b in production.bag_ledger(s, job):
                 r = self.stones.rowCount()
