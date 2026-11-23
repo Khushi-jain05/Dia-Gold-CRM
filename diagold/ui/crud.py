@@ -230,6 +230,9 @@ class CrudSpec:
     # (Quotation's Barcode / SKU box, 19 Nov) - (placeholder, fn(dialog, text)
     # -> rows, raising ValueError / ProductionError with the reason).
     quick_add: tuple[str, Callable[..., list[dict]]] | None = None
+    # Buttons over the line grid, as (label, fn(dialog, line editor)) - Stone
+    # Sale Return's Sold Stones (23 Nov).
+    form_buttons: list[tuple[str, Callable[..., None]]] = field(default_factory=list)
     # Lay the fields out in this many side-by-side columns (5 Nov T-11: the
     # Product SKU form took several scrolls in one long column). Sections
     # start a new group box: {"field name that starts it": "Title"}.
@@ -1054,6 +1057,14 @@ class FormDialog(QDialog):
                 self.quick_box.returnPressed.connect(
                     lambda ed=editor: self._quick_add(ed))
                 box_layout.addWidget(self.quick_box)
+            if spec.form_buttons and not getattr(self, "_form_bar", None):
+                self._form_bar = QHBoxLayout()
+                for label, fn in spec.form_buttons:
+                    b = QPushButton(label)
+                    b.clicked.connect(lambda _c=False, fn=fn, ed=editor: fn(self, ed))
+                    self._form_bar.addWidget(b)
+                self._form_bar.addStretch(1)
+                box_layout.addLayout(self._form_bar)
             if f.help_text:
                 hint = QLabel(f.help_text)
                 hint.setStyleSheet("color: gray; font-size: 11px;")

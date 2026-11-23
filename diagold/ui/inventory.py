@@ -81,8 +81,13 @@ def voucher_spec(vr_type: str) -> CrudSpec:
     def validate(values: dict, children: dict) -> str | None:
         from diagold.db.session import SessionLocal
         with SessionLocal() as s:
-            return INV.check_lines(s, vr_type, values.get("account_id"),
-                                   children.get("lines", []))
+            err = INV.check_lines(s, vr_type, values.get("account_id"),
+                                  children.get("lines", []))
+            if err is None and vr_type == "stone_sale_return":
+                err = INV.check_sold_back(s, values.get("account_id"),
+                                          children.get("lines", []),
+                                          values.get("vr_no") or None)
+            return err
 
     def warn(values: dict, children: dict, session) -> str | None:
         short = INV.shortfalls(session, vr_type, children.get("lines", []),
@@ -292,7 +297,122 @@ def voucher_spec(vr_type: str) -> CrudSpec:
         editable=True, before_save=prepare, after_save=saved, validate=validate,
         warn=warn, before_delete=before_delete, fixed={"vr_type": vr_type},
         form_width=1180, singular_title=vt.title,
+        form_buttons=([("Sold Stones", _sold_stones)] if vr_type == "stone_sale_return"
+                      else []),
     )
+
+
+def _sold_stones(dialog, editor) -> None:
+    """Sold Stones (23 Nov): as Ready Stock Sale Return's Sold Pieces - the
+    client first, then tick what comes back from the stones sold to him."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QLineEdit,
+                                   QMessageBox, QTableWidget, QTableWidgetItem, QVBoxLayout)
+
+    from diagold.db.session import SessionLocal
+    box = dialog.editors.get("account_id")
+    account_id = box.currentData() if box is not None else None
+    if not account_id:
+        QMessageBox.information(dialog, "Sold Stones", "Choose the account first.")
+        return
+    vr = dialog.editors.get("vr_no")
+    try:
+        vr_no = int(vr.text() if hasattr(vr, "text") else vr.value()) if vr is not None else None
+    except (TypeError, ValueError):
+        vr_no = None
+    with SessionLocal() as s:
+        # Stones already on this return count as taken back.
+        rows = INV.sold_stones(s, account_id, vr_no or None)
+    on_form: dict[tuple, list] = {}
+    for r in editor.rows():
+        k = (r.get("stone_sku_id"), (r.get("particulars") or "") if not r.get("stone_sku_id")
+             else "", r.get("size") or "")
+        a = on_form.setdefault(k, [0, _dec(0)])
+        a[0] += int(r.get("pcs") or 0)
+        a[1] += _dec(r.get("weight"))
+    for r in rows:
+        a = on_form.get(r["_key"])
+        if a:
+            tp, tw = min(a[0], r["pcs"]), min(a[1], r["weight"])
+            a[0] -= tp
+            a[1] -= tw
+            r["pcs"], r["weight"] = r["pcs"] - tp, r["weight"] - tw
+    rows = [r for r in rows if r["pcs"] > 0 or r["weight"] > 0]
+    cols = [("vr_no", "Sale Vr"), ("vr_date", "Date"), ("location", "Location"),
+            ("stone", "SSKU"), ("size", "Size"), ("lot_no", "Lot No"), ("s_type", "S Type"),
+            ("sold_pcs", "Sold Pcs"), ("sold_wt", "Sold Wt"), ("ret_pcs", "Rtn Pcs"),
+            ("ret_wt", "Rtn Wt"), ("pcs", "Bal Pcs"), ("weight", "Bal Wt"),
+            ("price", "Price"), ("unit", "Per")]
+    dlg = QDialog(dialog)
+    dlg.setWindowTitle("Sold Stones - stones sold to this account")
+    dlg.setMinimumSize(1000, 460)
+    lay = QVBoxLayout(dlg)
+    find = QLineEdit()
+    find.setPlaceholderText("Search stone, size, lot, Vr No…")
+    lay.addWidget(find)
+    grid = QTableWidget(len(rows), len(cols) + 1)
+    grid.setHorizontalHeaderLabels([""] + [h for _k, h in cols])
+    grid.verticalHeader().setVisible(False)
+    grid.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    for r, row in enumerate(rows):
+        tick = QTableWidgetItem("")
+        tick.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+        tick.setCheckState(Qt.CheckState.Unchecked)
+        grid.setItem(r, 0, tick)
+        for c, (k, _h) in enumerate(cols, start=1):
+            v = row.get(k)
+            text = v.strftime("%d-%m-%Y") if hasattr(v, "strftime") else (
+                f"{v:,.2f}" if k == "price" else "" if v is None else str(v))
+            it = QTableWidgetItem(text)
+            if k in ("sold_pcs", "sold_wt", "ret_pcs", "ret_wt", "pcs", "weight", "price"):
+                it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            grid.setItem(r, c, it)
+    grid.resizeColumnsToContents()
+    grid.cellDoubleClicked.connect(lambda r, _c: grid.item(r, 0).setCheckState(
+        Qt.CheckState.Unchecked if grid.item(r, 0).checkState() == Qt.CheckState.Checked
+        else Qt.CheckState.Checked))
+
+    def _filter(text: str) -> None:
+        t = text.strip().lower()
+        for r in range(grid.rowCount()):
+            hay = " ".join(grid.item(r, c).text() for c in range(1, grid.columnCount()))
+            grid.setRowHidden(r, bool(t) and t not in hay.lower())
+    find.textChanged.connect(_filter)
+    lay.addWidget(grid, 1)
+    note = QLabel(f"{len(rows)} line(s) still with the client - tick what comes back; "
+                  "the balance comes in, change the pcs / weight on the line if less."
+                  if rows else "Nothing sold to this account is still with him.")
+    note.setObjectName("Muted")
+    lay.addWidget(note)
+    bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                          | QDialogButtonBox.StandardButton.Cancel)
+    tick_all = bb.addButton("Tick All", QDialogButtonBox.ButtonRole.ActionRole)
+    tick_all.clicked.connect(lambda: [grid.item(r, 0).setCheckState(Qt.CheckState.Checked)
+                                      for r in range(grid.rowCount())
+                                      if not grid.isRowHidden(r)])
+    bb.accepted.connect(dlg.accept)
+    bb.rejected.connect(dlg.reject)
+    lay.addWidget(bb)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return
+    # Rows with nothing typed in them make way for the picked lines.
+    blank = [r for r in editor.rows() if not (r.get("stone_sku_id") or r.get("particulars")
+                                              or r.get("pcs") or _dec(r.get("weight")))]
+    if blank and len(blank) == len(editor.rows()):
+        editor.set_rows([])
+    for r, row in enumerate(rows):
+        if grid.item(r, 0).checkState() != Qt.CheckState.Checked:
+            continue
+        pcs, wt = row["pcs"], row["weight"]
+        editor.add_row({
+            "location_id": row["location_id"], "mt_type": "Actual",
+            "stone_sku_id": row["stone_sku_id"], "size": row["size"],
+            "particulars": row["particulars"], "pcs": pcs, "weight": wt,
+            "wt_per_pcs": (wt / pcs).quantize(_dec("0.0001")) if pcs else 0,
+            "price": row["price"], "unit": row["unit"],
+            "amount": INV.line_amount("stone", pcs, wt, row["price"], row["unit"]),
+            "s_type": row["s_type"], "lot_no": row["lot_no"],
+            "remark": f"Sale Vr {row['vr_no']}"})
 
 
 def _lot_line(session, lot: str) -> dict | None:

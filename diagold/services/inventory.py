@@ -617,6 +617,85 @@ def stone_outstanding(session: Session, account_id: int | None = None) -> list[d
     return rows
 
 
+def sold_stones(session: Session, account_id: int | None,
+                exclude_vr_no: int | None = None) -> list[dict[str, Any]]:
+    """Sold Stones on Stone Sale Return (23 Nov, as Ready Stock Sale Return's
+    Sold Pieces): per Stone Sale line to this client, what is still with him -
+    the sale less what came back on earlier returns (taken off the oldest
+    sale first, per stone / size). ``exclude_vr_no`` leaves out the return
+    being edited."""
+    if not account_id:
+        return []
+    q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
+         .where(InvVoucher.account_id == account_id,
+                InvVoucher.vr_type.in_(("stone_sale", "stone_sale_return")))
+         .order_by(InvVoucher.vr_date, InvVoucher.vr_no, InvVoucherLine.sno))
+    sales: list[dict[str, Any]] = []
+    back: dict[tuple, list[Any]] = {}
+    for line, v in session.execute(q):
+        key = (line.stone_sku_id, (line.particulars or "") if not line.stone_sku_id else "",
+               line.size or "")
+        if v.vr_type == "stone_sale_return":
+            if exclude_vr_no is not None and v.vr_no == exclude_vr_no:
+                continue
+            b = back.setdefault(key, [0, ZERO])
+            b[0] += int(line.pcs or 0)
+            b[1] += _dec(line.weight)
+            continue
+        loc = session.get(Location, line.location_id) if line.location_id else None
+        sku = session.get(StoneSku, line.stone_sku_id) if line.stone_sku_id else None
+        sales.append({"_key": key, "vr_no": v.vr_no, "vr_date": v.vr_date,
+                      "location_id": line.location_id, "location": loc.name if loc else "",
+                      "stone_sku_id": line.stone_sku_id,
+                      "stone": sku.sku_code if sku else (line.particulars or ""),
+                      "particulars": line.particulars or "", "size": line.size or "",
+                      "sold_pcs": int(line.pcs or 0), "sold_wt": _dec(line.weight),
+                      "price": _dec(line.price), "unit": line.unit or "Cts",
+                      "s_type": line.s_type or "", "lot_no": line.lot_no or ""})
+    rows = []
+    for r in sales:
+        b = back.setdefault(r["_key"], [0, ZERO])
+        take_p, take_w = min(b[0], r["sold_pcs"]), min(b[1], r["sold_wt"])
+        b[0] -= take_p
+        b[1] -= take_w
+        r["ret_pcs"], r["ret_wt"] = take_p, take_w.quantize(D3)
+        r["pcs"], r["weight"] = r["sold_pcs"] - take_p, (r["sold_wt"] - take_w).quantize(D3)
+        if r["pcs"] > 0 or r["weight"] > 0:
+            r["sold_wt"] = r["sold_wt"].quantize(D3)
+            rows.append(r)
+    return rows
+
+
+def check_sold_back(session: Session, account_id: int | None, rows: list[dict[str, Any]],
+                    exclude_vr_no: int | None = None) -> str | None:
+    """A Stone Sale Return takes back only what was sold to this client and
+    not yet returned (as a Ready Stock Sale Return takes only pieces sold to
+    that account)."""
+    have: dict[tuple, list[Any]] = {}
+    for r in sold_stones(session, account_id, exclude_vr_no):
+        h = have.setdefault(r["_key"], [0, ZERO])
+        h[0] += r["pcs"]
+        h[1] += r["weight"]
+    want: dict[tuple, list[Any]] = {}
+    for r in rows:
+        if not (_dec(r.get("weight")) or int(r.get("pcs") or 0)):
+            continue
+        sku_id = r.get("stone_sku_id")
+        key = (sku_id, (r.get("particulars") or "") if not sku_id else "", r.get("size") or "")
+        w = want.setdefault(key, [0, ZERO])
+        w[0] += int(r.get("pcs") or 0)
+        w[1] += _dec(r.get("weight"))
+    for key, (pcs, wt) in want.items():
+        h = have.get(key, [0, ZERO])
+        if pcs > h[0] or wt > h[1]:
+            sku = session.get(StoneSku, key[0]) if key[0] else None
+            name = (sku.sku_code if sku else key[1]) + (f" {key[2]}" if key[2] else "")
+            return (f"{name}: only {h[0]} pcs / {h[1]:.3f} ct sold to this client is still "
+                    f"with him - a return cannot take back {pcs} pcs / {wt:.3f} ct. "
+                    "Sold Stones lists what can come back.")
+    return None
+
+
 def day_book(session: Session, date_from: date, date_to: date,
              material: str | None = None) -> list[dict[str, Any]]:
     """Every Inventory voucher line in the period."""
