@@ -2141,17 +2141,23 @@ def build_specs() -> dict[str, ReportSpec]:
                  "closings in red."),
         "location_stone_balance": ReportSpec(
             key="location_stone_balance", title="Location Wise Stone Balance",
-            columns=static([Col("section", ""), Col("line", "PARTICULARS")] + [
-                c for g, h in (("dia", "DIA"), ("cs", "CS"), ("pol", "POL"), ("oth", "OTHER"))
-                for c in (Col(f"{g}_wt", "CT", "measure", 3, h),
-                          Col(f"{g}_pcs", "PCS", "measure", 0, h))]),
-            query=lambda s, a, b, location=None, **_k: SR.location_stone_balance(s, location, a, b),
-            pickers=[("location", "Location", _locations)], negative_key="_negative",
-            note="One location's stones for the period, in carats and pieces per group. Closing "
-                 "= Opening + Inward - Outward (loose stones at the location). Balance Details "
-                 "add what was issued from here and is still in work: Job Card (in the job's "
-                 "bag) and WIP (with karigars / in pieces being made). Negative closings in "
-                 "red."),
+            columns=static([Col("location", "LOCATION"), Col("type", "TYPE"),
+                            Col("ssku", "SSKU"), Col("size", "SIZE")] + [
+                Col(f"{k}_{m}", lab, "measure", dec, group=g, total=True)
+                for k, g in (("op", "OPENING"), ("in", "INWARD"), ("out", "OUTWARD"),
+                             ("cl", "CLOSING"))
+                for m, lab, dec in (("pcs", "PCS", 0), ("wt", "WEIGHT", 3))]
+                + [Col("group", "GROUP")]),
+            query=lambda s, a, b, location=None, **_k: __import__(
+                "diagold.services.mis", fromlist=["stone_analysis"]).stone_analysis(
+                s, a, b, location=location),
+            pickers=[("location", "Location", _locations)], filter_column="location",
+            date_default="fy",
+            note="The Stone Analysis format (23 Nov): LOCATION, TYPE, SSKU, SIZE - OPENING, "
+                 "INWARD (return from job, purchase, transfer in, party receipt), OUTWARD "
+                 "(issue to job bag, issue outside, transfer out), CLOSING = OPENING + "
+                 "INWARD - OUTWARD, and GROUP. Pick a location for that one only; one Total "
+                 "at the foot, no group totals."),
         "metal_summary": ReportSpec(
             key="metal_summary", title="Metal Summary",
             columns=static([Col("location", "LOCATION"), Col("group", "GROUP"),

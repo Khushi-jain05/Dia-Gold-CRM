@@ -1023,14 +1023,17 @@ def stone_ledger_lines(session: Session, date_from: date, date_to: date, locatio
 
 
 def stone_analysis(session: Session, date_from: date, date_to: date,
-                   **_k: Any) -> list[dict[str, Any]]:
+                   location: Any = None, **_k: Any) -> list[dict[str, Any]]:
     """Stone Analysis (23 Nov video, Inventory > Stone > Reports): every
     stone by LOCATION, TYPE, SSKU and SIZE - OPENING, INWARD, OUTWARD and
     CLOSING in pcs and weight, then its GROUP. No group totals, only the
     grand Total; a figure of nought is left blank, as the legacy shows. The
-    same movements as the Stone Ledger, so the two agree."""
+    same movements as the Stone Ledger, so the two agree. ``location``: one
+    location only (Location Wise Stone Balance, same format - 23 Nov)."""
     acc: dict[tuple, list] = defaultdict(lambda: [0, ZERO, 0, ZERO, 0, ZERO])
     for c, m, loc, typ, grp in _ledger_moves(session, date_to):
+        if location and m.location_id != int(location):
+            continue
         _opio(acc[(loc, _ssku_name(c, m), (m.size or "").strip() or "-", typ, grp)], m,
               date_from)
     rows = []
