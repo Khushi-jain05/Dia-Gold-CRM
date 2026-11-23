@@ -1936,6 +1936,10 @@ class JobHistoryWidget(_Screen):
                     self.stones.setItem(r, c, _item(v, right=c in (5, 6, 7)))
             self.stones.resizeColumnsToContents()
             self._fit_stones()
+            # Once more when the new rows are laid out (a new issue adds a
+            # row): the steps grid shows them all, the stones give way.
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._refit)
             sm = production.job_summary(s, job)
             total_loss, total_pct, n_loss = production.job_loss_total(s, job)
             labour = sum((Decimal(str(v.labour or 0)) for v in s.scalars(
@@ -2003,13 +2007,22 @@ class JobHistoryWidget(_Screen):
     def _fit_height(table: QTableWidget, min_rows: int = 1) -> None:
         """Make a grid exactly as tall as its rows (and its sideways scroll bar)."""
         rows = max(table.rowCount(), min_rows)
-        h = table.horizontalHeader().sizeHint().height() + 2 * table.frameWidth() + 8
+        hh = table.horizontalHeader()
+        # The header as laid out (two wrapped lines), not its one-line hint -
+        # else the last step row hid behind the edge and the grid scrolled.
+        h = max(hh.height(), hh.sizeHint().height()) + 2 * table.frameWidth() + 8
         h += sum(table.rowHeight(r) for r in range(table.rowCount()))
         h += (rows - table.rowCount()) * table.verticalHeader().defaultSectionSize()
         if table.horizontalScrollBar().maximum() > 0 or (
                 table.columnCount() > 12 and not table.property("_fits_width")):
             h += table.horizontalScrollBar().sizeHint().height()
         table.setFixedHeight(h)
+
+    def _refit(self) -> None:
+        if shiboken6.isValid(self):
+            _fit_columns(self.grid)
+            self._names_whole()
+            self._fit_stones()
 
     def _fit_stones(self) -> None:
         """Steps and stones show every row; the page scrolls if they are long."""
@@ -2020,7 +2033,7 @@ class JobHistoryWidget(_Screen):
         # scrolls inside only when the screen is short.
         least = (self.stones.horizontalHeader().sizeHint().height()
                  + 2 * self.stones.frameWidth()
-                 + 2 * self.stones.verticalHeader().defaultSectionSize() + 4)
+                 + 1 * self.stones.verticalHeader().defaultSectionSize() + 4)
         self.stones.setMinimumHeight(least)
         self.stones.setMaximumHeight(16777215)
         self.stone_box.setTitle(f"Stones on this job — {n} line{'s' if n != 1 else ''}"
