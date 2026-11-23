@@ -1313,11 +1313,11 @@ class ReadyVoucherWidget(_Screen):
             return
         ln = self.lines[r]
         dlg = StoneBreakupDialog(ln.get("stones") or [], self,
-                                 full=self.vr_type in S.NEW_PIECES and self._edit_id is None)
+                                 full=self.vr_type in S.NEW_PIECES and not ln.get("_line_id"))
         if dlg.exec() == QDialog.DialogCode.Accepted:
             ln["stones"] = dlg.stones()
             ln["st_wt"] = sum((D(s["weight"]) for s in ln["stones"]), D(0))
-            if self.vr_type in S.NEW_PIECES and self._edit_id is None:
+            if self.vr_type in S.NEW_PIECES and not ln.get("_line_id"):
                 ln["net_wt"] = S.net_from_gross(ln.get("gross_wt"), ln["stones"])
                 self._refine(ln)
             self._recalc_line(ln)
@@ -1325,11 +1325,9 @@ class ReadyVoucherWidget(_Screen):
 
     # -- Add / Edit / Save / Delete ----------------------------------------
     def _editing_blocked(self) -> bool:
-        if self._edit_id is None:
-            return False
-        _info(self, "Edit", "A saved voucher is open - its rates, amounts and header can "
-              "change. To change which pieces are on it, Delete it and make it again (Add).")
-        return True
+        """Nothing is blocked on a voucher open for editing any more (23 Nov):
+        pieces may be added and removed and Save keeps the same Vr No."""
+        return False
 
     def new_voucher(self) -> None:
         self._edit_id = None
@@ -1415,7 +1413,7 @@ class ReadyVoucherWidget(_Screen):
         self._edit_id = self._last_id = vid
         self.account.setEnabled(False)
         self.refresh()
-        self.totals.setText(self.totals.text() + "   <b>Editing</b> - change the green cells "
+        self.totals.setText(self.totals.text() + "   <b>Editing</b> - add or remove pieces, change the green cells "
                             "or the header and Save.")
 
     def _head(self) -> dict[str, Any]:
@@ -1450,9 +1448,8 @@ class ReadyVoucherWidget(_Screen):
         with SessionLocal() as s:
             try:
                 if self._edit_id is not None:
-                    v = S.update_ready(s, s.get(ReadyVoucher, self._edit_id), self._head(),
-                                       {l["_line_id"]: l for l in self.lines if l.get("_line_id")},
-                                       user_id=getattr(self.user, "id", None))
+                    v = S.edit_ready(s, s.get(ReadyVoucher, self._edit_id), self._head(),
+                                     self.lines, user_id=getattr(self.user, "id", None))
                 else:
                     v = S.post_ready(s, self.vr_type, self._head(), self.lines,
                                      user_id=getattr(self.user, "id", None))

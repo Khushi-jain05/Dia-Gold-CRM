@@ -516,6 +516,75 @@ def _accounts(session: Session, v: ReadyVoucher) -> None:
                           on=v.vr_date)
 
 
+def _add_line(session: Session, v: ReadyVoucher, ln: dict[str, Any], sno: int,
+              seen: set[int]) -> ReadyVoucherLine:
+    """One line onto a voucher: a new piece made (purchase / opening) or a
+    piece moved (sale, approval, return ...). Shared by post_ready and the
+    same-voucher edit (23 Nov)."""
+    vr_type, t = v.vr_type, READY_TYPES[v.vr_type]
+    row = ReadyVoucherLine(voucher_id=v.id, sno=sno,
+                           stones_json=json.dumps(ln.get("stones") or [], default=str),
+                           **{k: ln[k] for k in _LINE_FIELDS if k in ln
+                              and ln[k] is not None})
+    if vr_type in NEW_PIECES:
+        if not ln.get("product_sku_id") and not ln.get("c_ref"):
+            raise ProductionError(f"Line {sno}: choose the SKU.")
+        if _dec(ln.get("gross_wt")) <= 0:
+            raise ProductionError(f"Line {sno}: enter the gross weight.")
+        # Priced at its Total Value (Total Amount + Margin, 19 Nov); the tag
+        # as typed (630) or from that value.
+        sell = (_dec(ln.get("total_value")) if _dec(ln.get("margin_pct"))
+                else _dec(ln.get("price") or ln.get("total")))
+        if sell <= 0:
+            from diagold.services import settings
+            if settings.opt("stock.refuse_tag_zero", session) == "1":
+                raise ProductionError(f"Line {sno}: the piece has no price, so its TAG "
+                                      "would be 0 - enter the price (Tools ▸ Option ▸ "
+                                      "Inventory).")
+        session.add(row)
+        session.flush()
+        item = StockItem(
+            stock_no=next_number(session, StockItem.stock_no), job_id=None, line_id=None,
+            product_sku_id=ln.get("product_sku_id"), location_id=ln.get("location_id"),
+            pcs=int(ln.get("pcs") or 1), gross_wt=_dec(ln.get("gross_wt")),
+            net_wt=_dec(ln.get("net_wt")), cost=_dec(ln.get("total")),
+            price=sell, tag_price=sell,
+            tag_text=(f"{_dec(ln.get('tag_price')).normalize():f}"
+                      if _dec(ln.get("tag_price")) else mfg_pricing.tag_display(sell)),
+            cert_no=(ln.get("cert_no") or "")[:40], huid=(ln.get("huid") or "")[:16],
+            source="purchase" if vr_type == "rp_purchase" else "opening",
+            in_line_id=row.id, metal_id=ln.get("metal_id"), colour=ln.get("colour") or "",
+            size=ln.get("size") or "", c_ref=ln.get("c_ref") or "")
+        session.add(item)
+        session.flush()
+        row.stock_item_id = item.id
+    else:
+        item = session.get(StockItem, ln.get("stock_item_id"))
+        if item is None:
+            raise ProductionError(f"Line {sno}: that piece no longer exists.")
+        if item.id in seen:
+            raise ProductionError(f"Stock No {item.stock_no} is on this voucher twice.")
+        seen.add(item.id)
+        check_piece(session, vr_type, item, v.account_id)
+        row.stock_item_id = item.id
+        if vr_type == "rs_sale_return" and not row.order_line_id:
+            # Back against the order it was sold on, so that order's
+            # Shipped / Bal opens up again.
+            sold = session.scalars(select(ReadyVoucherLine).join(ReadyVoucher).where(
+                ReadyVoucherLine.stock_item_id == item.id,
+                ReadyVoucher.vr_type == "rs_sale").order_by(ReadyVoucherLine.id.desc())).first()
+            row.order_line_id = sold.order_line_id if sold else None
+        if vr_type == "rs_sale" and item.status == "on_approval":
+            # Read Barcode From Approval: the approval line it closes.
+            row.source_line_id = row.source_line_id or _open_line(
+                session, item, "rs_approval")
+        item.status = t.leaves
+        item.holder_account_id = v.account_id if t.leaves in ("on_approval",
+                                                                "in_repair") else None
+        session.add(row)
+    return row
+
+
 def post_ready(session: Session, vr_type: str, head: dict[str, Any],
                lines: list[dict[str, Any]], *, user_id: int | None = None) -> ReadyVoucher:
     """Save a ready-stock voucher. For a sale / approval / return / repair
@@ -542,66 +611,7 @@ def post_ready(session: Session, vr_type: str, head: dict[str, Any],
     seen: set[int] = set()
     total = ZERO
     for sno, ln in enumerate(lines, start=1):
-        row = ReadyVoucherLine(voucher_id=v.id, sno=sno,
-                               stones_json=json.dumps(ln.get("stones") or [], default=str),
-                               **{k: ln[k] for k in _LINE_FIELDS if k in ln
-                                  and ln[k] is not None})
-        if vr_type in NEW_PIECES:
-            if not ln.get("product_sku_id") and not ln.get("c_ref"):
-                raise ProductionError(f"Line {sno}: choose the SKU.")
-            if _dec(ln.get("gross_wt")) <= 0:
-                raise ProductionError(f"Line {sno}: enter the gross weight.")
-            # Priced at its Total Value (Total Amount + Margin, 19 Nov); the tag
-            # as typed (630) or from that value.
-            sell = (_dec(ln.get("total_value")) if _dec(ln.get("margin_pct"))
-                    else _dec(ln.get("price") or ln.get("total")))
-            if sell <= 0:
-                from diagold.services import settings
-                if settings.opt("stock.refuse_tag_zero", session) == "1":
-                    raise ProductionError(f"Line {sno}: the piece has no price, so its TAG "
-                                          "would be 0 - enter the price (Tools ▸ Option ▸ "
-                                          "Inventory).")
-            session.add(row)
-            session.flush()
-            item = StockItem(
-                stock_no=next_number(session, StockItem.stock_no), job_id=None, line_id=None,
-                product_sku_id=ln.get("product_sku_id"), location_id=ln.get("location_id"),
-                pcs=int(ln.get("pcs") or 1), gross_wt=_dec(ln.get("gross_wt")),
-                net_wt=_dec(ln.get("net_wt")), cost=_dec(ln.get("total")),
-                price=sell, tag_price=sell,
-                tag_text=(f"{_dec(ln.get('tag_price')).normalize():f}"
-                          if _dec(ln.get("tag_price")) else mfg_pricing.tag_display(sell)),
-                cert_no=(ln.get("cert_no") or "")[:40], huid=(ln.get("huid") or "")[:16],
-                source="purchase" if vr_type == "rp_purchase" else "opening",
-                in_line_id=row.id, metal_id=ln.get("metal_id"), colour=ln.get("colour") or "",
-                size=ln.get("size") or "", c_ref=ln.get("c_ref") or "")
-            session.add(item)
-            session.flush()
-            row.stock_item_id = item.id
-        else:
-            item = session.get(StockItem, ln.get("stock_item_id"))
-            if item is None:
-                raise ProductionError(f"Line {sno}: that piece no longer exists.")
-            if item.id in seen:
-                raise ProductionError(f"Stock No {item.stock_no} is on this voucher twice.")
-            seen.add(item.id)
-            check_piece(session, vr_type, item, v.account_id)
-            row.stock_item_id = item.id
-            if vr_type == "rs_sale_return" and not row.order_line_id:
-                # Back against the order it was sold on, so that order's
-                # Shipped / Bal opens up again.
-                sold = session.scalars(select(ReadyVoucherLine).join(ReadyVoucher).where(
-                    ReadyVoucherLine.stock_item_id == item.id,
-                    ReadyVoucher.vr_type == "rs_sale").order_by(ReadyVoucherLine.id.desc())).first()
-                row.order_line_id = sold.order_line_id if sold else None
-            if vr_type == "rs_sale" and item.status == "on_approval":
-                # Read Barcode From Approval: the approval line it closes.
-                row.source_line_id = row.source_line_id or _open_line(
-                    session, item, "rs_approval")
-            item.status = t.leaves
-            item.holder_account_id = v.account_id if t.leaves in ("on_approval",
-                                                                    "in_repair") else None
-            session.add(row)
+        _add_line(session, v, ln, sno, seen)
         # A purchase is booked at the Total Value (Total Amount + Margin), as
         # the legacy Account Information shows: Dr Purchase A/c 6,30,386.45
         # for Total Amount 4,20,257.63 + 50 % (19 Nov video).
@@ -680,6 +690,59 @@ def delete_ready(session: Session, v: ReadyVoucher, *, user_id: int | None = Non
                             before_json=json.dumps(image, default=str)))
     session.delete(v)
     session.flush()
+
+
+def _undo_line(session: Session, v: ReadyVoucher, line: ReadyVoucherLine) -> None:
+    """Take one line off a saved voucher: the piece goes back to where it was
+    (a new piece of a purchase / opening is removed). Refused when the piece
+    has moved on since."""
+    t = READY_TYPES[v.vr_type]
+    item = session.get(StockItem, line.stock_item_id) if line.stock_item_id else None
+    if item is not None:
+        if item.status != t.leaves or (t.leaves in ("on_approval", "in_repair")
+                                       and item.holder_account_id != v.account_id):
+            raise ProductionError(
+                f"Stock No {item.stock_no} has moved on since {t.title} Vr {v.vr_no} "
+                f"(now {STATE_LABEL.get(item.status, item.status)}) - undo that first.")
+        later = session.scalar(select(ReadyVoucherLine.id).join(ReadyVoucher).where(
+            ReadyVoucherLine.stock_item_id == item.id, ReadyVoucherLine.id > line.id))
+        if later:
+            raise ProductionError(f"Stock No {item.stock_no} is on a later voucher - "
+                                  "delete that first.")
+        if v.vr_type in NEW_PIECES:
+            line.stock_item_id = None
+            session.flush()
+            session.delete(item)
+        else:
+            item.status, item.holder_account_id = _state_before(session, v, line)
+    session.delete(line)
+    session.flush()
+
+
+def edit_ready(session: Session, v: ReadyVoucher, head: dict[str, Any],
+               lines: list[dict[str, Any]], *, user_id: int | None = None) -> ReadyVoucher:
+    """Edit a saved voucher in place, pieces too (23 Nov: 'pehle Vr delete
+    karke entry kijiye' - not any more): lines taken off go back, lines
+    added are put on, the rest keep their values as changed - same Vr No;
+    the old voucher is kept in the deletion log and the accounting is
+    posted again."""
+    if not lines:
+        raise ProductionError("Add at least one piece.")
+    keep = {l["_line_id"]: l for l in lines if l.get("_line_id")}
+    for line in list(v.lines):
+        if line.id not in keep:
+            _undo_line(session, v, line)
+    session.refresh(v)
+    seen = {l.stock_item_id for l in v.lines if l.stock_item_id}
+    sno = max((l.sno for l in v.lines), default=0)
+    for ln in lines:
+        if ln.get("_line_id"):
+            continue
+        sno += 1
+        _add_line(session, v, ln, sno, seen)
+    session.flush()
+    session.refresh(v)
+    return update_ready(session, v, head, keep, user_id=user_id)
 
 
 def update_ready(session: Session, v: ReadyVoucher, head: dict[str, Any],
