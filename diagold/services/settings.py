@@ -92,9 +92,10 @@ FLAGS: dict[str, tuple[str, bool]] = {
     # Negative stock (28 Sept Q6) is a three-way choice, kept as the setting
     # "inventory.negative_stock" = block / warn / allow (default warn).
     # Legacy asks "Save? Yes / No" before every save; staff expect it.
-    # 5 Oct T-05 - legacy Option "Client wise price chart applicable" (False).
+    # 5 Oct T-05 - legacy Option "Client wise price chart applicable"; on by
+    # default since 23 Nov (a client on a chart is priced from it at once).
     "sale.client_chart": ("Client wise price chart applicable - a sale ticks \"Prices From "
-                          "Client Chart\" when the client is on a chart", False),
+                          "Client Chart\" when the client is on a chart", True),
     "ui.confirm_save": ("Ask \"Save? Yes / No\" before every save", True),
     "loss.charge_all": ("Worker ledger: karigar is charged for ALL loss, not only the excess "
                         "over the allowed % (to confirm - 28 Sept Q3)", False),
@@ -152,7 +153,7 @@ SETTINGS_TREE: tuple[Setting, ...] = (
     Setting("Order & Quotation", "opt.show_price_in_print", "Show/Hide Price in PrintOut",
             "bool", "1", "Price on the order confirmation print"),
     Setting("Order & Quotation", "flag.sale.client_chart", "Client wise price chart applicable",
-            "bool", "0", "Use the client's price chart (sale / approval tick Prices From "
+            "bool", "1", "Use the client's price chart (sale / approval tick Prices From "
                          "Client Chart for a client on a chart)"),
     Setting("Production Planning", "flag.pp.return_other_classes",
             "Return to Inventory: Metal / Mould / Finding classes", "bool", "0",

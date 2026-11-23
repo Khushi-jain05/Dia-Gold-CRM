@@ -602,7 +602,11 @@ def post_ready(session: Session, vr_type: str, head: dict[str, Any],
             item.holder_account_id = v.account_id if t.leaves in ("on_approval",
                                                                     "in_repair") else None
             session.add(row)
-        total += _dec(ln.get("total"))
+        # A purchase is booked at the Total Value (Total Amount + Margin), as
+        # the legacy Account Information shows: Dr Purchase A/c 6,30,386.45
+        # for Total Amount 4,20,257.63 + 50 % (19 Nov video).
+        total += _dec((ln.get("total_value") if vr_type in NEW_PIECES else None)
+                      or ln.get("total"))
     v.total = _money(total)
     session.flush()
     _accounts(session, v)
@@ -711,7 +715,7 @@ def update_ready(session: Session, v: ReadyVoucher, head: dict[str, Any],
                     item.tag_text = f"{_dec(line.tag_price).normalize():f}"
         if "stones" in ch:
             line.stones_json = json.dumps(ch["stones"], default=str)
-        total += _dec(line.total)
+        total += _dec((line.total_value if v.vr_type in NEW_PIECES else None) or line.total)
     v.total = _money(total)
     INV.remove_entries(session, v.vr_type, v.vr_no)
     _accounts(session, v)

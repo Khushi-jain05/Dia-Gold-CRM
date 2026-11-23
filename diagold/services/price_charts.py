@@ -59,12 +59,33 @@ def _match(rule_value: str, actual: Any) -> bool:
 
 def applicable(session: Session) -> bool:
     from diagold.services import settings
-    return settings.flag(APPLICABLE_FLAG, False, session=session)
+    # On unless switched off (23 Nov: a client on a chart is priced from it
+    # without hunting for the tick).
+    return settings.flag(APPLICABLE_FLAG, True, session=session)
 
 
 def chart_for(session: Session, account_id: int | None) -> PriceChart | None:
+    """The client's chart: the one on the Account master, else a chart named
+    after the client (the client's own price sheet, "MANNU BHAI")."""
     a = session.get(Account, account_id) if account_id else None
-    return session.get(PriceChart, a.price_chart_id) if a and a.price_chart_id else None
+    if a is None:
+        return None
+    if a.price_chart_id:
+        return session.get(PriceChart, a.price_chart_id)
+    name = (a.name or "").strip()
+    return session.scalar(select(PriceChart).where(PriceChart.name == name)) if name else None
+
+
+def put_on_chart(session: Session, account_id: int, chart_id: int) -> PriceChart:
+    """Put a client on a chart (saved on the Account master) - from the sale
+    when Prices From Client Chart is ticked for a client on none."""
+    a = session.get(Account, account_id)
+    chart = session.get(PriceChart, chart_id)
+    if a is None or chart is None:
+        raise PriceChartError("Choose the client and the chart.")
+    a.price_chart_id = chart.id
+    session.flush()
+    return chart
 
 
 # --------------------------------------------------------------------------

@@ -969,14 +969,20 @@ class ReadyVoucherWidget(_Screen):
     def _reprice_chart(self) -> None:
         """Re-price the pieces on the voucher: chart prices when ticked, the
         standard prices when not. The metal rate typed stays."""
-        if self._edit_id is not None or not self.lines or self.vr_type in S.RETURN_OF:
+        if self._edit_id is not None or self.vr_type in S.RETURN_OF:
             return                  # a return keeps the values it went out at (17 Nov T-05)
+        if self.chart_cb.isChecked() and self._account_id():
+            with SessionLocal() as s:
+                missing = self._chart(s) is None
+            if missing and not self._choose_chart():
+                self.chart_cb.blockSignals(True)
+                self.chart_cb.setChecked(False)
+                self.chart_cb.blockSignals(False)
+                return
+        if not self.lines:
+            return
         with SessionLocal() as s:
             chart = self._chart(s)
-            if chart is None and self.chart_cb.isChecked():
-                _info(self, "Prices From Client Chart",
-                      "This client is not on a price chart (Account master ▸ Price Chart) - "
-                      "standard prices stay.")
             for i, ln in enumerate(self.lines):
                 item = s.get(StockItem, ln.get("stock_item_id")) if ln.get("stock_item_id") \
                     else None
@@ -988,6 +994,33 @@ class ReadyVoucherWidget(_Screen):
                 v = S.value(info, _pydate(self.date), s, metal_rate=ln.get("metal_rate"))
                 self.lines[i] = {**ln, **info, **v}
         self._render()
+
+    def _choose_chart(self) -> bool:
+        """Prices From Client Chart ticked for a client on no chart (23 Nov:
+        the sale 'did not take the chart price'): pick the chart here - it is
+        saved on the client's Account master - instead of a dead end."""
+        from PySide6.QtWidgets import QInputDialog
+        from diagold.db.models import PriceChart
+        with SessionLocal() as s:
+            charts = [(c.name, c.id) for c in s.scalars(select(PriceChart)
+                                                         .order_by(PriceChart.name))]
+        who = self.account.currentText()
+        if not charts:
+            _info(self, "Prices From Client Chart",
+                  "No price chart is set up yet (Tools ▸ Client Wise Price Chart).")
+            return False
+        name, ok = QInputDialog.getItem(
+            self, "Prices From Client Chart",
+            f"{who} is not on a price chart yet.\nPut them on this chart (saved on the "
+            "Account master) and price from it:", [n for n, _i in charts], 0, False)
+        if not ok or not name:
+            return False
+        with SessionLocal() as s:
+            chart = PC.put_on_chart(s, self._account_id(), dict(charts)[name])
+            s.commit()
+            self.chart_cb.setText(f"Prices From Client Chart ({chart.name})")
+        self._chart_for = self._account_id()
+        return True
 
     def reprice(self) -> None:
         """Every piece on the voucher at the date's Daily Metal Rate, its labour
@@ -1130,7 +1163,9 @@ class ReadyVoucherWidget(_Screen):
                     flags |= Qt.ItemFlag.ItemIsEditable
                 it.setFlags(flags)
                 self.grid.setItem(r, c, it)
-            total += D(str(ln.get("total") or 0))
+            # A purchase is booked at its Total Value (Total Amount + Margin).
+            total += D(str((ln.get("total_value") if self.vr_type in S.NEW_PIECES else None)
+                           or ln.get("total") or 0))
         self.grid.blockSignals(False)
         n = len(self.lines)
         pcs = sum(int(l.get("pcs") or 0) for l in self.lines)
