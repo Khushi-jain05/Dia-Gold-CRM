@@ -1679,6 +1679,11 @@ class JobHistoryWidget(_Screen):
         self.compact.toggled.connect(lambda _on: self._apply_compact())
         self.toolbar.addWidget(self.compact)
         self.header.set_legacy()
+        self.outer.setSpacing(4)
+        self.outer.setContentsMargins(24, 2, 24, 4)
+        # The tab already says Job History; its line goes to the job (23 Nov).
+        for h1 in self.findChildren(QLabel, "H1"):
+            h1.hide()
 
         legend = QLabel("A step can be split across karigars: + Issue with a Split share "
                         "(0.4 pc, then 0.1 pc); each receives his own share back. "
@@ -1700,7 +1705,7 @@ class JobHistoryWidget(_Screen):
                    + [l for _, l in RECEIVE_COLS] + ["Loss (g)", "Loss %"])
         self.grid = _table(headers, ledger=True)
         self.grid.horizontalHeader().setToolTip(legend_text)
-        self.grid.verticalHeader().setDefaultSectionSize(24)     # tighter rows (T-10)
+        self.grid.verticalHeader().setDefaultSectionSize(20)     # tighter rows (T-10, 23 Nov)
         # Every step and every stone line is in view at once: both grids are
         # as tall as their rows and the page itself scrolls (29 Sept - an
         # inner scroll area nobody noticed hid the stone lines).
@@ -1713,11 +1718,14 @@ class JobHistoryWidget(_Screen):
 
         self.stone_box = QGroupBox("Stones on this job")
         sl = QVBoxLayout(self.stone_box)
-        sl.setContentsMargins(6, 4, 6, 4)
+        sl.setContentsMargins(4, 2, 4, 2)
         self.stones = _table(["Location", "SSKU", "Description", "Size", "LotNo", "Wt/Pcs",
                               "Pcs", "Weight", "Rtn", "Break", "Loss", "S Type", "Remark"])
-        self.stones.verticalHeader().setDefaultSectionSize(22)      # one page (23 Nov)
-        self.stones.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.stones.verticalHeader().setDefaultSectionSize(20)      # one page (23 Nov)
+        self.stones.setProperty("_fits_width", True)       # 13 short columns, no side scroll
+        # Only when the stones do not fit what is left of the screen do they
+        # scroll inside their box - the buttons stay in view (23 Nov).
+        self.stones.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         sl.addWidget(self.stones)
         # Order Remark carries what the client asked for (stones, notes), so it
         # sits right under the job card as a highlighted note, not in the
@@ -1735,8 +1743,22 @@ class JobHistoryWidget(_Screen):
         self.summary = QLabel("")
         self.summary.setWordWrap(True)
         foot.addWidget(self.summary, 1)
-        foot.addWidget(self.remark, 2)
-        self.outer.addLayout(foot)
+        # The Order Remark kept small, the buttons right under it, so the
+        # whole job fits without scrolling (23 Nov).
+        right = QVBoxLayout()
+        right.setSpacing(6)
+        self.remark.setMaximumHeight(64)
+        self.remark.setStyleSheet("padding: 4px 10px;")
+        right.addWidget(self.remark)
+        foot.addLayout(right, 2)
+        # Pinned to the bottom of the screen, outside the scrolling part, as
+        # the job card is pinned to the top: the remark and the buttons are
+        # always in view, however many steps the job has (23 Nov).
+        foot_box = QWidget()
+        foot_box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        foot.setContentsMargins(24, 4, 24, 6)
+        foot_box.setLayout(foot)
+        self.layout().addWidget(foot_box)
         # The legacy buttons along the foot.
         from diagold.ui.flow import FlowLayout
         bar = FlowLayout(spacing=6)
@@ -1752,11 +1774,12 @@ class JobHistoryWidget(_Screen):
             b.clicked.connect(slot)
             bar.addWidget(b)
         self._foot_bar = bar
+        right.addLayout(bar)
+        right.addStretch(1)
         self.comments = QLabel("")
         self.comments.setObjectName("Muted")
         self.comments.setWordWrap(True)
         self.outer.addWidget(self.comments)
-        self.outer.addLayout(self._foot_bar)
         self.outer.addStretch(1)
         self.refresh()
 
@@ -1774,6 +1797,10 @@ class JobHistoryWidget(_Screen):
         base += len(ISSUE_COLS)
         for n, (k, _l) in enumerate(RECEIVE_COLS):
             self.grid.setColumnHidden(base + n, on and k in self._RARE_RECEIVE)
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt name
+        super().showEvent(event)
+        self._fit_stones()
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
         super().resizeEvent(event)
@@ -1895,18 +1922,21 @@ class JobHistoryWidget(_Screen):
                 select(JobVoucher).where(JobVoucher.job_id == job.id,
                                          JobVoucher.kind == "receive"))), Decimal("0"))
             self.summary.setText(
-                (f"<b>LOSS so far: {total_loss:.3f} g"
-                 + (f" ({total_pct}% of the current net)" if total_pct is not None else "")
-                 + f"</b> over {n_loss} step(s)    " if n_loss else "")
-                + (f"<b>Setting labour: {labour:,.2f}</b>    " if labour else "")
-                + "<table cellspacing=2>"
-                + "".join(f"<tr><td><b>{k}</b></td><td>&nbsp;:&nbsp;</td><td>{v}</td></tr>"
-                          for k, v in (("PND", sm["pnd"] or ""), ("WIP", sm["wip"] or ""),
-                                       ("Rejection", sm["rejection"] or ""),
-                                       ("PND For MFG Transfer", sm["pnd_mfg_transfer"] or ""),
-                                       ("MFG Transfer", sm["mfg_transfer"] or "")))
-                + "</table>"
-                + f"<b>TOTAL PCS : {sm['total_pcs']}</b>")
+                (f"<b>LOSS: {total_loss:.3f} g"
+                 + (f" ({total_pct}%)" if total_pct is not None else "")
+                 + f"</b> · {n_loss} step(s)   " if n_loss else "")
+                + (f"<b>Setting labour: {labour:,.2f}</b>" if labour else "")
+                + "<table cellspacing=1>"
+                + "".join(
+                    f"<tr><td><b>{a}</b></td><td>&nbsp;:&nbsp;{va}</td>"
+                    f"<td>&nbsp;&nbsp;&nbsp;<b>{b}</b></td><td>&nbsp;:&nbsp;{vb}</td></tr>"
+                    for (a, va), (b, vb) in (
+                        (("PND", sm["pnd"] or ""), ("WIP", sm["wip"] or "")),
+                        (("Rejection", sm["rejection"] or ""),
+                         ("PND For MFG Transfer", sm["pnd_mfg_transfer"] or "")),
+                        (("MFG Transfer", sm["mfg_transfer"] or ""),
+                         ("TOTAL PCS", f"<b>{sm['total_pcs']}</b>"))))
+                + "</table>")
             # Order Remark carries the stone requirement as text in the legacy
             # ("daank/411/19.92, DIA./241/2.81"); show it and what it parses to.
             parsed = production.parse_order_remark(sm["order_remark"])
@@ -1956,7 +1986,8 @@ class JobHistoryWidget(_Screen):
         h = table.horizontalHeader().sizeHint().height() + 2 * table.frameWidth() + 8
         h += sum(table.rowHeight(r) for r in range(table.rowCount()))
         h += (rows - table.rowCount()) * table.verticalHeader().defaultSectionSize()
-        if table.horizontalScrollBar().maximum() > 0 or table.columnCount() > 12:
+        if table.horizontalScrollBar().maximum() > 0 or (
+                table.columnCount() > 12 and not table.property("_fits_width")):
             h += table.horizontalScrollBar().sizeHint().height()
         table.setFixedHeight(h)
 
@@ -1969,6 +2000,23 @@ class JobHistoryWidget(_Screen):
         self.stone_box.setTitle(f"Stones on this job — {n} line{'s' if n != 1 else ''}"
                                 if n else "Stones on this job — none issued to it yet")
         self.frozen.sync()
+        self._fit_page()
+
+    def _fit_page(self) -> None:
+        """No page scroll (23 Nov): when the job is longer than the screen,
+        the stone list gives up rows (at least three stay) and scrolls in
+        its own box, so the remark and the buttons are always in view."""
+        area = getattr(self, "scroll_area", None)
+        if area is None or not self.isVisible():
+            return
+        body = area.widget()
+        body.layout().activate()
+        excess = body.minimumSizeHint().height() - area.viewport().height()
+        if excess <= 0:
+            return
+        least = (self.stones.horizontalHeader().height() + 2 * self.stones.frameWidth()
+                 + 2 * self.stones.verticalHeader().defaultSectionSize() + 4)
+        self.stones.setFixedHeight(max(self.stones.height() - excess, least))
 
     def _show_pending(self) -> None:
         dlg = PendingVoucherDialog(getattr(self.user, "id", None), self)
