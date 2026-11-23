@@ -619,7 +619,7 @@ with SessionLocal() as s:
     print("\n== N9. M.I.S. index + parallel-run export (9 Oct §4.3 / T-11)")
     from diagold.ui import mis_reports as UMIS
     idx = UMIS.mis_index(s, None, None)
-    check("34 legacy M.I.S. reports listed", len(idx), 34)
+    check("35 legacy M.I.S. reports listed (+ Stone Ledger, 23 Nov)", len(idx), 35)
     check("built ones open a real report", all(r["_key"] in __import__("diagold.ui.reports", fromlist=["build_specs"]).build_specs() for r in idx if r["_key"]), True)
     UMIS.parallel_export(s, T, OUT + "/parallel.xlsx")
     check("parallel-run export has 4 sheets", load_workbook(OUT + "/parallel.xlsx").sheetnames, ["Sales Analysis", "Stone Daily Touch", "Metal Summary", "Refining Analysis"])
