@@ -1035,6 +1035,34 @@ with SessionLocal() as s:
     check("same Vr No, Extra 5, location down 5 not 8", (vF2 is not None, D(str(vF2.extra)), (m0 - P.stock_balance(s, prim.id, "metal", g24.id, "")[1]).quantize(D("0.001"))), (True, D("5"), D("5.000")))
     s.rollback()
 
+    print("\n== N27. Stone Analysis: inward / outward as the client lists them (23 Nov)")
+    from diagold.services import mis as MIS27
+    from diagold.db.models import Location as Loc27, StockMovement as SM27
+    ana = MIS27.stone_analysis(s, date(2000, 1, 1), FY[1])
+    z = lambda v: v or 0  # noqa: E731
+    check("every line: CL = OP + IN - OUT",
+          [r for r in ana if z(r["cl_wt"]) != z(r["op_wt"]) + z(r["in_wt"]) - z(r["out_wt"])
+           or z(r["cl_pcs"]) != z(r["op_pcs"]) + z(r["in_pcs"]) - z(r["out_pcs"])], [])
+    # Actual stock: the analysis closing per location = the location's stone stock.
+    want = defaultdict(lambda: D(0))
+    for m in s.scalars(select(SM27).where(SM27.material_class == "stone", SM27.kind != "breakage")):
+        want[s.get(Loc27, m.location_id).name] += D(str(m.weight or 0))
+    got = defaultdict(lambda: D(0))
+    for r in ana:
+        if r["type"] == "Actual":
+            got[r["location"]] += z(r["cl_wt"])
+    check("Actual closing = the location's stock, every location",
+          {k: v.quantize(D("0.001")) for k, v in got.items() if v},
+          {k: v.quantize(D("0.001")) for k, v in want.items() if v})
+    codes_in, codes_out = set(), set()
+    for m in s.scalars(select(SM27).where(SM27.material_class == "stone")):
+        code = MIS27.STONE_VR_CODES.get(m.ref_kind or "", m.ref_kind)
+        pcs, wt = MIS27._ledger_qty(m)
+        (codes_in if (pcs > 0 or wt > 0) else codes_out).add(code)
+    check("inward: purchase, party receipt, transfer in, return / breakage",
+          {"SP", "SR", "TR"} <= codes_in and bool({"RTN", "BAG"} & codes_in), True)
+    check("outward: job bag issue, transfer out", {"SI", "TR"} <= codes_out, True)
+
     print("\n== M. Invariants")
     check("accounts Dr = Cr", ledger_balanced(s), True)
     check("stock balances = sum of movements", stock_consistent(s), [])
