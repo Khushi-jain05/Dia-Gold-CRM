@@ -803,128 +803,30 @@ def stone_block(st: dict) -> str:
 
 
 def excel_invoice(session: Session, v: ReadyVoucher, path: str) -> None:
-    """Invoice in the client's Excel breakup format: per piece the metal,
-    then Diamond / Polki / Colour Stone blocks side by side, labour and the
-    piece total - every amount a live formula; the note on the metal rate at
-    the foot."""
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    from openpyxl.utils import get_column_letter as L
-
+    """Invoice in the client's breakup Excel ("Sample Invoice Quotation &
+    sale invoice.xlsx", 23 Nov) - see services/breakup_excel."""
+    from diagold.services import breakup_excel, mfg_pricing
     acct = session.get(Account, v.account_id) if v.account_id else None
-    wb = Workbook()
-    ws = wb.active
-    ws.title = f"Invoice {v.vr_no}"
-    bold = Font(bold=True)
-    fill = PatternFill("solid", fgColor="E4E7EC")
-    thin = Side(style="thin", color="B0B7C3")
-    box = Border(left=thin, right=thin, top=thin, bottom=thin)
-    ws.append(["Invoice No", v.vr_no, "Date", v.vr_date.strftime("%d-%m-%Y"), "Client",
-               acct.name if acct else "", "CURR", v.currency_code or "RS", "Exc Rate", 1])
-    for c in ws[1]:
-        c.font = bold
-    # columns
-    piece = ["Sno", "Image", "SKU", "GrossWt", "Metal", "NetWt", "FineWt", "Mt Price",
-             "Mt Amount"]
-    blocks = [("DIAMOND", ["Type", "Pcs", "Cts", "Price", "Amount"]),
-              ("POLKI", ["Size", "Pcs", "Cts", "Price", "Amount"]),
-              ("COLOR STONE", ["Name", "Pcs", "Cts", "Price", "Amount"])]
-    tail = ["Labour Price", "Labour", "Setting / Other", "TOTAL"]
-    heads = piece + [h for _b, hs in blocks for h in hs] + tail
-    start = {}
-    col = len(piece) + 1
-    for name, hs in blocks:
-        start[name] = col
-        col += len(hs)
-    t0 = col
-    # group header row (merged) + column header row
-    ws.append([])
-    ws.append(heads)
-    gr, hr = 2, 3
-    ws.cell(gr, 1, "PIECE")
-    ws.merge_cells(start_row=gr, start_column=1, end_row=gr, end_column=len(piece))
-    for name, hs in blocks:
-        ws.cell(gr, start[name], name)
-        ws.merge_cells(start_row=gr, start_column=start[name], end_row=gr,
-                       end_column=start[name] + len(hs) - 1)
-    ws.cell(gr, t0, "LABOUR / TOTAL")
-    ws.merge_cells(start_row=gr, start_column=t0, end_row=gr, end_column=t0 + len(tail) - 1)
-    for r in (gr, hr):
-        for c in ws[r]:
-            c.font = bold
-            c.fill = fill
-            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            c.border = box
-    total_cells = []
-    row = hr + 1
+    pieces = []
     for line in v.lines:
         item = session.get(StockItem, line.stock_item_id) if line.stock_item_id else None
         sku = session.get(ProductSku, line.product_sku_id) if line.product_sku_id else None
         metal = session.get(Metal, line.metal_id) if line.metal_id else None
-        stones = json.loads(line.stones_json or "[]")
-        by = {name: [s for s in stones if stone_block(s) == name] for name, _h in blocks}
-        n = max([1] + [len(x) for x in by.values()])
-        r0, r1 = row, row + n - 1
-        ws.cell(r0, 1, line.sno)
-        ws.cell(r0, 3, f"{sku.sku_code if sku else ''}\nStock {item.stock_no if item else ''}")
-        ws.cell(r0, 3).alignment = Alignment(wrap_text=True, vertical="top")
-        ws.cell(r0, 4, float(_dec(line.gross_wt)))
-        ws.cell(r0, 5, metal.name if metal else "")
-        ws.cell(r0, 6, float(_dec(line.net_wt)))
-        ws.cell(r0, 7, float(_dec(line.fine_wt)))
-        ws.cell(r0, 8, float(_dec(line.metal_rate)))
-        ws.cell(r0, 9, f"=ROUND({L(6)}{r0}*{L(8)}{r0},2)")
-        amount_refs = [f"{L(9)}{r0}"]
-        for name, _hs in blocks:
-            c0 = start[name]
-            for i, st in enumerate(by[name]):
-                rr = r0 + i
-                label = st.get("size") if name == "POLKI" and st.get("size") else st.get("label")
-                ws.cell(rr, c0, label or "")
-                ws.cell(rr, c0 + 1, int(st.get("pcs") or 0))
-                ws.cell(rr, c0 + 2, float(_dec(st.get("weight"))))
-                ws.cell(rr, c0 + 3, float(_dec(st.get("price"))))
-                qty = L(c0 + 1) if (st.get("unit") or "ct").lower().startswith("pc") else L(c0 + 2)
-                ws.cell(rr, c0 + 4, f"=ROUND({qty}{rr}*{L(c0 + 3)}{rr},2)")
-            if by[name]:
-                amount_refs.append(f"SUM({L(c0 + 4)}{r0}:{L(c0 + 4)}{r1})")
-        ws.cell(r0, t0, float(_dec(line.labour_rate)))
-        ws.cell(r0, t0 + 1, f"=ROUND({L(t0)}{r0}*{L(6)}{r0},2)")
-        ws.cell(r0, t0 + 2, float(_dec(line.setting_amount) + _dec(line.other_amount)))
-        amount_refs += [f"{L(t0 + 1)}{r0}", f"{L(t0 + 2)}{r0}"]
-        ws.cell(r0, t0 + 3, "=" + "+".join(amount_refs))
-        ws.cell(r0, t0 + 3).font = bold
-        total_cells.append(f"{L(t0 + 3)}{r0}")
-        # product image, when the file is there and Pillow can read it
-        photo = sku.photo if sku else ""
-        if photo:
-            try:
-                from openpyxl.drawing.image import Image as XLImage
-                img = XLImage(photo)
-                img.width, img.height = 70, 70
-                ws.add_image(img, f"{L(2)}{r0}")
-                ws.row_dimensions[r0].height = max(ws.row_dimensions[r0].height or 15, 56)
-            except Exception:  # noqa: BLE001 - no Pillow / unreadable image: no picture
-                pass
-        for rr in range(r0, r1 + 1):
-            for c in range(1, t0 + len(tail)):
-                ws.cell(rr, c).border = box
-        row = r1 + 1
-    ws.cell(row, t0 + 2, "Grand Total").font = bold
-    ws.cell(row, t0 + 3, "=" + "+".join(total_cells) if total_cells else 0).font = bold
-    ws.cell(row + 2, 1, "NOTE: Metal Rate Will Be Charged as on Date of Payment").font = bold
-    for c in range(1, t0 + len(tail)):
-        ws.column_dimensions[L(c)].width = 11
-    ws.column_dimensions[L(3)].width = 16
-    ws.column_dimensions[L(2)].width = 11
-    for name, _hs in blocks:
-        ws.column_dimensions[L(start[name])].width = 18
-    for r in ws.iter_rows(min_row=hr + 1, max_row=row):
-        for c in r:
-            if isinstance(c.value, float) or (isinstance(c.value, str) and c.value.startswith("=")):
-                c.number_format = "#,##0.00" if c.column not in (4, 6, 7) else "#,##0.000"
-    ws.freeze_panes = ws.cell(hr + 1, 4)
-    wb.save(path)
+        tag = (item.tag_text or mfg_pricing.tag_display(item.tag_price or item.price)) \
+            if item is not None else ""
+        pieces.append({
+            "sno": line.sno, "sku": sku.sku_code if sku else (line.c_ref or ""),
+            "stock_no": item.stock_no if item else "", "photo": sku.photo if sku else "",
+            "gross": line.gross_wt, "metal": metal.name if metal else "",
+            "fine": line.fine_wt, "metal_rate": line.metal_rate,
+            "labour_rate": line.labour_rate, "labour_per": line.labour_per or "gm",
+            "labour": line.labour,
+            "extra": _dec(line.setting_amount) + _dec(line.other_amount),
+            "tag": tag, "stones": json.loads(line.stones_json or "[]")})
+    header = (f"Invoice No : {v.vr_no}              Date : {v.vr_date:%d-%m-%Y}"
+              f"               Client : {acct.name if acct else ''}      CURR : "
+              f"{'RS' if (v.currency_code or 'INR') == 'INR' else v.currency_code}  Exc Rate : 1")
+    breakup_excel.write(path, header, pieces, title=f"Invoice {v.vr_no}")
 
 
 # --------------------------------------------------------------------------

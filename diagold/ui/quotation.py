@@ -71,8 +71,10 @@ def _quick_add(dialog, text: str) -> list[dict]:
     return [d]
 
 
-def _excel(widget, q, images: bool = True) -> None:
-    """Excel Format: the client's quotation sheet with photos and stone rows."""
+def _excel(widget, q, images: bool = True, breakup: bool = False) -> None:
+    """Excel Format: the client's quotation sheet with photos and stone rows;
+    ``breakup``: the client's breakup format, the same as the sale invoice
+    (23 Nov sample)."""
     if not _need(widget, q, "Excel Format"):
         return
     from PySide6.QtWidgets import QFileDialog
@@ -83,7 +85,8 @@ def _excel(widget, q, images: bool = True) -> None:
         return
     with SessionLocal() as s:
         try:
-            Q.excel_format(s, s.get(Quotation, q.id), path, images=images)
+            fn = Q.breakup_excel if breakup else Q.excel_format
+            fn(s, s.get(Quotation, q.id), path, images=images)
         except Exception as exc:  # noqa: BLE001 - a locked file, say so
             QMessageBox.warning(widget, "Excel Format", f"Could not save: {exc}")
             return
@@ -754,6 +757,8 @@ class QuotationWidget(QWidget):
         from PySide6.QtGui import QCursor
         from PySide6.QtWidgets import QMenu
         menu = QMenu(self)
+        menu.addAction("Breakup  (DIAMOND / POLKI / COLOR STONE - client's format)",
+                       lambda: self._on_saved(lambda q: _excel(self, q, breakup=True)))
         menu.addAction("Format - 1  (with photos)",
                        lambda: self._on_saved(lambda q: _excel(self, q, images=True)))
         menu.addAction("Format - 2  (without photos)",

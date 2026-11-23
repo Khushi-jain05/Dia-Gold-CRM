@@ -320,6 +320,37 @@ def excel_format(session: Session, q: Quotation, path: str, *, images: bool = Tr
     wb.save(path)
 
 
+def breakup_excel(session: Session, q: Quotation, path: str, *, images: bool = True) -> None:
+    """The quotation in the client's breakup Excel, the same as the sale
+    invoice ("Sample Invoice Quotation & sale invoice.xlsx", 23 Nov)."""
+    from diagold.services import breakup_excel as BX, mfg_pricing
+    acct = session.get(Account, q.account_id) if q.account_id else None
+    pieces = []
+    for l in q.lines:
+        sku = session.get(ProductSku, l.product_sku_id) if l.product_sku_id else None
+        metal = session.get(Metal, l.metal_id) if l.metal_id else None
+        pcs = max(int(l.pcs or 1), 1)
+        stones = []
+        for st in (sku_stones(session, sku) if sku is not None else []):
+            stones.append({**st, "pcs": int(st.get("pcs") or 0) * pcs,
+                           "weight": str(_dec(st.get("weight")) * pcs)})
+        net = _dec(l.nwt_pcs) * pcs
+        tag = _dec(sku.tag_price) if sku is not None else ZERO
+        pieces.append({
+            "sno": l.sno, "sku": sku.sku_code if sku else (l.sku_desc or ""),
+            "stock_no": l.c_ref or "", "photo": sku.photo if sku else "",
+            "gross": _dec(l.gwt_pcs) * pcs, "metal": metal.name if metal else "",
+            "fine": (net * _dec(l.title) / 1000) if l.title else ZERO,
+            "metal_rate": l.metal_rate, "labour_rate": l.labour_rate,
+            "labour_per": "pcs" if (l.unit or "").lower().startswith("pc") else "gm",
+            "labour": l.labour, "extra": ZERO,
+            "tag": mfg_pricing.tag_display(tag) if tag else "", "stones": stones})
+    header = (f"Quotation No : {q.quot_no}              Date : {q.quot_date:%d-%m-%Y}"
+              f"               Client : {acct.name if acct else ''}      CURR : "
+              f"{'RS' if (q.currency_code or 'INR') == 'INR' else q.currency_code}  Exc Rate : 1")
+    BX.write(path, header, pieces, title=f"Quotation {q.quot_no}", images=images)
+
+
 _HEAD = ("quot_date", "quot_time", "ref", "currency_code", "quot_type", "terms", "account_id",
          "salesperson", "tracking_no", "client_chart", "remark")
 
