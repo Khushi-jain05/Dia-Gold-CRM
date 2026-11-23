@@ -10,6 +10,10 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog, QDouble
                                QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                                QPushButton, QSpinBox, QTabWidget, QTableWidget,
                                QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
+# Number boxes are text boxes (23 Nov: spin boxes showed nothing on the client's
+# Windows PC); same names, same API - see diagold/ui/numbox.py.
+from diagold.ui.numbox import DoubleSpinBox as QDoubleSpinBox  # noqa: E402,F811
+from diagold.ui.numbox import SpinBox as QSpinBox  # noqa: E402,F811
 from sqlalchemy import select
 
 from diagold.db.models import Metal, ProductSku, StoneSku

@@ -42,6 +42,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+# Number boxes are text boxes (23 Nov: spin boxes showed nothing on the client's
+# Windows PC); same names, same API - see diagold/ui/numbox.py.
+from diagold.ui.numbox import DoubleSpinBox as QDoubleSpinBox  # noqa: E402,F811
+from diagold.ui.numbox import SpinBox as QSpinBox  # noqa: E402,F811
 from sqlalchemy import String, Text, func, inspect, or_, select
 from sqlalchemy.exc import IntegrityError
 
@@ -1687,12 +1691,20 @@ class _AutoFit(QObject):
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setInterval(0)
-        self.timer.timeout.connect(lambda: fill_width(self.table, max_width))
+        self.timer.timeout.connect(lambda: self._fit(max_width))
         table.installEventFilter(self)
         m = table.model()
         for sig in (m.rowsInserted, m.rowsRemoved, m.modelReset,
                     m.columnsInserted, m.columnsRemoved, m.layoutChanged):
             sig.connect(self.timer.start)
+
+    def _fit(self, max_width) -> None:
+        import shiboken6
+        t = self.table
+        # A screen closed while the pass was queued: nothing left to fit.
+        if not shiboken6.isValid(t) or t.model() is None or not shiboken6.isValid(t.model()):
+            return
+        fill_width(t, max_width)
 
     def eventFilter(self, obj, event):
         if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
