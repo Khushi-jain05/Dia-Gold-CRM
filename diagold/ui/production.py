@@ -665,16 +665,28 @@ class _Screen(QWidget):
         from diagold.ui.flow import FlowLayout
         self.secondary = FlowLayout(spacing=8)
         self.picker: JobPicker | None = None
+        self._one_row = with_picker
+        self._n_first = 0
         if with_picker:
             self.picker = JobPicker()
             self.picker.changed.connect(self._on_job)
             self.job_id = self.picker.job_id()  # the first emit happened before connect
-            self.toolbar.addWidget(self.picker, 1)
-        head.addLayout(self.toolbar)
-        head.addLayout(self.secondary)
+            self.toolbar.addWidget(self.picker)
+            # Every button on the Job No line (23 Nov: Show Pending / Save /
+            # Edit / Delete / Print / Exit together, no second row under the
+            # job); a long set wraps beside the picker, never off the screen.
+            box = QWidget()
+            box.setLayout(self.secondary)
+            self.toolbar.addWidget(box, 1)
+            head.addLayout(self.toolbar)
+        else:
+            head.addLayout(self.toolbar)
+            head.addLayout(self.secondary)
         self.secondary.addStretch(1)
         self.header = JobHeaderCard()
         head.addWidget(self.header)
+        if with_picker:
+            self.header.set_compact()       # two lines: the grid moves up (23 Nov)
 
     def button(self, label: str, slot: Callable, primary: bool = False,
                secondary: bool = False) -> QPushButton:
@@ -682,7 +694,14 @@ class _Screen(QWidget):
         if primary:
             b.setObjectName("Primary")
         b.clicked.connect(slot)
-        if secondary:
+        if self._one_row:
+            # the main actions first, then the rest, all on the Job No line
+            if secondary:
+                self.secondary.insertWidget(self.secondary.count(), b)
+            else:
+                self.secondary.insertWidget(self._n_first, b)
+                self._n_first += 1
+        elif secondary:
             # keep the stretch first so these sit against the right edge
             self.secondary.insertWidget(self.secondary.count(), b)
         else:
