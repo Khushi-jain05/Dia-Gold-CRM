@@ -91,6 +91,9 @@ class Col:
     # A running balance: a subtotal shows the group's last value (the closing
     # balance), the grand total the sum of each group's last (5 Nov T-08).
     last: bool = False
+    # The legacy ledgers' colours (Stone Ledger, 23 Nov): OP blue, IN green,
+    # OUT red - a hex colour for the column's figures.
+    color: str = ""
 
 
 @dataclass
@@ -266,6 +269,8 @@ class ReportModel(QAbstractTableModel):
             if col is not None:
                 if col.red:
                     return RED
+                if col.color:
+                    return QColor(col.color)
                 v = row.get(col.key)
                 if _is_num(v) and v < 0:
                     return RED

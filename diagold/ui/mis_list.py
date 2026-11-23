@@ -6,6 +6,7 @@ from __future__ import annotations
 # key or None while not built / awaiting the client's ranking C-06).
 MIS_LIST: tuple[tuple[str, str | None], ...] = (
     ("Sales Analysis", "sales_analysis"),
+    ("Stone Ledger", "stone_ledger"),
     ("Stone Wise Inventory", "stone_wise_inventory"),
     ("Ready Stock Inward List", "ready_stock_inward"),
     ("Stone Setting Analysis", "setting_analysis"),

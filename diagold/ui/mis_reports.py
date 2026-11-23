@@ -28,6 +28,71 @@ def _open_job(widget, row) -> None:
     widget.open_job(row)
 
 
+_OP, _IN, _OUT = "#1F3FD1", "#1C8A3A", "#D11F1F"
+
+
+def _opio_cols() -> list[Col]:
+    return [Col("op_pcs", "OP_PCS", "measure", 0, total=True, color=_OP),
+            Col("op_cts", "OP_CTS", "measure", 3, total=True, color=_OP),
+            Col("in_pcs", "IN_PCS", "measure", 0, total=True, color=_IN),
+            Col("in_cts", "IN_CTS", "measure", 3, total=True, color=_IN),
+            Col("out_pcs", "OUT_PCS", "measure", 0, total=True, color=_OUT),
+            Col("out_cts", "OUT_CTS", "measure", 3, total=True, color=_OUT),
+            _p("cl_pcs", "CL_PCS"), _w("cl_cts", "CL_CTS")]
+
+
+def _stone_ledger_ssku(widget, row) -> None:
+    """Stone Ledger, second level: that line by SSKU (legacy 'SHARAD JI->Actual->POLKI')."""
+    from diagold.db.session import SessionLocal
+    from diagold.ui.production import show_in_dialog
+    from diagold.ui.reports import ReportWidget
+    d0, d1 = widget.dates()
+    loc, typ, grp = row.get("location", ""), row.get("type", ""), row.get("group", "")
+    with SessionLocal() as s:
+        rows = MIS.stone_ledger_sskus(s, d0, d1, loc, typ, grp)
+    path = f"{loc}->{typ}->{grp}"
+    spec = ReportSpec(
+        key="stone_ledger_ssku", title=path,
+        columns=static([Col("location", "LOCATION"), Col("type", "TYPE"),
+                        Col("group", "GROUP"), Col("ssku", "SSKU")] + _opio_cols()),
+        query=lambda _s, _a, _b, **_k: rows, date_mode="none",
+        on_activate=lambda w, r: _stone_ledger_lines(widget, r, path),
+        note=f"{d0:%d-%m-%Y} - {d1:%d-%m-%Y}. Double-click an SSKU for its vouchers; "
+             "Esc goes back.")
+    show_in_dialog(widget, ReportWidget(spec, widget.user), path, (1200, 640))
+
+
+def _stone_ledger_lines(widget, row, path: str) -> None:
+    """Third level: every voucher on that SSKU with the running CL."""
+    from diagold.db.session import SessionLocal
+    from diagold.ui.production import show_in_dialog
+    from diagold.ui.reports import ReportWidget
+    d0, d1 = widget.dates()
+    ssku = row.get("ssku", "")
+    with SessionLocal() as s:
+        rows = MIS.stone_ledger_lines(s, d0, d1, row.get("location", ""), row.get("type", ""),
+                                      row.get("group", ""), ssku)
+    title = f"{path}->{ssku}"
+    spec = ReportSpec(
+        key="stone_ledger_lines", title=title,
+        columns=static([Col("vrdate", "VRDATE"), Col("vrno", "VRNO"), Col("vrtype", "VRTYPE"),
+                        Col("jobno", "JOBNO"), Col("particulars", "PARTICULARS"),
+                        Col("size", "SIZE"),
+                        Col("in_pcs", "IN_PCS", "measure", 0, total=True, color=_IN),
+                        Col("in_cts", "IN_CTS", "measure", 3, total=True, color=_IN),
+                        Col("out_pcs", "OUT_PCS", "measure", 0, total=True, color=_OUT),
+                        Col("out_cts", "OUT_CTS", "measure", 3, total=True, color=_OUT),
+                        Col("cl_pcs", "CL_PCS", "measure", 0, last=True),
+                        Col("cl_cts", "CL_CTS", "measure", 3, last=True)]),
+        query=lambda _s, _a, _b, **_k: rows, date_mode="none",
+        on_activate=lambda w, r: w.open_job(r) if r.get("_job_id") else None,
+        note=f"{d0:%d-%m-%Y} - {d1:%d-%m-%Y}. CL runs from the opening as at the From date. "
+             "VRTYPE: SP purchase, SR receipt, SI issue, SS sale, SSR sale return, SA / SAR "
+             "approval / return, TR transfer, RTN return to inventory, BAG job bag, OP "
+             "opening. Esc goes back.")
+    show_in_dialog(widget, ReportWidget(spec, widget.user), title, (1200, 640))
+
+
 def _open_ledger(widget, row) -> None:
     """Drill from Ledger Bal into that account's ledger."""
     from diagold.ui import accounts as ACC
@@ -262,6 +327,17 @@ def specs() -> dict[str, ReportSpec]:
             note="Pieces sold whose sale has no Ship Date yet. Off in the menu until the client "
                  "says it is used (Q1)."),
         # -- stone (T-03) ---------------------------------------------------
+        "stone_ledger": ReportSpec(
+            key="stone_ledger", title="Stone Ledger",
+            columns=static([Col("location", "LOCATION"), Col("type", "TYPE"),
+                            Col("group", "GROUP")] + _opio_cols()),
+            query=lambda s, a, b, **k: MIS.stone_ledger(s, a, b, **k),
+            filter_column="location", date_default="month",
+            on_activate=_stone_ledger_ssku,
+            note="As the legacy Stone Ledger (23 Nov video): per LOCATION, TYPE (Actual / "
+                 "Breakage) and GROUP - OP, IN, OUT, CL in pcs and carats, CL = OP + IN - "
+                 "OUT. Double-click a line for its SSKUs, an SSKU for its vouchers with "
+                 "the running balance."),
         "stone_wise_inventory": ReportSpec(
             key="stone_wise_inventory", title="Stone Wise Inventory",
             columns=static([Col("location", "LOCATION"), Col("type", "TYPE"),

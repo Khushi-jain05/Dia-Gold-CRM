@@ -28,7 +28,7 @@ from diagold.db.models import (Account, FamilyCategory, InvVoucher, InvVoucherLi
                                ManufacturingProcess, Metal, Order, OrderLine, ProductSku,
                                ReadyVoucher, ReadyVoucherLine, StockItem, StockMovement,
                                StoneSku)
-from diagold.db.models.sku import Item
+from diagold.db.models.sku import Item, StoneMaster
 from diagold.services import costing, mfg_pricing, production, rates, sales
 from diagold.services.sales_reports import _C, _base, _lines
 
@@ -894,4 +894,129 @@ def mrp_stone(session: Session, date_from: date, date_to: date) -> list[dict[str
                      "order_qty": max(short, _dec(sku.min_wt) if sku and short else ZERO)
                      .quantize(D3) if short else None, "_negative": short > 0})
     rows.sort(key=lambda r: (-r["short"], r["ssku"].lower()))
+    return rows
+
+
+# --------------------------------------------------------------------------
+# Stone Ledger (23 Nov video, legacy Stone Ledger): LOCATION x TYPE x GROUP
+# -> SSKU -> the vouchers, each with OP / IN / OUT / CL pcs and carats.
+# --------------------------------------------------------------------------
+STONE_VR_CODES = {"stone_purchase": "SP", "stone_receipt": "SR", "stone_issue": "SI",
+                  "stone_sale": "SS", "stone_sale_return": "SSR", "stone_approval": "SA",
+                  "stone_approval_return": "SAR", "stock_transfer": "TR",
+                  "inv_return": "RTN", "bag": "BAG", "opening": "OP", "stone_opening": "OP"}
+
+
+def _ssku_name(c: Any, m: StockMovement) -> str:
+    """SSKU as the legacy ledger names it: the stone (POLKI, POLKI REPAIR),
+    its sizes under it."""
+    sku = c.get(StoneSku, m.ref_id) if m.ref_id else None
+    if sku is None:
+        return (m.ref_text or "").strip() or "-"
+    master = c.get(StoneMaster, sku.master_id) if sku.master_id else None
+    if master is not None:
+        return master.name
+    code = sku.sku_code or ""
+    size = (m.size or "").strip()
+    return code[: -len(size) - 1] if size and code.endswith(" " + size) else (sku.stone or code)
+
+
+def _ledger_moves(session: Session, date_to: date):
+    c = _C(session)
+    q = (select(StockMovement).where(StockMovement.material_class == "stone",
+                                     StockMovement.mv_date <= date_to)
+         .order_by(StockMovement.mv_date, StockMovement.id))
+    for m in session.scalars(q):
+        loc = c.get(Location, m.location_id)
+        yield c, m, (loc.name if loc else ""), _stone_type(m), (m.stone_group or "").upper()
+
+
+def _ledger_qty(m: StockMovement) -> tuple[int, Decimal]:
+    """Pieces / carats as the Stone Ledger counts them. Broken stones returned
+    from a job come IN to the location's Breakage stock, as the legacy shows
+    (RAJAT JI Breakage DIAMOND IN 242) - the movement is recorded as leaving
+    the source location, so its sign turns here."""
+    pcs, wt = int(m.pcs or 0), _dec(m.weight)
+    return (-pcs, -wt) if m.kind == "breakage" else (pcs, wt)
+
+
+def _opio(acc: list, m: StockMovement, date_from: date) -> None:
+    pcs, wt = _ledger_qty(m)
+    if m.mv_date < date_from or m.kind == "opening":
+        acc[0] += pcs
+        acc[1] += wt
+    elif pcs > 0 or wt > 0:
+        acc[2] += pcs
+        acc[3] += wt
+    else:
+        acc[4] -= pcs
+        acc[5] -= wt
+
+
+def _opio_rows(acc: dict, keys: tuple[str, ...]) -> list[dict[str, Any]]:
+    rows = []
+    for key, a in sorted(acc.items(), key=lambda kv: tuple(str(x).lower() for x in kv[0])):
+        cl_pcs, cl_wt = a[0] + a[2] - a[4], a[1] + a[3] - a[5]
+        row = dict(zip(keys, key))
+        row.update({"op_pcs": a[0], "op_cts": a[1].quantize(D3), "in_pcs": a[2],
+                    "in_cts": a[3].quantize(D3), "out_pcs": a[4], "out_cts": a[5].quantize(D3),
+                    "cl_pcs": cl_pcs, "cl_cts": cl_wt.quantize(D3),
+                    "_negative": cl_pcs < 0 or cl_wt < 0})
+        rows.append(row)
+    return rows
+
+
+def stone_ledger(session: Session, date_from: date, date_to: date,
+                 **_k: Any) -> list[dict[str, Any]]:
+    """Stone Ledger, first level: per LOCATION, TYPE (Actual / Breakage) and
+    GROUP (COLOR STONE / DIAMOND / POLKI) - OP, IN, OUT and CL in pcs and
+    carats for the period. CL = OP + IN - OUT."""
+    acc: dict[tuple, list] = defaultdict(lambda: [0, ZERO, 0, ZERO, 0, ZERO])
+    for _c, m, loc, typ, grp in _ledger_moves(session, date_to):
+        _opio(acc[(loc, typ, grp)], m, date_from)
+    return _opio_rows(acc, ("location", "type", "group"))
+
+
+def stone_ledger_sskus(session: Session, date_from: date, date_to: date, location: str,
+                       typ: str, group: str) -> list[dict[str, Any]]:
+    """Second level (double-click a line): that location / type / group by SSKU."""
+    acc: dict[tuple, list] = defaultdict(lambda: [0, ZERO, 0, ZERO, 0, ZERO])
+    for c, m, loc, t, grp in _ledger_moves(session, date_to):
+        if (loc, t, grp) != (location, typ, group):
+            continue
+        _opio(acc[(loc, t, grp, _ssku_name(c, m))], m, date_from)
+    return _opio_rows(acc, ("location", "type", "group", "ssku"))
+
+
+def stone_ledger_lines(session: Session, date_from: date, date_to: date, location: str,
+                       typ: str, group: str, ssku: str) -> list[dict[str, Any]]:
+    """Third level: every voucher on that SSKU at the location in the period -
+    VRDATE, VRNO, VRTYPE, JOBNO, PARTICULARS, SIZE, IN / OUT and the running
+    CL (from the opening as at the From date)."""
+    bal = [0, ZERO]
+    rows = []
+    for c, m, loc, t, grp in _ledger_moves(session, date_to):
+        if (loc, t, grp) != (location, typ, group) or _ssku_name(c, m) != ssku:
+            continue
+        pcs, wt = _ledger_qty(m)
+        bal[0] += pcs
+        bal[1] += wt
+        if m.mv_date < date_from or m.kind == "opening":
+            continue
+        job = c.get(Job, m.job_id) if m.job_id else None
+        party = c.get(Account, m.account_id) if m.account_id else None
+        inward = pcs > 0 or wt > 0
+        rows.append({"vrdate": m.mv_date, "vrno": m.ref_no or "",
+                     "vrtype": STONE_VR_CODES.get(m.ref_kind or "", (m.ref_kind or m.kind or "")
+                                                  .upper()[:4]),
+                     "jobno": job.job_no if job else "-",
+                     "particulars": (party.name if party else "") or m.remark or "",
+                     "size": m.size or "",
+                     "in_pcs": pcs if inward and pcs else None,
+                     "in_cts": wt.quantize(D3) if inward and wt else None,
+                     "out_pcs": -pcs if not inward and pcs else None,
+                     "out_cts": (-wt).quantize(D3) if not inward and wt else None,
+                     "cl_pcs": bal[0], "cl_cts": bal[1].quantize(D3),
+                     "_job_id": job.id if job else None,
+                     "_negative": bal[0] < 0 or bal[1] < 0})
     return rows
