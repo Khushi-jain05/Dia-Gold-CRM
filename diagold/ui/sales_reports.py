@@ -85,15 +85,20 @@ def specs() -> dict[str, ReportSpec]:
                             Col("particulars", "PARTICULARS"), Col("barcode", "STOCK ID"),
                             Col("sku", "SKU"), _p("pcs", "PCS"), _w("n_wt", "NET WT"),
                             _m("sale_amt", "SALE AMT"), _m("cost_metal", "METAL COST"),
-                            _m("cost_stone", "STONE COST"), _m("cost_labour", "LABOUR COST"),
+                            _m("cost_stone", "STONE COST"), *stone,
+                            _m("dia_amt", "DIA AMT"), _m("polki_amt", "POL AMT"),
+                            _m("cs_amt", "CS AMT"), _m("cost_labour", "LABOUR COST"),
                             _m("cost_other", "OTHER COST"), _m("cost_amt", "COST AMT"),
                             _m("profit", "PROFIT"), Col("profit_pct", "PROFIT %", "measure", 2),
                             Col("ret", "RETURN")]),
             query=lambda s, a, b, **_k: SR.sales_profit(s, a, b), negative_key="_negative",
             group_by="particulars", filter_column="particulars", on_activate=open_job,
+            stone_group_cols=tuple(k for k, _l in STONE_COLS) + ("dia_amt", "polki_amt",
+                                                                 "cs_amt"),
             note="Each piece sold: its sale amount against its cost - metal, stone and labour "
                  "from its MFG transfer (metal at the sale's rate where the transfer had none), "
-                 "or the purchase cost. A returned sale's profit is 0. Loss-making sales in red."),
+                 "or the purchase cost. A returned sale's profit is 0. Loss-making sales in red. "
+                 "Ctrl+F1 Show Stone Group: DIA / POL / CS carats and their amounts on the sale."),
         "purchase_sales": ReportSpec(
             key="purchase_sales", title="Purchase - Sales Analysis",
             columns=static([Col("pur_date", "PUR DATE"), Col("pur_vrno", "PUR VRNO"),
