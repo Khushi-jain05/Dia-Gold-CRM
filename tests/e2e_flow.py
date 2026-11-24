@@ -1033,6 +1033,19 @@ with SessionLocal() as s:
     P.replace_job_voucher(s, vF, "issue", chand.id, [{"job_id": jF.id, "step_id": jF.steps[0].id, "metal": [{"location_id": prim.id, "metal_id": g24.id, "weight": D("5"), "pcs": 0}]}], vr_date=T)
     vF2 = s.scalar(select(JobVoucher).where(JobVoucher.vr_no == vF))
     check("same Vr No, Extra 5, location down 5 not 8", (vF2 is not None, D(str(vF2.extra)), (m0 - P.stock_balance(s, prim.id, "metal", g24.id, "")[1]).quantize(D("0.001"))), (True, D("5"), D("5.000")))
+    # F5 Add Row (24 Nov): metal from two locations on one issue.
+    locB = Location(code="F5B", name="F5 SECOND (e2e)", location_type="Store"); s.add(locB); s.flush()
+    P.adjust_stock(s, locB.id, "metal", g24.id, 0, D("4"), kind="opening", mv_date=T)
+    P.replace_job_voucher(s, vF, "issue", chand.id, [{"job_id": jF.id, "step_id": jF.steps[0].id, "metal": [
+        {"location_id": prim.id, "metal_id": g24.id, "weight": D("2"), "pcs": 0},
+        {"location_id": locB.id, "metal_id": g24.id, "weight": D("1.5"), "pcs": 0}]}], vr_date=T)
+    vF3 = s.scalar(select(JobVoucher).where(JobVoucher.vr_no == vF))
+    check("F5 from two locations: Extra 3.5, Primary down 2, second down 1.5",
+          (D(str(vF3.extra)), (m0 - P.stock_balance(s, prim.id, "metal", g24.id, "")[1]).quantize(D("0.001")),
+           P.stock_balance(s, locB.id, "metal", g24.id, "")[1].quantize(D("0.001"))),
+          (D("3.5"), D("2.000"), D("2.500")))
+    check("Edit opens with both F5 rows", sorted((m["location_id"], m["weight"]) for m in P.voucher_parts(s, vF3)[1]),
+          sorted([(prim.id, D("2")), (locB.id, D("1.5"))]))
     s.rollback()
 
     print("\n== N27. Stone Analysis: inward / outward as the client lists them (23 Nov)")

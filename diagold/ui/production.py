@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -868,54 +869,116 @@ class StoneBagDialog(QDialog):
 
 
 class MetalLinesDialog(QDialog):
-    """F5 on an issue voucher: metal taken from a location's stock and handed
-    to the karigar with this step (28 Sept §4.4)."""
+    """F5 on an issue voucher: metal taken from locations' stock and handed
+    to the karigar with this step (28 Sept §4.4). One row per location /
+    metal - Add Row takes metal from a second location too (24 Nov); the
+    total weight is the issue's Extra."""
 
     def __init__(self, current: list[dict], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Metal (F5)")
-        self.setMinimumWidth(560)
-        form = QFormLayout(self)
-        self.location = QComboBox()
-        self.metal = QComboBox()
+        self.setMinimumWidth(720)
+        self._locations: list[tuple[str, int]] = []
+        self._metals: list[tuple[str, int]] = []
         with SessionLocal() as s:
-            for l in s.scalars(select(Location).where(Location.is_active == True)
-                               .order_by(Location.name)):
-                self.location.addItem(l.name, l.id)
-            for m in s.scalars(select(Metal).where(Metal.is_active == True)
-                               .order_by(Metal.name)):
-                self.metal.addItem(m.name, m.id)
-        self.weight = QDoubleSpinBox()
-        self.weight.setDecimals(3)
-        self.weight.setRange(0, 1_000_000)
-        self.pcs = QSpinBox()
-        self.pcs.setRange(0, 100000)
-        if current:
-            c = current[0]
-            self.location.setCurrentIndex(max(self.location.findData(c["location_id"]), 0))
-            self.metal.setCurrentIndex(max(self.metal.findData(c["metal_id"]), 0))
-            self.weight.setValue(float(c["weight"]))
-            self.pcs.setValue(int(c.get("pcs") or 0))
-        form.addRow("From location", self.location)
-        form.addRow("Metal", self.metal)
-        form.addRow("Pcs", self.pcs)
-        form.addRow("Weight (g)", self.weight)
-        hint = QLabel("Leaves the location's stock and is booked to the karigar (worker "
-                      "metal ledger). Its weight is added to Extra on this issue.")
+            self._locations = [(l.name, l.id) for l in s.scalars(
+                select(Location).where(Location.is_active == True).order_by(Location.name))]
+            self._metals = [(m.name, m.id) for m in s.scalars(
+                select(Metal).where(Metal.is_active == True).order_by(Metal.name))]
+        box = QVBoxLayout(self)
+        self.grid = QGridLayout()
+        self.grid.setHorizontalSpacing(8)
+        for c, h in enumerate(("From location", "Metal", "Pcs", "Weight (g)", "")):
+            lab = QLabel(h)
+            lab.setStyleSheet("font-weight:600;")
+            self.grid.addWidget(lab, 0, c)
+        self.grid.setColumnStretch(0, 3)
+        self.grid.setColumnStretch(1, 3)
+        self.grid.setColumnStretch(2, 1)
+        self.grid.setColumnStretch(3, 2)
+        box.addLayout(self.grid)
+        self.total = QLabel()
+        self.rows: list[dict] = []
+        for c in current or []:
+            self._add_row(c)
+        if not self.rows:
+            self._add_row()
+        bar = QHBoxLayout()
+        add = QPushButton("Add Row")
+        add.setAutoDefault(False)
+        add.clicked.connect(lambda: self._add_row(focus=True))
+        bar.addWidget(add)
+        bar.addStretch(1)
+        self.total.setStyleSheet("font-weight:600;")
+        bar.addWidget(self.total)
+        box.addLayout(bar)
+        hint = QLabel("Each row leaves its location's stock and is booked to the karigar "
+                      "(worker metal ledger). The total weight is added to Extra on this issue.")
         hint.setWordWrap(True)
         hint.setObjectName("Muted")
-        form.addRow("", hint)
+        box.addWidget(hint)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                    | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        form.addRow(buttons)
+        box.addWidget(buttons)
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self._add_row(focus=True))
+        self._sum()
+
+    def _add_row(self, c: dict | None = None, focus: bool = False) -> None:
+        loc, met = QComboBox(), QComboBox()
+        for name, i in self._locations:
+            loc.addItem(name, i)
+        for name, i in self._metals:
+            met.addItem(name, i)
+        pcs = QSpinBox()
+        pcs.setRange(0, 100000)
+        wt = QDoubleSpinBox()
+        wt.setDecimals(3)
+        wt.setRange(0, 1_000_000)
+        if self.rows and not c:        # a new row starts on the metal above
+            met.setCurrentIndex(self.rows[-1]["metal"].currentIndex())
+        if c:
+            loc.setCurrentIndex(max(loc.findData(c.get("location_id")), 0))
+            met.setCurrentIndex(max(met.findData(c.get("metal_id")), 0))
+            wt.setValue(float(c.get("weight") or 0))
+            pcs.setValue(int(c.get("pcs") or 0))
+        rm = QToolButton()
+        rm.setText("\u2715")
+        rm.setToolTip("Remove this row")
+        rm.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        row = {"location": loc, "metal": met, "pcs": pcs, "weight": wt, "rm": rm}
+        rm.clicked.connect(lambda: self._remove(row))
+        wt.valueChanged.connect(self._sum)
+        r = self.grid.rowCount()
+        for col, w in enumerate((loc, met, pcs, wt, rm)):
+            self.grid.addWidget(w, r, col)
+        self.rows.append(row)
+        self._sum()
+        if focus:
+            loc.setFocus()
+
+    def _remove(self, row: dict) -> None:
+        if len(self.rows) == 1:         # the last row is only cleared
+            row["weight"].setValue(0)
+            row["pcs"].setValue(0)
+            return
+        for k in ("location", "metal", "pcs", "weight", "rm"):
+            self.grid.removeWidget(row[k])
+            row[k].hide()
+            row[k].deleteLater()
+        self.rows.remove(row)
+        self._sum()
+
+    def _sum(self, *_a) -> None:
+        tot = sum((Decimal(str(r["weight"].value())) for r in self.rows), Decimal("0"))
+        self.total.setText(f"Total {tot:.3f} g")
 
     def lines(self) -> list[dict]:
-        if self.weight.value() <= 0:
-            return []
-        return [{"location_id": self.location.currentData(), "metal_id": self.metal.currentData(),
-                 "weight": Decimal(str(self.weight.value())), "pcs": self.pcs.value()}]
+        return [{"location_id": r["location"].currentData(),
+                 "metal_id": r["metal"].currentData(),
+                 "weight": Decimal(str(r["weight"].value())), "pcs": r["pcs"].value()}
+                for r in self.rows if r["weight"].value() > 0]
 
 
 class VoucherDialog(QDialog):
