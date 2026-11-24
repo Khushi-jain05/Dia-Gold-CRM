@@ -1498,6 +1498,8 @@ class ProcessVoucherWidget(_Screen):
             self.button("F4 Finding", lambda: self._edit_cell("finding"), secondary=True)
             self.button("F5 Metal", self.f5, secondary=True)
             self.button("F7 Mould", lambda: self._edit_cell("mould"), secondary=True)
+        else:
+            self.button("F5 Metal Return", self.f5, secondary=True)
         self.button("Remove Line", self.remove_line, secondary=True)
         self.button("Print Voucher", self.print_voucher, secondary=True)
         self.button("Statement",
@@ -1508,9 +1510,9 @@ class ProcessVoucherWidget(_Screen):
             secondary=True)
         self.button("Exit", self.close_requested.emit, secondary=True)
         QShortcut(QKeySequence("F3"), self, activated=self.f3)
+        QShortcut(QKeySequence("F5"), self, activated=self.f5)
         if issue:
             QShortcut(QKeySequence("F4"), self, activated=lambda: self._edit_cell("finding"))
-            QShortcut(QKeySequence("F5"), self, activated=self.f5)
             QShortcut(QKeySequence("F7"), self, activated=lambda: self._edit_cell("mould"))
 
         # The legacy grid, column for column (28 Sept §4.4). Green = typed.
@@ -1539,7 +1541,7 @@ class ProcessVoucherWidget(_Screen):
                           ("scrap", "Scrap", True), ("dust", "Dust", True),
                           ("allow", "Allow\nLoss %", True),
                           ("manual_price", "Manual\nPrice", True),
-                          ("manual_amt", "Manual\nAmt", True), ("f3f5", "F3", False)]
+                          ("manual_amt", "Manual\nAmt", True), ("f3f5", "F3 / F5", False)]
         self.cols += [("order_no", "OrderNo", False), ("order_date", "Date", False),
                       ("ref_no", "RefNo", False), ("client", "Client", False)]
         self.grid = _table([h for _k, h, _e in self.cols], ledger=True)
@@ -1562,7 +1564,8 @@ class ProcessVoucherWidget(_Screen):
              "F5 sends metal from a location.") if issue else
             ("Pick the process, Show Pending lists the jobs out on it with any karigar; enter "
              "the weights coming back (green) and Save - each job comes back from whoever "
-             "has it. F3 on a line records the stones handed back; the rest count as set."))
+             "has it. F3 on a line records the stones handed back; the rest count as set. "
+             "F5 takes metal the karigar returns into a location."))
         legend.setWordWrap(True)
         legend.setObjectName("Muted")
         self.outer.addWidget(legend)
@@ -1989,7 +1992,8 @@ class ProcessVoucherWidget(_Screen):
         if r is None:
             return
         from diagold.ui.production import MetalLinesDialog
-        dlg = MetalLinesDialog(self.lines[r].get("metal_lines") or [], self)
+        dlg = MetalLinesDialog(self.lines[r].get("metal_lines") or [], self,
+                               self.kind)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.lines[r]["metal_lines"] = dlg.lines()
             self._render()

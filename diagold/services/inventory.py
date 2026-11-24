@@ -386,6 +386,22 @@ def metal_to_job_step(session: Session, voucher: Any, location_id: int, metal_id
         remark="metal with a job step (F5)")
 
 
+def metal_from_job_step(session: Session, voucher: Any, location_id: int, metal_id: int,
+                        weight: Any, pcs: int = 0) -> None:
+    """F5 on a receive voucher (24 Nov): metal the karigar hands back with
+    the step, into a location's stock and off his metal balance."""
+    wt = _dec(weight)
+    if wt <= 0:
+        return
+    if not location_id or not metal_id:
+        raise ProductionError("F5 Metal: choose the location and the metal.")
+    production.adjust_stock(
+        session, location_id, "metal", metal_id, int(pcs or 0), wt, kind="inward",
+        mv_date=voucher.vr_date, job_id=voucher.job_id, ref_kind="job_voucher",
+        ref_no=voucher.vr_no, account_id=voucher.worker_id,
+        fine_wt=line_fine(session, metal_id, wt), remark="metal back with a job step (F5)")
+
+
 def _reverse_postings(session: Session, v: InvVoucher, what: str) -> None:
     """Take a saved voucher's stock movements and account entries back out."""
     from diagold.services import accounts

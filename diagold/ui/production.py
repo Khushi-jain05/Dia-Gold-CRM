@@ -874,9 +874,10 @@ class MetalLinesDialog(QDialog):
     metal - Add Row takes metal from a second location too (24 Nov); the
     total weight is the issue's Extra."""
 
-    def __init__(self, current: list[dict], parent=None):
+    def __init__(self, current: list[dict], parent=None, kind: str = "issue"):
         super().__init__(parent)
-        self.setWindowTitle("Metal (F5)")
+        self.kind = kind
+        self.setWindowTitle("Metal (F5)" if kind == "issue" else "Metal Return (F5)")
         self.setMinimumWidth(720)
         self._locations: list[tuple[str, int]] = []
         self._metals: list[tuple[str, int]] = []
@@ -888,7 +889,8 @@ class MetalLinesDialog(QDialog):
         box = QVBoxLayout(self)
         self.grid = QGridLayout()
         self.grid.setHorizontalSpacing(8)
-        for c, h in enumerate(("From location", "Metal", "Pcs", "Weight (g)", "")):
+        for c, h in enumerate(("From location" if kind == "issue" else "To location",
+                               "Metal", "Pcs", "Weight (g)", "")):
             lab = QLabel(h)
             lab.setStyleSheet("font-weight:600;")
             self.grid.addWidget(lab, 0, c)
@@ -913,7 +915,11 @@ class MetalLinesDialog(QDialog):
         bar.addWidget(self.total)
         box.addLayout(bar)
         hint = QLabel("Each row leaves its location's stock and is booked to the karigar "
-                      "(worker metal ledger). The total weight is added to Extra on this issue.")
+                      "(worker metal ledger). The total weight is added to Extra on this issue."
+                      if kind == "issue" else
+                      "Metal the karigar hands back: each row goes into its location's stock "
+                      "and off his metal balance (worker metal ledger, MR). It is not counted "
+                      "as loss on this step.")
         hint.setWordWrap(True)
         hint.setObjectName("Muted")
         box.addWidget(hint)
@@ -1131,8 +1137,13 @@ class VoucherDialog(QDialog):
             for b in (b4, b5, b7):
                 keys.addWidget(b)
             QShortcut(QKeySequence("F4"), self, activated=lambda: self.extra["finding"].setFocus())
-            QShortcut(QKeySequence("F5"), self, activated=self._metal)
             QShortcut(QKeySequence("F7"), self, activated=lambda: self.extra["mould"].setFocus())
+        else:
+            # F5 on a receipt: metal returned by the karigar (24 Nov).
+            b5 = QPushButton("F5 Metal Return")
+            b5.clicked.connect(self._metal)
+            keys.addWidget(b5)
+        QShortcut(QKeySequence("F5"), self, activated=self._metal)
         QShortcut(QKeySequence("F3"), self, activated=self._stones)
         keys.addStretch(1)
         form.addRow("", keys)
@@ -1287,7 +1298,7 @@ class VoucherDialog(QDialog):
         self._setting_net = False
 
     def _metal(self) -> None:
-        dlg = MetalLinesDialog(self.metal_lines, self)
+        dlg = MetalLinesDialog(self.metal_lines, self, self.kind)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.metal_lines = dlg.lines()
             self._show_picked()
@@ -1299,7 +1310,8 @@ class VoucherDialog(QDialog):
             parts.append(f"F3: {n} stone pcs "
                          + ("to issue" if self.kind == "issue" else "coming back"))
         for m in self.metal_lines:
-            parts.append(f"F5: {m['weight']} g metal")
+            parts.append(f"F5: {m['weight']} g metal"
+                         + ("" if self.kind == "issue" else " back"))
         self.picked.setText("  ·  ".join(parts))
 
     @staticmethod

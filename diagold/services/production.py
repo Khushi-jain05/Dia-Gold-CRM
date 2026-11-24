@@ -935,8 +935,9 @@ def step_loss(issue: JobVoucher | None, receive: JobVoucher | None) -> Decimal |
         return None
     if issue.net_wt in (None, 0) or receive.net_wt is None:
         return None
+    # F5 metal handed back on the receipt (its Extra) is not lost (24 Nov).
     return (part_net(issue, receive) - _dec(receive.net_wt)
-            - _dec(receive.scrap) - _dec(receive.dust)).quantize(D3)
+            - _dec(receive.scrap) - _dec(receive.dust) - _dec(receive.extra)).quantize(D3)
 
 
 @dataclass
@@ -2096,7 +2097,7 @@ def post_multi_voucher(session: Session, kind: str, worker_id: int | None,
     A line may also carry ``allow`` (its own Allow Loss %), ``rej_pcs`` /
     ``rej_wt`` / ``stone_wt``, ``stones`` ({bag line id: pcs} - F3: out with
     an issue, back on a receipt) and ``metal`` ([{location_id, metal_id,
-    weight, pcs}] - F5, issue only)."""
+    weight, pcs}] - F5: out with an issue, back on a receipt)."""
     if not lines:
         raise ProductionError("Tick at least one job.")
     vr_no = vr_no or next_number(session, JobVoucher.vr_no)
@@ -2225,8 +2226,9 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
                                         "manual_price", "manual_amt", "rej_type", "price_on",
                                         "ref_no", "share", "del_date", "wip_value")
                  if ln.get(k) not in (None, "")}
-        if kind == "issue" and ln.get("metal"):
+        if ln.get("metal"):
             # F5 metal is the line's extra metal; the column shows its total.
+            # On a receipt it is the metal the karigar hands back (24 Nov).
             extra["extra"] = sum((_dec(m["weight"]) for m in ln["metal"]), ZERO)
         if kind == "issue" and stones and ln.get("gross") not in (None, "") \
                 and _dec(ln.get("net")) == _dec(ln["gross"]):
@@ -2254,6 +2256,11 @@ def _post_line_full(session: Session, kind: str, worker_id: int | None, ln: dict
             for m in ln.get("metal") or []:
                 INV.metal_to_job_step(session, v, m["location_id"], m["metal_id"],
                                       m["weight"], m.get("pcs") or 0)
+        else:
+            from diagold.services import inventory as INV
+            for m in ln.get("metal") or []:
+                INV.metal_from_job_step(session, v, m["location_id"], m["metal_id"],
+                                        m["weight"], m.get("pcs") or 0)
     except ProductionError as exc:
         raise ProductionError(f"Job {job.job_no}: {exc}") from exc
     for m in moved:
@@ -2398,8 +2405,8 @@ def voucher_parts(session: Session, v: JobVoucher) -> tuple[dict[int, dict], lis
     for sp in stones.values():          # a receipt's back includes the broken / lost
         sp["pcs"] -= sp["break_pcs"] + sp["lost_pcs"]
         sp["wt"] -= sp["break_wt"] + sp["lost_wt"]
-    metal = [{"location_id": m.location_id, "metal_id": m.ref_id, "weight": -_dec(m.weight),
-              "pcs": -int(m.pcs or 0)}
+    metal = [{"location_id": m.location_id, "metal_id": m.ref_id, "weight": abs(_dec(m.weight)),
+              "pcs": abs(int(m.pcs or 0))}
              for m in session.scalars(select(StockMovement).where(
                  StockMovement.ref_kind == VOUCHER_REF, StockMovement.ref_no == v.vr_no,
                  StockMovement.job_id == v.job_id, StockMovement.material_class == "metal"))]
@@ -2666,18 +2673,19 @@ def delete_job_voucher(session: Session, vr_no: int, *, user_id: int | None = No
             for m in session.scalars(select(JobBagMovement).where(
                     JobBagMovement.ref_kind == VOUCHER_REF, JobBagMovement.ref_id == v.id)):
                 m.ref_kind, m.ref_id = "", None
-            # F5 metal goes back to the location it came from.
-            for m in session.scalars(select(StockMovement).where(
-                    StockMovement.ref_kind == VOUCHER_REF, StockMovement.ref_no == v.vr_no,
-                    StockMovement.job_id == v.job_id)).all():
-                image["metal"].append({c.name: getattr(m, c.name)
-                                       for c in m.__table__.columns})
-                row = stock_row(session, m.location_id, m.material_class, m.ref_id,
-                                m.size, m.ref_text)
-                if row is not None:
-                    row.pcs = int(row.pcs) - int(m.pcs)
-                    row.weight = (_dec(row.weight) - _dec(m.weight)).quantize(D4)
-                session.delete(m)
+        # F5 metal goes back to the location it came from (an issue) or
+        # leaves the location it went to (a receipt's metal return).
+        for m in session.scalars(select(StockMovement).where(
+                StockMovement.ref_kind == VOUCHER_REF, StockMovement.ref_no == v.vr_no,
+                StockMovement.job_id == v.job_id)).all():
+            image["metal"].append({c.name: getattr(m, c.name)
+                                   for c in m.__table__.columns})
+            row = stock_row(session, m.location_id, m.material_class, m.ref_id,
+                            m.size, m.ref_text)
+            if row is not None:
+                row.pcs = int(row.pcs) - int(m.pcs)
+                row.weight = (_dec(row.weight) - _dec(m.weight)).quantize(D4)
+            session.delete(m)
         # Receipts against this issue lose the link here, not by the foreign
         # key: SQL Server cannot SET NULL on a self-reference.
         for r in session.scalars(select(JobVoucher).where(JobVoucher.issue_id == v.id)):
@@ -2897,7 +2905,11 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
         elif source == "extra":
             m = obj
             wid, metal_id, vr_no = m.account_id, m.ref_id, m.ref_no
-            inward, vrtype = -_dec(m.weight), "MI"
+            if _dec(m.weight) > 0:          # F5 on a receipt: metal handed back
+                is_return, vrtype = True, "MR"
+                outward = _dec(m.weight)
+            else:
+                inward, vrtype = -_dec(m.weight), "MI"
             job = jobs.setdefault(m.job_id, session.get(Job, m.job_id)) if m.job_id else None
             job_no, job_id = (job.job_no if job else ""), (job.id if job else None)
             sku = job.product_sku.sku_code if job and job.product_sku else ""

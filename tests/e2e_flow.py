@@ -1048,6 +1048,29 @@ with SessionLocal() as s:
           sorted([(prim.id, D("2")), (locB.id, D("1.5"))]))
     s.rollback()
 
+    print("\n== N26b. F5 Metal Return on a receipt (24 Nov)")
+    oR = Order(order_no=P.next_number(s, Order.order_no), order_date=T, order_type="Stock")
+    s.add(oR); s.flush(); s.add(OrderLine(order_id=oR.id, sno=1, product_sku_id=sku5.id, pcs=1)); s.flush(); s.refresh(oR)
+    _v, mkR = P.explode_orders(s, [{"order_id": oR.id, "sno": 1, "prod_pcs": 1, "job_pcs": 1}])
+    jR = s.scalar(select(Job).where(Job.job_no == mkR[0]))
+    P.set_job_steps(s, jR, [{"process_id": hmF.id, "due_date": T}]); s.flush(); s.refresh(jR)
+    P.post_multi_voucher(s, "issue", chand.id, [{"job_id": jR.id, "step_id": jR.steps[0].id, "gross": D("10"), "net": D("10"), "allow": D("0")}], vr_date=T)
+    p0 = P.stock_balance(s, prim.id, "metal", g24.id, "")[1]
+    vR = P.post_multi_voucher(s, "receive", chand.id, [{"job_id": jR.id, "step_id": jR.steps[0].id, "gross": D("8.5"), "net": D("8.5"),
+        "metal": [{"location_id": prim.id, "metal_id": g24.id, "weight": D("1"), "pcs": 0}]}], vr_date=T)
+    rv = s.scalar(select(JobVoucher).where(JobVoucher.vr_no == vR))
+    iv = s.get(JobVoucher, rv.issue_id)
+    check("10 out, 8.5 back + 1 g returned: loss 0.5, Primary up 1",
+          (P.step_loss(iv, rv), (P.stock_balance(s, prim.id, "metal", g24.id, "")[1] - p0).quantize(D("0.001"))),
+          (D("0.500"), D("1.000")))
+    led = [r for r in P.worker_metal_ledger(s, date(2000, 1, 1), FY[1], worker_id=chand.id) if r["vrno"] == vR]
+    check("worker ledger: an MR row of 1 g out", [(r["vrtype"], r["out_wt"]) for r in led if r["vrtype"] == "MR"], [("MR", D("1.000"))])
+    check("Edit opens with the returned metal", [(m["location_id"], m["weight"]) for m in P.voucher_parts(s, rv)[1]], [(prim.id, D("1"))])
+    P.delete_job_voucher(s, vR, reason="e2e")
+    check("deleting the receipt takes the metal back out of Primary",
+          (P.stock_balance(s, prim.id, "metal", g24.id, "")[1] - p0).quantize(D("0.001")), D("0.000"))
+    s.rollback()
+
     print("\n== N27. Stone Analysis: inward / outward as the client lists them (23 Nov)")
     from diagold.services import mis as MIS27
     from diagold.db.models import Location as Loc27, StockMovement as SM27
