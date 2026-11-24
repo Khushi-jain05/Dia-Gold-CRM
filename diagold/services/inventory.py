@@ -33,6 +33,7 @@ from diagold.db.models import (
     DeletionLog,
     InvVoucher,
     InvVoucherLine,
+    Job,
     Location,
     MaterialStock,
     Metal,
@@ -522,11 +523,17 @@ def location_ledger(session: Session, location_id: int, material: str, ref_id: i
         bal += w
         acct = session.get(Account, m.account_id) if m.account_id else None
         vt = VOUCHER_TYPES.get(m.ref_kind)
+        if m.ref_kind == "job_voucher":
+            # F5 metal with a job step: F5 out to the karigar, F5-R back (24 Nov).
+            vrtype = "F5-R" if w > 0 else "F5"
+        else:
+            vrtype = vt.legacy if vt else (m.ref_kind or m.kind).upper()
+        job = session.get(Job, m.job_id) if m.job_id else None
         rows.append({
-            "date": m.mv_date, "vrno": m.ref_no or "",
-            "vrtype": vt.legacy if vt else (m.ref_kind or m.kind).upper(),
+            "date": m.mv_date, "vrno": m.ref_no or "", "vrtype": vrtype,
             "particulars": acct.name if acct else (m.remark or ""),
-            "job_no": "", "inward": w if w > 0 else None, "outward": -w if w < 0 else None,
+            "job_no": job.job_no if job else "", "_job_id": m.job_id,
+            "inward": w if w > 0 else None, "outward": -w if w < 0 else None,
             "closing": bal.quantize(D3),
         })
     return rows

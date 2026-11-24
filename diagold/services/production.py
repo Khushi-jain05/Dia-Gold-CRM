@@ -2906,10 +2906,10 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
             m = obj
             wid, metal_id, vr_no = m.account_id, m.ref_id, m.ref_no
             if _dec(m.weight) > 0:          # F5 on a receipt: metal handed back
-                is_return, vrtype = True, "MR"
+                is_return, vrtype = True, "F5-R"
                 outward = _dec(m.weight)
             else:
-                inward, vrtype = -_dec(m.weight), "MI"
+                inward, vrtype = -_dec(m.weight), "F5"
             job = jobs.setdefault(m.job_id, session.get(Job, m.job_id)) if m.job_id else None
             job_no, job_id = (job.job_no if job else ""), (job.id if job else None)
             sku = job.product_sku.sku_code if job and job.product_sku else ""

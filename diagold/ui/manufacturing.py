@@ -1993,7 +1993,7 @@ class ProcessVoucherWidget(_Screen):
             return
         from diagold.ui.production import MetalLinesDialog
         dlg = MetalLinesDialog(self.lines[r].get("metal_lines") or [], self,
-                               self.kind)
+                               self.kind, self.lines[r].get("_job_id"))
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.lines[r]["metal_lines"] = dlg.lines()
             self._render()

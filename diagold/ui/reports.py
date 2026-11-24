@@ -1433,18 +1433,29 @@ def _drill_stock(widget: ReportWidget, row: dict) -> None:
 def _drill_metal(widget: ReportWidget, row: dict) -> None:
     """One location's ledger for one metal - the legacy Metal Analysis drill."""
     d0, d1 = widget.dates()
+    show_metal_ledger(widget, widget.user, row["_location_id"], row["_metal_id"],
+                      f"{row['location']} · {row['metal']}", d0, d1)
+
+
+def show_metal_ledger(parent, user, location_id: int, metal_id: int | None, name: str,
+                      d0: date, d1: date) -> None:
+    """A location's ledger of one metal (Metal Analysis drill; Job History >
+    right-click > Metal Ledger, 24 Nov)."""
     with SessionLocal() as s:
-        rows = INV.location_ledger(s, row["_location_id"], "metal", row["_metal_id"], d0, d1)
+        rows = INV.location_ledger(s, location_id, "metal", metal_id, d0, d1)
     spec = ReportSpec(
-        key="metal_drill", title=f"{row['location']} · {row['metal']} — ledger",
+        key="metal_drill", title=f"{name} — ledger",
         columns=static([Col("date", "DATE"), Col("vrno", "VRNO"), Col("vrtype", "VRTYPE"),
-                        Col("particulars", "PARTICULARS"),
+                        Col("particulars", "PARTICULARS"), Col("job_no", "JOB NO"),
                         Col("inward", "INWARD", "measure", 3, total=True),
                         Col("outward", "OUTWARD", "measure", 3, total=True),
                         Col("closing", "CLOSING", "measure", 3)]),
-        query=lambda _s, _a, _b, **_k: rows, date_mode="none")
+        query=lambda _s, _a, _b, **_k: rows, date_mode="none",
+        on_activate=lambda w, r: w.open_job(r) if r.get("_job_id") else None,
+        note=f"{d0:%d-%m-%Y} - {d1:%d-%m-%Y}. F5 = metal issued with a job step, F5-R = "
+             "metal returned on its receipt. Double-click a line for its job.")
     from diagold.ui.production import show_in_dialog
-    show_in_dialog(widget, ReportWidget(spec, widget.user), spec.title, (980, 560))
+    show_in_dialog(parent, ReportWidget(spec, user), spec.title, (980, 560))
 
 
 def _drill_client_metal(widget: ReportWidget, row: dict) -> None:
@@ -1751,7 +1762,7 @@ def _ledger_workers(s) -> list[tuple[Any, str]]:
 
 
 def _ledger_vrtypes(_s) -> list[tuple[Any, str]]:
-    return [("", "(all types)")] + [(t, t) for t in ("ISS", "RTN", "MI", "MR", "MS", "RS",
+    return [("", "(all types)")] + [(t, t) for t in ("ISS", "RTN", "MI", "MR", "F5", "F5-R", "MS", "RS",
                                                        "RSR", "MRCV", "MPAY")]
 
 

@@ -1064,7 +1064,10 @@ with SessionLocal() as s:
           (P.step_loss(iv, rv), (P.stock_balance(s, prim.id, "metal", g24.id, "")[1] - p0).quantize(D("0.001"))),
           (D("0.500"), D("1.000")))
     led = [r for r in P.worker_metal_ledger(s, date(2000, 1, 1), FY[1], worker_id=chand.id) if r["vrno"] == vR]
-    check("worker ledger: an MR row of 1 g out", [(r["vrtype"], r["out_wt"]) for r in led if r["vrtype"] == "MR"], [("MR", D("1.000"))])
+    check("worker ledger: an F5-R row of 1 g out", [(r["vrtype"], r["out_wt"]) for r in led if r["vrtype"] == "F5-R"], [("F5-R", D("1.000"))])
+    from diagold.services import inventory as INV26
+    pl = [r for r in INV26.location_ledger(s, prim.id, "metal", g24.id, date(2000, 1, 1), FY[1]) if r["vrno"] == vR]
+    check("Primary's metal ledger: F5-R in, with the job", [(r["vrtype"], r["inward"], r["job_no"]) for r in pl], [("F5-R", D("1"), jR.job_no)])
     check("Edit opens with the returned metal", [(m["location_id"], m["weight"]) for m in P.voucher_parts(s, rv)[1]], [(prim.id, D("1"))])
     P.delete_job_voucher(s, vR, reason="e2e")
     check("deleting the receipt takes the metal back out of Primary",

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import shiboken6
-from PySide6.QtCore import QDate, Qt, QUrl, Signal
+from PySide6.QtCore import QDate, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -71,6 +71,7 @@ from diagold.db.models import (
     Location,
     ManufacturingProcess,
     Metal,
+    StockMovement,
     Order,
     PrintLog,
     PrintTemplate,
@@ -874,35 +875,60 @@ class StoneBagDialog(QDialog):
 
 
 class MetalLinesDialog(QDialog):
-    """F5 on an issue voucher: metal taken from locations' stock and handed
-    to the karigar with this step (28 Sept §4.4). One row per location /
-    metal - Add Row takes metal from a second location too (24 Nov); the
-    total weight is the issue's Extra."""
+    """F5 Metal, as the legacy pop-up under the voucher (24 Nov video): a grid
+    headed by the job's SKU - Location, MtType, Metal, Title, Color, Pcs,
+    Weight, Price, Amount - one row per location / metal, totals under it.
 
-    def __init__(self, current: list[dict], parent=None, kind: str = "issue"):
+    On an issue the metal leaves each location for the karigar and the total
+    is the line's Issue ExtraMt; on a receipt (Rtn Pcs / Rtn Wt) it is the
+    metal he hands back, into the location (F5-R on its ledger). The first
+    row starts on MISCELLANEOS and the job's metal, as the legacy one; Enter
+    on the last Weight or Add Row (Ctrl+N) opens the next row."""
+
+    def __init__(self, current: list[dict], parent=None, kind: str = "issue",
+                 job_id: int | None = None):
         super().__init__(parent)
         self.kind = kind
-        self.setWindowTitle("Metal (F5)" if kind == "issue" else "Metal Return (F5)")
-        self.setMinimumWidth(720)
-        self._locations: list[tuple[str, int]] = []
-        self._metals: list[tuple[str, int]] = []
+        issue = kind == "issue"
+        self.setWindowTitle("Metal (F5)" if issue else "Metal Return (F5)")
+        self.setMinimumWidth(900)
+        self._job_metal: int | None = None
+        sku = ""
         with SessionLocal() as s:
-            self._locations = [(l.name, l.id) for l in s.scalars(
-                select(Location).where(Location.is_active == True).order_by(Location.name))]
-            self._metals = [(m.name, m.id) for m in s.scalars(
-                select(Metal).where(Metal.is_active == True).order_by(Metal.name))]
+            locs = list(s.scalars(select(Location).where(Location.is_active == True)
+                                  .order_by(Location.name)))
+            self._locations = [(l.name, l.id) for l in locs]
+            metals = list(s.scalars(select(Metal).where(Metal.is_active == True)
+                                    .order_by(Metal.name)))
+            self._metals = [(m.name, m.id) for m in metals]
+            self._metal_info = {m.id: (m.print_on_tag or "", m.colour or "",
+                                       float(production.metal_price(s, m.id) or 0))
+                                for m in metals}
+            misc = next((l.id for l in locs if l.name.strip().lower().startswith("miscellan")),
+                        None)
+            self._default_loc = misc
+            if job_id:
+                job = s.get(Job, job_id)
+                if job is not None:
+                    self._job_metal = job.metal_id
+                    sku = job.product_sku.sku_code if job.product_sku else ""
         box = QVBoxLayout(self)
+        head = QLabel(sku or ("Metal issued with the step" if issue else "Metal returned"))
+        head.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        head.setStyleSheet("font-weight:700; font-size:14px;")
+        box.addWidget(head)
         self.grid = QGridLayout()
-        self.grid.setHorizontalSpacing(8)
-        for c, h in enumerate(("From location" if kind == "issue" else "To location",
-                               "Metal", "Pcs", "Weight (g)", "")):
+        self.grid.setHorizontalSpacing(6)
+        self.grid.setVerticalSpacing(4)
+        heads = ("Location", "MtType", "Metal", "Title", "Color",
+                 "Pcs" if issue else "Rtn Pcs", "Weight" if issue else "Rtn Wt",
+                 "Price", "Amount", "")
+        for c, h in enumerate(heads):
             lab = QLabel(h)
             lab.setStyleSheet("font-weight:600;")
             self.grid.addWidget(lab, 0, c)
-        self.grid.setColumnStretch(0, 3)
-        self.grid.setColumnStretch(1, 3)
-        self.grid.setColumnStretch(2, 1)
-        self.grid.setColumnStretch(3, 2)
+        for c, st in ((0, 3), (2, 3), (5, 1), (6, 2), (7, 2), (8, 2)):
+            self.grid.setColumnStretch(c, st)
         box.addLayout(self.grid)
         self.total = QLabel()
         self.rows: list[dict] = []
@@ -911,7 +937,7 @@ class MetalLinesDialog(QDialog):
         if not self.rows:
             self._add_row()
         bar = QHBoxLayout()
-        add = QPushButton("Add Row")
+        add = QPushButton("Add Row  (Ctrl+N)")
         add.setAutoDefault(False)
         add.clicked.connect(lambda: self._add_row(focus=True))
         bar.addWidget(add)
@@ -919,12 +945,11 @@ class MetalLinesDialog(QDialog):
         self.total.setStyleSheet("font-weight:600;")
         bar.addWidget(self.total)
         box.addLayout(bar)
-        hint = QLabel("Each row leaves its location's stock and is booked to the karigar "
-                      "(worker metal ledger). The total weight is added to Extra on this issue."
-                      if kind == "issue" else
+        hint = QLabel("Each row leaves its location's stock for the karigar (worker metal "
+                      "ledger); the total weight is the Issue ExtraMt of this line." if issue else
                       "Metal the karigar hands back: each row goes into its location's stock "
-                      "and off his metal balance (worker metal ledger, MR). It is not counted "
-                      "as loss on this step.")
+                      "(F5-R on its ledger) and off his metal balance; it is not counted as "
+                      "loss on the step.")
         hint.setWordWrap(True)
         hint.setObjectName("Muted")
         box.addWidget(hint)
@@ -932,9 +957,13 @@ class MetalLinesDialog(QDialog):
                                    | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        for b_ in buttons.buttons():
+            b_.setAutoDefault(False)
+            b_.setDefault(False)
         box.addWidget(buttons)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self._add_row(focus=True))
         self._sum()
+        QTimer.singleShot(0, lambda: self.rows[-1]["weight"].setFocus())
 
     def _add_row(self, c: dict | None = None, focus: bool = False) -> None:
         loc, met = QComboBox(), QComboBox()
@@ -942,53 +971,94 @@ class MetalLinesDialog(QDialog):
             loc.addItem(name, i)
         for name, i in self._metals:
             met.addItem(name, i)
+        mt = QLabel("Actual")
+        title, colour, amount = QLabel(), QLabel(), QLabel()
+        amount.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         pcs = QSpinBox()
         pcs.setRange(0, 100000)
         wt = QDoubleSpinBox()
         wt.setDecimals(3)
         wt.setRange(0, 1_000_000)
-        if self.rows and not c:        # a new row starts on the metal above
-            met.setCurrentIndex(self.rows[-1]["metal"].currentIndex())
+        price = QDoubleSpinBox()
+        price.setDecimals(2)
+        price.setRange(0, 100_000_000)
+        rm = QToolButton()
+        rm.setText("\u2715")
+        rm.setToolTip("Remove this row")
+        rm.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        row = {"location": loc, "metal": met, "mt": mt, "title": title, "colour": colour,
+               "pcs": pcs, "weight": wt, "price": price, "amount": amount, "rm": rm}
+
+        def metal_changed(_i=0) -> None:
+            t, col, rate = self._metal_info.get(met.currentData(), ("", "", 0.0))
+            title.setText(t)
+            colour.setText(col)
+            price.setValue(rate)
+            self._sum()
+
+        met.currentIndexChanged.connect(metal_changed)
         if c:
             loc.setCurrentIndex(max(loc.findData(c.get("location_id")), 0))
             met.setCurrentIndex(max(met.findData(c.get("metal_id")), 0))
             wt.setValue(float(c.get("weight") or 0))
             pcs.setValue(int(c.get("pcs") or 0))
-        rm = QToolButton()
-        rm.setText("\u2715")
-        rm.setToolTip("Remove this row")
-        rm.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        row = {"location": loc, "metal": met, "pcs": pcs, "weight": wt, "rm": rm}
+        else:
+            if self._default_loc and not self.rows:
+                loc.setCurrentIndex(max(loc.findData(self._default_loc), 0))
+            elif self.rows:
+                loc.setCurrentIndex(self.rows[-1]["location"].currentIndex())
+            want = self.rows[-1]["metal"].currentData() if self.rows else self._job_metal
+            if want:
+                met.setCurrentIndex(max(met.findData(want), 0))
+        metal_changed()
+        if c and c.get("price") not in (None, ""):
+            price.setValue(float(c["price"]))
         rm.clicked.connect(lambda: self._remove(row))
         wt.valueChanged.connect(self._sum)
+        price.valueChanged.connect(self._sum)
+        pcs.valueChanged.connect(self._sum)
+        wt.returnPressed.connect(lambda: self._enter_on(row))
         r = self.grid.rowCount()
-        for col, w in enumerate((loc, met, pcs, wt, rm)):
+        for col, w in enumerate((loc, mt, met, title, colour, pcs, wt, price, amount, rm)):
             self.grid.addWidget(w, r, col)
         self.rows.append(row)
         self._sum()
         if focus:
             loc.setFocus()
 
+    def _enter_on(self, row: dict) -> None:
+        """Enter on the last row's weight: the next row, as the legacy grid."""
+        if row is self.rows[-1] and row["weight"].value() > 0:
+            self._add_row(focus=True)
+
     def _remove(self, row: dict) -> None:
         if len(self.rows) == 1:         # the last row is only cleared
             row["weight"].setValue(0)
             row["pcs"].setValue(0)
             return
-        for k in ("location", "metal", "pcs", "weight", "rm"):
-            self.grid.removeWidget(row[k])
-            row[k].hide()
-            row[k].deleteLater()
+        for w in (v for v in row.values() if isinstance(v, QWidget)):
+            self.grid.removeWidget(w)
+            w.hide()
+            w.deleteLater()
         self.rows.remove(row)
         self._sum()
 
     def _sum(self, *_a) -> None:
-        tot = sum((Decimal(str(r["weight"].value())) for r in self.rows), Decimal("0"))
-        self.total.setText(f"Total {tot:.3f} g")
+        tp, tw, ta = 0, Decimal("0"), Decimal("0")
+        for r in self.rows:
+            w = Decimal(str(r["weight"].value()))
+            amt = (w * Decimal(str(r["price"].value()))).quantize(Decimal("0.01"))
+            r["amount"].setText(f"{amt:,.2f}" if amt else "")
+            tp += r["pcs"].value()
+            tw += w
+            ta += amt
+        self.total.setText(f"Total  {tp} pcs  ·  {tw:.3f} g  ·  {ta:,.2f}")
 
     def lines(self) -> list[dict]:
         return [{"location_id": r["location"].currentData(),
                  "metal_id": r["metal"].currentData(),
-                 "weight": Decimal(str(r["weight"].value())), "pcs": r["pcs"].value()}
+                 "weight": Decimal(str(r["weight"].value())), "pcs": r["pcs"].value(),
+                 "price": Decimal(str(r["price"].value()))}
                 for r in self.rows if r["weight"].value() > 0]
 
 
@@ -1303,7 +1373,7 @@ class VoucherDialog(QDialog):
         self._setting_net = False
 
     def _metal(self) -> None:
-        dlg = MetalLinesDialog(self.metal_lines, self, self.kind)
+        dlg = MetalLinesDialog(self.metal_lines, self, self.kind, self.job_id)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.metal_lines = dlg.lines()
             self._show_picked()
@@ -1817,6 +1887,9 @@ class JobHistoryWidget(_Screen):
         # Double-click a pink (issue) cell for the issue voucher, a green
         # (receive) cell for the receipt (28 Sept R6 / UX2).
         self.grid.cellDoubleClicked.connect(self._drill)
+        # Right-click a step: Metal Ledger (24 Nov video, as the legacy one).
+        self.grid.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.grid.customContextMenuRequested.connect(self._grid_menu)
         self.frozen.doubleClicked.connect(lambda i: self._drill(i.row(), i.column()))
 
         self.stone_box = QGroupBox("Stones on this job")
@@ -2086,6 +2159,63 @@ class JobHistoryWidget(_Screen):
             _info(self, "Job History", "Nothing has been issued on this step yet.")
             return
         voucher_view(self, vid)
+
+    def _grid_menu(self, pos) -> None:
+        from PySide6.QtWidgets import QMenu
+        idx = self.grid.indexAt(pos)
+        menu = QMenu(self)
+        menu.addAction("Metal Ledger", lambda: self._metal_ledger(idx.row(), idx.column()))
+        if idx.isValid():
+            menu.addAction("Open Voucher", lambda: self._drill(idx.row(), idx.column()))
+        menu.exec(self.grid.viewport().mapToGlobal(pos))
+
+    def _metal_ledger(self, row: int, col: int) -> None:
+        """The metal ledger of the location the step's F5 metal left / went
+        back to (F5 / F5-R); without F5 metal, the location the job's metal
+        is kept at by default (MISCELLANEOS) for the job's metal."""
+        if not self.job_id:
+            return
+        from diagold.services import reports as R
+        from diagold.ui.reports import show_metal_ledger
+        vids = list(self._row_vouchers[row]) if 0 <= row < len(
+            getattr(self, "_row_vouchers", [])) else []
+        if vids and col >= 0:
+            receive_side = col >= 2 + len(ISSUE_COLS)
+            first = vids[1] if receive_side and vids[1] else vids[0]
+            vids = [first] + [v for v in vids if v and v != first]
+        picks: list[tuple[int, int, str]] = []
+        with SessionLocal() as s:
+            job = s.get(Job, self.job_id)
+            for vid in [v for v in vids if v]:
+                v = s.get(JobVoucher, vid)
+                for m in s.scalars(select(StockMovement).where(
+                        StockMovement.ref_kind == production.VOUCHER_REF,
+                        StockMovement.ref_no == v.vr_no, StockMovement.job_id == v.job_id,
+                        StockMovement.material_class == "metal")):
+                    loc, met = s.get(Location, m.location_id), s.get(Metal, m.ref_id)
+                    key = (m.location_id, m.ref_id,
+                           f"{loc.name if loc else '?'} · {met.name if met else ''}")
+                    if key not in picks:
+                        picks.append(key)
+                if picks:
+                    break
+            if not picks and job is not None and job.metal_id:
+                loc = s.scalar(select(Location).where(Location.name.ilike("miscellan%")))
+                met = s.get(Metal, job.metal_id)
+                if loc is not None:
+                    picks.append((loc.id, job.metal_id, f"{loc.name} · {met.name if met else ''}"))
+        d0, d1 = R.fy_range()
+        if not picks:
+            _info(self, "Metal Ledger", "No F5 metal on this step and no MISCELLANEOS location.")
+            return
+        if len(picks) > 1:
+            name, ok = QInputDialog.getItem(self, "Metal Ledger", "Ledger of:",
+                                            [p[2] for p in picks], 0, False)
+            if not ok:
+                return
+            picks = [p for p in picks if p[2] == name]
+        lid, mid, name = picks[0]
+        show_metal_ledger(self, self.user, lid, mid, name, d0, d1)
 
     @staticmethod
     def _fit_height(table: QTableWidget, min_rows: int = 1) -> None:
