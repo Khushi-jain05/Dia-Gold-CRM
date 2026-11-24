@@ -236,6 +236,11 @@ def show_in_dialog(parent: QWidget | None, widget: QWidget, title: str,
     declutter(widget)
     lay.addWidget(widget)
     dlg.resize(*size)
+    # Full screen (24 Nov: "koi bhi entry ko enter karne par ye screen full
+    # screen size me hi open ho"), with the restore / maximise buttons.
+    dlg.setWindowFlags(dlg.windowFlags() | Qt.WindowType.WindowMaximizeButtonHint
+                       | Qt.WindowType.WindowMinimizeButtonHint)
+    dlg.setWindowState(dlg.windowState() | Qt.WindowState.WindowMaximized)
     dlg.exec()
 
 

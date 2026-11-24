@@ -2178,9 +2178,11 @@ def build_specs() -> dict[str, ReportSpec]:
             query=lambda s, a, b, **k: SR.stone_summary(s, b, **k), date_mode="to",
             options={"groups_only": ("Groups only (DIAMOND / POLKI / COLOR STONE)", False)},
             group_by="location", filter_column="where", negative_key="_negative",
+            on_activate=lambda w, r: _stone_summary_jobs(w, r),
             note="Every stone by location and where it is: RDY in ready-stock pieces, INV loose "
                  "at the location, JC in a job's bag, WIP with karigars / in pieces being made, "
-                 "LOS broken or lost. Tick Groups only to roll up to the three heads."),
+                 "LOS broken or lost. Tick Groups only to roll up to the three heads. Enter / "
+                 "double-click a JC, WIP or RDY line for its jobs."),
         "setting_labour_statement": ReportSpec(
             key="setting_labour_statement", title="Setting Labour Statement",
             columns=static([Col("worker", "WORKER"), Col("month", "MONTH"), Col("date", "DATE"),
@@ -2278,3 +2280,28 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
 from diagold.ui.mis_list import mis_keys as _mis_keys  # noqa: E402
 from diagold.ui import photo_cache  # noqa: E402
 SECTIONS = SECTIONS + (("M.I.S. Reports", _mis_keys()),)
+
+
+def _stone_summary_jobs(widget, row) -> None:
+    """Stone Summary drill (24 Nov): the jobs (JC / WIP) or ready pieces (RDY)
+    that make up the line; a job opens its Job History."""
+    jobs = row.get("_jobs") or []
+    if not jobs:
+        return
+    from diagold.ui.production import show_in_dialog
+    title = " · ".join(x for x in (row.get("location"), row.get("group"), row.get("stone"),
+                                   row.get("where")) if x)
+    rdy = row.get("where") == "RDY"
+    cols = [Col("job_no", "JOBNO"), Col("sku", "SKU")]
+    if rdy:
+        cols.append(Col("stock_no", "STOCK ID"))
+    cols += [Col("stone", "STONE"), Col("where", "WHERE"),
+             Col("pcs", "PCS", "measure", 0, total=True),
+             Col("weight", "WEIGHT", "measure", 3, total=True),
+             Col("value", "VALUE", "measure", 2, total=True)]
+    spec = ReportSpec(
+        key="stone_summary_jobs", title=title, columns=static(cols),
+        query=lambda _s, _a, _b, **_k: jobs, date_mode="none",
+        on_activate=lambda w, r: w.open_job(r) if r.get("_job_id") else None,
+        note=f"{len(jobs)} job(s). Enter / double-click opens the job. Esc goes back.")
+    show_in_dialog(widget, ReportWidget(spec, widget.user), title, (1000, 600))

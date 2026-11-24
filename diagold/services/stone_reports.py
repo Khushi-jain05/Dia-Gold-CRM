@@ -21,7 +21,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from diagold.db.models import (Job, JobBagLine, Location, MfgTransferLine, StockItem,
+from diagold.db.models import (Job, JobBagLine, Location, MfgTransferLine, ProductSku, StockItem,
                                StockMovement, StoneSku)
 from diagold.services import production
 
@@ -185,12 +185,20 @@ def stone_summary(session: Session, date_to: date, *, groups_only: bool = False
         k = skus.get(StoneSku, sku_id)
         return ((k.stone or k.sku_code) if k else (text or "")).strip() or "?"
 
-    def add(lid, group, stone, where, pcs, wt, val) -> None:
+    def add(lid, group, stone, where, pcs, wt, val, ref: tuple | None = None) -> None:
         a = acc.setdefault((loc(lid), group or production.OTHER_GROUP,
-                            "" if groups_only else stone, where), [0, ZERO, ZERO])
+                            "" if groups_only else stone, where), [0, ZERO, ZERO, {}])
         a[0] += pcs
         a[1] += wt
         a[2] += val
+        if ref is not None:
+            # Which jobs / pieces make up a JC / WIP / RDY line (24 Nov: click
+            # it for the complete list).
+            d = a[3].setdefault(ref, [0, ZERO, ZERO, set()])
+            d[0] += pcs
+            d[1] += wt
+            d[2] += val
+            d[3].add(stone)
 
     for m in session.scalars(select(StockMovement).where(
             StockMovement.material_class == "stone", StockMovement.mv_date <= date_to)):
@@ -205,11 +213,16 @@ def stone_summary(session: Session, date_to: date, *, groups_only: bool = False
         price, unit = production.stone_price(session, bl.stone_sku_id)
         (jp, jw), (wp, ww) = _hold(bl)
         name = stone_name(bl.stone_sku_id, bl.particulars)
+        ref = (job.job_no, job.id, job.product_sku.sku_code if job.product_sku else "", None)
         for where, p, w in (("JC", jp, jw), ("WIP", wp, ww)):
             if p or w:
                 add(bl.source_location_id, group, name, where, p, w,
-                    production.stone_amount(price, unit, p, w))
+                    production.stone_amount(price, unit, p, w), ref)
     for item in session.scalars(select(StockItem).where(StockItem.status == "in_stock")):
+        job = session.get(Job, item.job_id) if item.job_id else None
+        psku = skus.get(ProductSku, item.product_sku_id) if item.product_sku_id else None
+        ref = (job.job_no if job else "", item.job_id, psku.sku_code if psku else "",
+               item.stock_no)
         line = session.get(MfgTransferLine, item.line_id) if item.line_id else None
         stones = json.loads(line.stones_json or "[]") if line else []
         for st in stones:
@@ -220,16 +233,24 @@ def stone_summary(session: Session, date_to: date, *, groups_only: bool = False
             if group not in _GKEY:
                 group = production.stone_group_label(session, None, label.rsplit(" ", 1)[0])
             add(item.location_id, group, label.rsplit(" ", 1)[0] if " " in label else label,
-                "RDY", int(st.get("pcs") or 0), _dec(st.get("weight")), _dec(st.get("amount")))
+                "RDY", int(st.get("pcs") or 0), _dec(st.get("weight")), _dec(st.get("amount")),
+                ref)
     order = {"RDY": 0, "INV": 1, "JC": 2, "WIP": 3, "LOS": 4}
     rows = []
-    for (l, g, stone, where), (p, w, v) in sorted(
+    for (l, g, stone, where), (p, w, v, det) in sorted(
             acc.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2], order.get(kv[0][3], 9))):
         if not p and not w:
             continue
         rows.append({"location": l, "group": g, "stone": stone, "where": where, "pcs": p,
                      "weight": w.quantize(D3), "value": v.quantize(Decimal("0.01")),
-                     "_negative": p < 0 or w < 0})
+                     "_negative": p < 0 or w < 0,
+                     "_jobs": [{"job_no": jn, "_job_id": jid, "sku": sku, "stock_no": sn or "",
+                                "stone": ", ".join(sorted(x for x in names if x)),
+                                "where": where, "pcs": dp, "weight": dw.quantize(D3),
+                                "value": dv.quantize(Decimal("0.01"))}
+                               for (jn, jid, sku, sn), (dp, dw, dv, names) in sorted(
+                                   det.items(), key=lambda kv: (str(kv[0][0]), kv[0][3] or 0))
+                               if dp or dw]})
     return rows
 
 
