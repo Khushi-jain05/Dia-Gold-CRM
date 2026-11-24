@@ -405,6 +405,9 @@ class StockTransferWidget(_Screen):
             pl.addLayout(bar)
             g = _table([h for _k, h in PANE_COLS[pane]], ledger=True)
             auto_fit(g)
+            # Double-click a line's Location (To) to change it (24 Nov: metal and
+            # stones of a melted piece into any location).
+            g.cellDoubleClicked.connect(lambda r, c, p=pane: self._change_location(p, r, c))
             pl.addWidget(g, 1)
             self.grids[pane] = g
             self.tabs.addTab(page, title)
@@ -539,33 +542,67 @@ class StockTransferWidget(_Screen):
         self._render()
 
     def stock_melting(self) -> None:
-        """Stock Melting: a ready piece out, its metal and stones in."""
-        text, ok = QInputDialog.getText(self, "Stock Melting", "Stock No of the piece to melt:")
-        if not ok or not text.strip():
-            return
+        """Stock Melting: ready pieces out (picked from the stock list, as Show
+        Stock), their metal and stones in - into the location asked for, the
+        piece's own by default; each line's location can still be changed by
+        double-clicking it (24 Nov)."""
+        from diagold.ui.ready_vouchers import PiecePicker
+        have = {l.get("_melt") for l in self.lines} | {l.get("stock_item_id") for l in self.lines}
         with SessionLocal() as s:
-            try:
-                item = S.find_item(s, text)
-                if item.status != "in_stock":
-                    raise ProductionError(f"Stock No {item.stock_no} is not in stock.")
-                lines = ST.melting_lines(s, item, _pydate(self.date))
-                info = S.describe(s, item)
-            except ProductionError as exc:
-                QMessageBox.warning(self, "Stock Melting", str(exc))
-                return
-        loc = info["location"]
-        if any(l.get("_melt") == item.id for l in self.lines):
-            QMessageBox.information(self, "Stock Melting",
-                                    f"Stock {info['stock_no']} is already on this voucher.")
+            rows = [S.describe(s, i) for i in s.scalars(
+                select(StockItem).where(StockItem.status == "in_stock")
+                .order_by(StockItem.stock_no)) if i.id not in have]
+        dlg = PiecePicker(rows, "Stock Melting — pick the pieces to melt", self)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.picked():
             return
-        for ln in lines:
-            ln.setdefault("location", loc)
-            ln["_melt"] = item.id
-            if ln["pane"] == "ready_out":
-                ln.update({k: info[k] for k in ("stock_no", "sku", "metal", "colour", "size")})
-        self.lines += lines
+        own = "(the piece's own location)"
+        locs = _locations()
+        name, ok = QInputDialog.getItem(self, "Stock Melting",
+                                        "Metal and stones go into location:",
+                                        [own] + [n for _i, n in locs], 0, False)
+        if not ok:
+            return
+        into = next(((i, n) for i, n in locs if n == name), None)
+        with SessionLocal() as s:
+            for info in dlg.picked():
+                try:
+                    item = s.get(StockItem, info["stock_item_id"])
+                    lines = ST.melting_lines(s, item, _pydate(self.date))
+                except ProductionError as exc:
+                    QMessageBox.warning(self, "Stock Melting", str(exc))
+                    continue
+                for ln in lines:
+                    ln.setdefault("location", info["location"])
+                    ln["_melt"] = item.id
+                    if ln["pane"] == "ready_out":
+                        ln.update({k: info[k] for k in ("stock_no", "sku", "metal", "colour",
+                                                        "size")})
+                    elif into:
+                        ln["location_id"], ln["location"] = into
+                self.lines += lines
         self._render()
         self.tabs.setCurrentIndex(0)
+
+    def _change_location(self, pane: str, r: int, c: int) -> None:
+        key = PANE_COLS[pane][c][0]
+        if key not in ("location", "to_location"):
+            return
+        if pane == "ready_out" or (pane == "ready_transfer" and key == "location"):
+            return                      # a piece leaves where it is
+        rows = [l for l in self.lines if l["pane"] == pane]
+        if not 0 <= r < len(rows):
+            return
+        ln = rows[r]
+        locs = _locations()
+        names = [n for _i, n in locs]
+        cur = ln.get(key) or ""
+        name, ok = QInputDialog.getItem(self, "Location", "Location:", names,
+                                        names.index(cur) if cur in names else 0, False)
+        if not ok:
+            return
+        lid = next(i for i, n in locs if n == name)
+        ln[key], ln[key + "_id"] = name, lid
+        self._render()
 
     def location_transfer(self) -> None:
         dlg = LocationTransferDialog(self)
