@@ -109,7 +109,27 @@ def voucher_spec(vr_type: str) -> CrudSpec:
               fk_label=_location_label),
         Field("mt_type", "Type", type="choice", choices=["Actual"], default="Actual"),
     ]
-    if metal:
+    if vr_type == "metal_adjustment":
+        # As the legacy Metal Adjustment (25 Nov video): Location, MtType,
+        # Metal, Color, AdjWt Dr/Cr, Wastage Wt Dr/Cr, Dust Dr/Cr, IssWt,
+        # RcvdWt, Price Unit, JobNo, Remark.
+        drcr = ["Dr", "Cr"]
+        line_fields += [
+            Field("metal_id", "Metal", type="fk", fk_model=Metal, fk_label=_metal_label),
+            Field("colour", "Color", type="choice", choices=["Y", "W", "R", ""], default="Y"),
+            Field("weight", "AdjWt", type="float", decimals=3),
+            Field("adj_drcr", "Dr/Cr", type="choice", choices=drcr, default="Dr"),
+            Field("wastage_wt", "Wastage Wt", type="float", decimals=3),
+            Field("wastage_drcr", "Dr/Cr ", type="choice", choices=drcr, default="Dr"),
+            Field("dust_wt", "Dust", type="float", decimals=3),
+            Field("dust_drcr", "Dr/Cr  ", type="choice", choices=drcr, default="Dr"),
+            Field("iss_wt", "IssWt", type="float", decimals=3),
+            Field("rcvd_wt", "RcvdWt", type="float", decimals=3),
+            Field("price", "Price", type="float", decimals=2),
+            Field("unit", "Unit", type="choice", choices=["Gms"], default="Gms"),
+            Field("job_no", "JobNo", type="int"),
+        ]
+    elif metal:
         line_fields += [
             Field("metal_id", "Metal", type="fk", fk_model=Metal, fk_label=_metal_label),
             Field("colour", "Colour", type="choice", choices=["Y", "W", "R", ""], default="Y"),
@@ -173,6 +193,10 @@ def voucher_spec(vr_type: str) -> CrudSpec:
                        choices=["INR", "USD", "AED", "EUR"], default="INR", in_list=False),
                  Field("salesperson", "Salesperson", in_list=False),
                  Field("place_of_supply", "Place of Supply", in_list=False)]
+    if vr_type == "metal_adjustment":
+        head += [Field("is_opening", "Opening", type="bool", default=False, in_list=False),
+                 Field("touch_xray", "Touch / X-Ray", type="bool", default=False,
+                       in_list=False)]
     if vr_type in ("metal_issue", "stone_issue"):
         head += [Field("is_opening", "Opening", type="bool", default=False, in_list=False,
                        help_text="The karigar already held this when the system started - "
@@ -195,7 +219,9 @@ def voucher_spec(vr_type: str) -> CrudSpec:
     head += [
         Field("remark", "Narration", in_list=False),
         Field("lines", "Lines", type="child",
-              help_text=("Each line leaves its Location." if vt.direction < 0 else
+              help_text=("Dr puts the weight on the karigar's metal account, Cr takes it "
+                         "off; no stock moves (to be confirmed)." if vt.direction == 0 else
+                         "Each line leaves its Location." if vt.direction < 0 else
                          "Each line comes into its Location.")
               + (" Fine = weight × the metal's title, worked out on save."
                  if metal else (" Price defaults to the Stone SKU's sale price."
@@ -278,9 +304,11 @@ def voucher_spec(vr_type: str) -> CrudSpec:
 
     buttons = [("Print", print_voucher), ("Attach Doc", attach_doc),
                ("Account Information", account_info)]
-    if vr_type == "metal_issue":
+    if vr_type in ("metal_issue", "metal_adjustment"):
         buttons.insert(0, ("Check Bal", lambda w, sel: CheckBalDialog(
             sel.account_id if sel is not None else None, w).exec()))
+    if vr_type == "metal_adjustment":
+        buttons += [("Register", lambda w, _s: _open_metal_register(w))]
     if vr_type == "stone_receipt":
         buttons.insert(0, ("Show O/S", _show_stone_os))
     if vr_type == "stone_issue":
@@ -298,7 +326,8 @@ def voucher_spec(vr_type: str) -> CrudSpec:
         warn=warn, before_delete=before_delete, fixed={"vr_type": vr_type},
         form_width=1180, singular_title=vt.title,
         form_buttons=([("Sold Stones", _sold_stones)] if vr_type == "stone_sale_return"
-                      else []),
+                      else [("Bal.Wt / Use Wt / Loss%", _bal_use_loss)]
+                      if vr_type == "metal_adjustment" else []),
     )
 
 
@@ -563,6 +592,59 @@ def _stone_tags(widget, selected) -> None:
     QMessageBox.information(widget, "Tag", f"Saved {path}")
 
 
+def _open_metal_register(widget) -> None:
+    """Register (Metal Adjustment): the Metal Day Book."""
+    from diagold.ui.reports import ReportWidget, build_specs
+    from diagold.ui.production import show_in_dialog
+    show_in_dialog(widget, ReportWidget(build_specs()["inv_metal_day_book"]), "Metal Register",
+                   (1200, 700))
+
+
+def _bal_use_loss(dialog, _editor) -> None:
+    """The legacy Metal Adjustment's pink box: for the karigar, between two
+    dates - Bal.Wt (his metal balance at the end), Use Wt (metal issued to
+    him in the period) and Loss% (loss on his job steps / that)."""
+    from PySide6.QtCore import QDate
+    from PySide6.QtWidgets import QDateEdit, QDialog, QFormLayout, QMessageBox, QPushButton
+
+    from diagold.db.session import SessionLocal
+    from diagold.services import production as P
+    box = dialog.editors.get("account_id")
+    wid = box.currentData() if box is not None else None
+    if not wid:
+        QMessageBox.information(dialog, "Bal.Wt / Use Wt / Loss%", "Choose the account first.")
+        return
+    d = QDialog(dialog)
+    d.setWindowTitle(f"{box.currentText()} — Bal.Wt / Use Wt / Loss%")
+    form = QFormLayout(d)
+    on = dialog.editors.get("vr_date")
+    day = on.date() if on is not None and hasattr(on, "date") else QDate.currentDate()
+    d0, d1 = QDateEdit(day), QDateEdit(day)
+    for x in (d0, d1):
+        x.setDisplayFormat("dd-MM-yyyy")
+    out = QLabel("")
+    out.setStyleSheet("font-weight:600; background:#F7D6D6; padding:8px;")
+
+    def run() -> None:
+        a, b = d0.date().toPython(), d1.date().toPython()
+        with SessionLocal() as s:
+            rows = P.worker_metal_ledger(s, date(2000, 1, 1), b, worker_id=wid)
+        bal = _dec(rows[-1]["bal_wt"]) if rows else Decimal("0")
+        span = [r for r in rows if r.get("date") and a <= r["date"] <= b]
+        use = sum((_dec(r.get("in_wt")) for r in span), Decimal("0"))
+        loss = sum((_dec(r.get("loss_wt")) for r in span), Decimal("0"))
+        pct = (loss / use * 100) if use else Decimal("0")
+        out.setText(f"Bal.Wt  {bal:.3f}      Use Wt  {use:.3f}      Loss%  {pct:.3f}")
+    form.addRow("From", d0)
+    form.addRow("To", d1)
+    go = QPushButton("Show")
+    go.clicked.connect(run)
+    form.addRow("", go)
+    form.addRow(out)
+    run()
+    d.exec()
+
+
 def _open_register(widget) -> None:
     """Register: the Stone Day Book, where every stone voucher line is listed."""
     from diagold.ui.reports import ReportWidget, build_specs
@@ -751,7 +833,7 @@ SUBMENUS: dict[str, list[tuple[str, str]]] = {
         ("metal_purchase", "Purchase"), ("_load", "Load Metal"),
         ("metal_issue", "Issue Outside / Worker"), ("_tree", "Issue On Tree"),
         ("metal_receipt", "Receipt"), ("_jobcard", "Issue On Job Card"),
-        ("_conv", "Conversion"), ("_adj", "Adjustment"), ("_daybook", "DayBook"),
+        ("_conv", "Conversion"), ("metal_adjustment", "Adjustment"), ("_daybook", "DayBook"),
         ("_recov", "Worker Recovery"), ("_wip", "WIP Rtn"), ("_lena", "Bhav Cut [Lena]"),
         ("_dena", "Bhav Cut [Dena]"), ("_reports", "Reports"),
     ],
@@ -763,7 +845,7 @@ SUBMENUS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 # Sub-screens that are only a note until the client explains them (C-04).
-PENDING_EXPLANATION = {"_load", "_tree", "_conv", "_adj", "_recov", "_wip", "_lena",
+PENDING_EXPLANATION = {"_load", "_tree", "_conv", "_recov", "_wip", "_lena",
                        "_dena", "_extra"}
 
 

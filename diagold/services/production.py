@@ -2802,7 +2802,7 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
         q = q.where(JobVoucher.worker_id == worker_id)
     vouchers = session.scalars(q).all()
     iq = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
-          .where(InvVoucher.vr_type.in_(("metal_issue", "metal_receipt")),
+          .where(InvVoucher.vr_type.in_(("metal_issue", "metal_receipt", "metal_adjustment")),
                  InvVoucher.vr_date <= date_to, InvVoucher.account_id.is_not(None)))
     if worker_id:
         iq = iq.where(InvVoucher.account_id == worker_id)
@@ -2946,7 +2946,15 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
         else:
             iv, line = obj
             wid, metal_id, vr_no = iv.account_id, line.metal_id, iv.vr_no
-            if iv.vr_type == "metal_issue":
+            if iv.vr_type == "metal_adjustment":
+                from diagold.services.inventory import adjustment_weight
+                adj = adjustment_weight(line)
+                vrtype = "MA"
+                if adj >= 0:
+                    inward = adj
+                else:
+                    is_return, outward = True, -adj
+            elif iv.vr_type == "metal_issue":
                 inward, vrtype = _dec(line.weight), "MI"
             else:
                 is_return, vrtype = True, "MR"

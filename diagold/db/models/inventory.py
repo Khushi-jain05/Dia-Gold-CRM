@@ -86,6 +86,15 @@ class InvVoucherLine(Base, PKMixin):
     # Stone lot / certificate number (Stone Sale Register LOTNO, 2 Oct §4.10).
     lot_no: Mapped[str] = mapped_column(String(40), default="")
     remark: Mapped[str] = mapped_column(String(200), default="")
+    # Metal Adjustment (25 Nov video, Inventory > Metal > Adjustment): AdjWt,
+    # Wastage Wt and Dust each Dr (on the karigar) or Cr (to him); Iss Wt /
+    # Rcvd Wt as typed.
+    adj_drcr: Mapped[str] = mapped_column(String(2), default="Dr")
+    wastage_drcr: Mapped[str] = mapped_column(String(2), default="Dr")
+    dust_wt: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
+    dust_drcr: Mapped[str] = mapped_column(String(2), default="Dr")
+    iss_wt: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
+    rcvd_wt: Mapped[float] = mapped_column(Numeric(14, 4), default=0)
 
     voucher: Mapped[InvVoucher] = relationship(back_populates="lines")
 

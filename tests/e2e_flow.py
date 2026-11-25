@@ -1089,6 +1089,24 @@ with SessionLocal() as s:
           (P.stock_balance(s, prim.id, "metal", g24.id, "")[1] - p0).quantize(D("0.001")), D("0.000"))
     s.rollback()
 
+    print("\n== N26c. Metal Adjustment (25 Nov video): the karigar's account, no stock")
+    led0 = P.worker_metal_balance(s, chand.id, FY[1])[0]
+    st0 = P.stock_balance(s, prim.id, "metal", g24.id, "")[1]
+    ma = inv(s, "metal_adjustment", chand, [
+        {"location_id": prim.id, "metal_id": g24.id, "weight": D("1.484"), "adj_drcr": "Dr"},
+        {"location_id": prim.id, "metal_id": g24.id, "weight": D("0"), "wastage_wt": D("0.500"), "wastage_drcr": "Cr"}])
+    check("Metal Adjustment: Dr 1.484, Wastage Cr 0.500 -> karigar +0.984, Primary unchanged",
+          ((P.worker_metal_balance(s, chand.id, FY[1])[0] - led0).quantize(D("0.001")),
+           P.stock_balance(s, prim.id, "metal", g24.id, "")[1] - st0),
+          (D("0.984"), D("0")))
+    mrows = [r for r in P.worker_metal_ledger(s, date(2000, 1, 1), FY[1], worker_id=chand.id) if r["vrno"] == ma.vr_no and r["vrtype"] == "MA"]
+    check("worker ledger: MA rows in 1.484 / out 0.500",
+          sorted(str((r["in_wt"], r["out_wt"])) for r in mrows),
+          sorted(str(x) for x in [(D("1.484"), None), (None, D("0.500"))]))
+    check("Metal Adjustment with only wastage is accepted",
+          INV.check_lines(s, "metal_adjustment", chand.id, [{"location_id": prim.id, "metal_id": g24.id, "wastage_wt": "0.2"}]), None)
+    s.rollback()
+
     print("\n== N27. Stone Analysis: inward / outward as the client lists them (23 Nov)")
     from diagold.services import mis as MIS27
     from diagold.db.models import Location as Loc27, StockMovement as SM27

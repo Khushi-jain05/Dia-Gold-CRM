@@ -77,7 +77,20 @@ VOUCHER_TYPES: dict[str, VoucherType] = {v.key: v for v in (
     # Purchase ▸ Opening Stock ▸ Metal (2 Oct §4.5, T-07): metal a location
     # already held when the system started - no party, no accounts.
     VoucherType("metal_opening", "Metal Opening Stock", "metal", +1, "none", "MO"),
+    # Inventory > Metal > Adjustment (25 Nov video): the karigar's metal
+    # account set right - no stock moves (direction 0). ASSUMPTION to confirm.
+    VoucherType("metal_adjustment", "Metal Adjustment", "metal", 0, "worker", "MA"),
 )}
+
+
+def adjustment_weight(line: Any) -> Decimal:
+    """A Metal Adjustment line on the karigar's metal account: AdjWt, Wastage
+    Wt and Dust, each + when Dr (he owes it), - when Cr (credited to him)."""
+    def signed(wt: Any, drcr: Any) -> Decimal:
+        w = _dec(wt)
+        return -w if (drcr or "Dr").strip().lower().startswith("c") else w
+    return (signed(line.weight, line.adj_drcr) + signed(line.wastage_wt, line.wastage_drcr)
+            + signed(line.dust_wt, line.dust_drcr))
 SALE_TYPES = ("metal_sale", "stone_sale")
 SALE_RETURN_TYPES = ("stone_sale_return",)
 SALES_LEDGER = "Sales A/c"
@@ -154,7 +167,9 @@ def check_lines(session: Session, vr_type: str, account_id: int | None,
     vt = VOUCHER_TYPES[vr_type]
     if not account_id and vt.party != "none":
         return f"Choose the {'supplier' if vt.party == 'supplier' else 'customer' if vt.party == 'customer' else 'worker / party'}."
-    real = [r for r in rows if _dec(r.get("weight")) or int(r.get("pcs") or 0)]
+    real = [r for r in rows if _dec(r.get("weight")) or int(r.get("pcs") or 0)
+            or (vr_type == "metal_adjustment"
+                and (_dec(r.get("wastage_wt")) or _dec(r.get("dust_wt"))))]
     if not real:
         return "Enter at least one line with a weight (or pieces)."
     for n, r in enumerate(real, start=1):
@@ -173,7 +188,7 @@ def shortfalls(session: Session, vr_type: str, rows: list[dict[str, Any]],
                is_opening: bool = False) -> list[str]:
     """Lines that would take a location below zero."""
     vt = VOUCHER_TYPES[vr_type]
-    if vt.direction > 0 or is_opening:
+    if vt.direction >= 0 or is_opening:
         return []
     need: dict[tuple, list[Any]] = {}
     for r in rows:
@@ -211,6 +226,8 @@ def post_voucher(session: Session, v: InvVoucher) -> None:
         for l in v.lines], v.is_opening)
     if short and mode == "block":
         raise ProductionError("Not enough stock:\n" + "\n".join(short))
+    if vt.direction == 0:
+        return          # an adjustment of the karigar's account: no stock moves
     if v.is_opening and vt.direction < 0:
         # ASSUMPTION: an Opening issue records what a karigar already held when
         # the system started - no location is reduced (28 Sept C-04).
@@ -544,7 +561,7 @@ def worker_balances(session: Session, date_to: date) -> list[dict[str, Any]]:
     received back and wastage allowed, in weight and fine, per metal."""
     acc: dict[tuple[int, int], dict[str, Decimal]] = {}
     q = (select(InvVoucherLine, InvVoucher).join(InvVoucher)
-         .where(InvVoucher.vr_type.in_(("metal_issue", "metal_receipt")),
+         .where(InvVoucher.vr_type.in_(("metal_issue", "metal_receipt", "metal_adjustment")),
                 InvVoucher.vr_date <= date_to))
     for line, v in session.execute(q):
         if not v.account_id or not line.metal_id:
@@ -552,7 +569,11 @@ def worker_balances(session: Session, date_to: date) -> list[dict[str, Any]]:
         a = acc.setdefault((v.account_id, line.metal_id), {k: ZERO for k in (
             "issued", "received", "wastage", "fine")})
         w = _dec(line.weight)
-        if v.vr_type == "metal_issue":
+        if v.vr_type == "metal_adjustment":
+            adj = adjustment_weight(line)
+            a["issued" if adj >= 0 else "received"] += abs(adj)
+            a["fine"] += line_fine(session, line.metal_id, adj)
+        elif v.vr_type == "metal_issue":
             a["issued"] += w
             a["fine"] += _dec(line.fine_wt)
         else:
