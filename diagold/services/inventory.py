@@ -137,7 +137,7 @@ def fill_line(session: Session, vr_type: str, row: dict[str, Any]) -> None:
     if vt.material == "metal":
         row["fine_wt"] = line_fine(session, row.get("metal_id"), row.get("weight"))
         row["unit"] = row.get("unit") or "Gms"
-        if vr_type == "metal_receipt":
+        if vr_type in ("metal_receipt", "metal_issue"):
             pct = _dec(row.get("wastage_pct"))
             if pct and not _dec(row.get("wastage_wt")):
                 row["wastage_wt"] = (_dec(row.get("weight")) * pct / 100).quantize(D3)
@@ -574,8 +574,10 @@ def worker_balances(session: Session, date_to: date) -> list[dict[str, Any]]:
             a["issued" if adj >= 0 else "received"] += abs(adj)
             a["fine"] += line_fine(session, line.metal_id, adj)
         elif v.vr_type == "metal_issue":
-            a["issued"] += w
-            a["fine"] += _dec(line.fine_wt)
+            # Wastage on an issue goes on the karigar too (25 Nov).
+            a["issued"] += w + _dec(line.wastage_wt)
+            metal = session.get(Metal, line.metal_id)
+            a["fine"] += _dec(line.fine_wt) + costing.fine_metal_weight(metal, line.wastage_wt)
         else:
             a["received"] += w
             a["wastage"] += _dec(line.wastage_wt)

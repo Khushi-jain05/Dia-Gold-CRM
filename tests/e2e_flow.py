@@ -1107,6 +1107,19 @@ with SessionLocal() as s:
           INV.check_lines(s, "metal_adjustment", chand.id, [{"location_id": prim.id, "metal_id": g24.id, "wastage_wt": "0.2"}]), None)
     s.rollback()
 
+    print("\n== N26d. Wastage % on Metal Receipt / Issue (25 Nov)")
+    b0 = P.worker_metal_balance(s, chand.id, FY[1])[0]
+    rc = inv(s, "metal_receipt", chand, [{"location_id": prim.id, "metal_id": g24.id, "weight": D("40"), "wastage_pct": D("0.8")}])
+    check("receipt 40 g @ 0.8 %: Wastage Wt 0.320, karigar down 40.320",
+          (D(str(rc.lines[0].wastage_wt)).quantize(D("0.001")),
+           (b0 - P.worker_metal_balance(s, chand.id, FY[1])[0]).quantize(D("0.001"))), (D("0.320"), D("40.320")))
+    b1 = P.worker_metal_balance(s, chand.id, FY[1])[0]
+    iv = inv(s, "metal_issue", chand, [{"location_id": prim.id, "metal_id": g24.id, "weight": D("10"), "wastage_pct": D("1")}])
+    check("issue 10 g @ 1 %: Wastage Wt 0.100, karigar up 10.100",
+          (D(str(iv.lines[0].wastage_wt)).quantize(D("0.001")),
+           (P.worker_metal_balance(s, chand.id, FY[1])[0] - b1).quantize(D("0.001"))), (D("0.100"), D("10.100")))
+    s.rollback()
+
     print("\n== N27. Stone Analysis: inward / outward as the client lists them (23 Nov)")
     from diagold.services import mis as MIS27
     from diagold.db.models import Location as Loc27, StockMovement as SM27

@@ -58,6 +58,16 @@ def _fill_amounts(grid, row: int, value) -> None:
     _fill_weight_amount(grid, row, value)
     if grid.cell_value(row, "l_price") is not None:
         _fill_labour_amount(grid, row, value)
+    if grid.cell_value(row, "wastage_pct") is not None:
+        _fill_wastage(grid, row, value)
+
+
+def _fill_wastage(grid, row: int, _value) -> None:
+    """Wastage Wt = Weight x Wastage % / 100 as it is typed (25 Nov: 40 g at
+    0.800 % = 0.320); a Wastage Wt typed over it stays until either changes."""
+    pct = _dec(grid.cell_value(row, "wastage_pct"))
+    wt = _dec(grid.cell_value(row, "weight"))
+    grid.set_cell_value(row, "wastage_wt", (wt * pct / 100).quantize(Decimal("0.001")))
 
 
 def _fill_labour_amount(grid, row: int, _value) -> None:
@@ -148,9 +158,12 @@ def voucher_spec(vr_type: str) -> CrudSpec:
                 Field("l_unit", "L Unit", type="choice", choices=["Gms", "Pcs"], default="Gms"),
                 Field("l_amount", "L Amount", type="float", decimals=2, readonly=True),
             ]
-        if vr_type == "metal_receipt":
+        if vr_type in ("metal_receipt", "metal_issue"):
+            # Wastage on a receipt comes off the karigar's metal account, on
+            # an issue it goes on it (25 Nov).
             line_fields += [
-                Field("wastage_pct", "Wastage %", type="float", decimals=3),
+                Field("wastage_pct", "Wastage %", type="float", decimals=3,
+                      on_change=_fill_wastage),
                 Field("wastage_wt", "Wastage Wt", type="float", decimals=3),
             ]
         if vr_type == "metal_issue":
@@ -227,9 +240,10 @@ def voucher_spec(vr_type: str) -> CrudSpec:
                  if metal else (" Price defaults to the Stone SKU's sale price."
                                 if vt.party == "customer"
                                 else " Price defaults to the Stone SKU's cost price."))
-              + (" Wastage % of the weight received is allowed to the karigar "
-                 "(how wastage is settled: 28 Sept C-04)." if vr_type == "metal_receipt"
-                 else ""),
+              + (" Wastage Wt = Weight x Wastage % - it comes off the karigar's metal "
+                 "account." if vr_type == "metal_receipt" else
+                 " Wastage Wt = Weight x Wastage % - it goes on the karigar's metal "
+                 "account." if vr_type == "metal_issue" else ""),
               child=ChildSpec(model=InvVoucherLine, fk_attr="voucher_id", order_by="sno",
                               summary=_summary(vt.material), height=200,
                               row_template={"mt_type": "Actual",

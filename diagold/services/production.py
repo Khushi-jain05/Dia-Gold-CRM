@@ -2955,11 +2955,13 @@ def worker_metal_ledger(session: Session, date_from: date, date_to: date, *,
                 else:
                     is_return, outward = True, -adj
             elif iv.vr_type == "metal_issue":
-                inward, vrtype = _dec(line.weight), "MI"
+                # Wastage on an issue goes on the karigar's account (25 Nov).
+                inward, vrtype = _dec(line.weight) + _dec(line.wastage_wt), "MI"
             else:
+                # Wastage on a receipt always comes off his account (25 Nov:
+                # "wastage ka weight less hoga worker ke ledger me").
                 is_return, vrtype = True, "MR"
-                outward = _dec(line.weight)
-                allowed = _dec(line.wastage_wt)
+                outward = _dec(line.weight) + _dec(line.wastage_wt)
                 alw_pct = _dec(line.wastage_pct) if line.wastage_pct else None
             job_no, job_id, sku, process = (line.job_no or ""), None, "", ""
         pf = fine_of if fine_of is not None else pf_of(metal_id)
