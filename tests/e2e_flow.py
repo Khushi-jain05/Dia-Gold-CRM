@@ -579,7 +579,8 @@ with SessionLocal() as s:
     refused("dispatch without Ship By", lambda: S.dispatch(s, sale2, ship_by=""))
     msg = S.dispatch(s, sale2, ship_by="Courier", ship_no="BD123", ship_date=T, expected_date=date(2026, 10, 3)); s.commit()
     check("sandbox message logged to 91 + number", (msg.status, msg.to_number), ("sandbox", "919876543210"))
-    check("message text", msg.body, f"Dear {kk.name}, your goods (Invoice {sale2.vr_no}, 1 pcs) have been dispatched from Dia Gold on 30-09-2026 via Courier, tracking BD123. Expected delivery: 03-10-2026.")
+    # Only text, only that the order has left (25 Nov, Pradeep Sir).
+    check("message text", msg.body, f"Dear {kk.name}, your order has been dispatched from Dia Gold.")
     check("shipping analysis days = ship - order", [(r["tracking"], r["days"]) for r in MIS.shipping_analysis(s, *FY) if r["vrno"] == sale2.vr_no], [("BD123", (T - o.order_date).days)])
     check("goods not delivered drops a dispatched sale", sale2.vr_no in [r["vrno"] for r in MIS.goods_not_delivered(s, *FY)], False)
     SET.set_setting(s, "whatsapp.provider", "meta")

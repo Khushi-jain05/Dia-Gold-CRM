@@ -249,9 +249,7 @@ SETTINGS_TREE: tuple[Setting, ...] = (
     Setting("Others", "whatsapp.language", "WhatsApp: template language", "text", "en",
             "Template language code, e.g. en or hi"),
     Setting("Others", "whatsapp.dispatch_text", "WhatsApp: message text", "text",
-            "Dear {party}, your goods (Invoice {vrno}, {pcs} pcs) have been dispatched from "
-            "Dia Gold on {ship_date} via {ship_by}{tracking}. Expected delivery: "
-            "{expected_date}.",
+            "Dear {party}, your order has been dispatched from Dia Gold.",
             "The message; {party} {vrno} {pcs} {ship_date} {ship_by} {tracking} "
             "{tracking_no} {expected_date} are filled in"),
     Setting("Others", "whatsapp.test_number", "WhatsApp: test number", "text", "",

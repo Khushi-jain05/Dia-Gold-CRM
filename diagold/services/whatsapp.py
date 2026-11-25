@@ -43,9 +43,19 @@ TEMPLATE = "whatsapp.template_name"
 LANGUAGE = "whatsapp.language"
 TEXT = "whatsapp.dispatch_text"
 TEST_NO = "whatsapp.test_number"
-DEFAULT_TEXT = ("Dear {party}, your goods (Invoice {vrno}, {pcs} pcs) have been dispatched "
-                "from Dia Gold on {ship_date} via {ship_by}{tracking}. Expected delivery: "
-                "{expected_date}.")
+# Only this, as plain text (25 Nov, Pradeep Sir: "Customer ko msg jana chaiye
+# only ki apka order nikl chuka hain. Bss itna saa" - "Only text").
+DEFAULT_TEXT = "Dear {party}, your order has been dispatched from Dia Gold."
+# The longer text the options carried before; saved as it was, it means "the
+# default" and gives way to the short one.
+OLD_DEFAULT = ("Dear {party}, your goods (Invoice {vrno}, {pcs} pcs) have been dispatched "
+               "from Dia Gold on {ship_date} via {ship_by}{tracking}. Expected delivery: "
+               "{expected_date}.")
+
+
+def _text(session: Session) -> str:
+    t = (_opt(session, TEXT) or "").strip()
+    return DEFAULT_TEXT if not t or t == OLD_DEFAULT else t
 TEMPLATE_VARS = ("party", "vrno", "pcs", "ship_date", "ship_by", "tracking_no",
                  "expected_date")
 GRAPH = "https://graph.facebook.com/v20.0/{phone_id}/messages"
@@ -77,8 +87,18 @@ def dispatch_values(session: Session, v: ReadyVoucher) -> dict[str, str]:
             "expected_date": _d(v.expected_date)}
 
 
+def template_vars(text: str) -> list[str]:
+    """The values the approved template takes, in its order: the {names} the
+    message text uses (25 Nov: the short text has only {party})."""
+    out: list[str] = []
+    for name in re.findall(r"{(\w+)}", text or ""):
+        if name in TEMPLATE_VARS and name not in out:
+            out.append(name)
+    return out
+
+
 def dispatch_text(session: Session, v: ReadyVoucher) -> str:
-    text = _opt(session, TEXT) or DEFAULT_TEXT
+    text = _text(session)
     vals = dispatch_values(session, v)
     try:
         return text.format(**vals)
@@ -104,7 +124,8 @@ def _send_meta(session: Session, to: str, body: str, values: dict[str, str]) -> 
             "template": {"name": template,
                          "language": {"code": _opt(session, LANGUAGE) or "en"},
                          "components": [{"type": "body", "parameters": [
-                             {"type": "text", "text": values[k]} for k in TEMPLATE_VARS]}]}}
+                             {"type": "text", "text": values.get(k, "")}
+                             for k in template_vars(_text(session))]}]}}
     else:
         # Free text is accepted only inside a 24-hour customer-service window.
         payload = {"messaging_product": "whatsapp", "to": to, "type": "text",
