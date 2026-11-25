@@ -210,11 +210,20 @@ class FloatingList(QFrame):
         lay.addLayout(_title_row(self, self.title))
         self.list = QListWidget()
         self.list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # Light whatever the Mac's appearance (25 Nov: black in dark mode).
+        self.list.setStyleSheet("QListWidget { background: #FFFFFF; color: #111111; "
+                                "border: 1px solid #DDDDDD; }"
+                                "QListWidget::item:selected { background: #F3E3A6; "
+                                "color: #111111; }")
+        self.title.setStyleSheet("font-weight: 600; border: none; color: #111111;")
         self.list.itemClicked.connect(self._pick)
         lay.addWidget(self.list, 1)
         self.hide()
 
     def show_for(self, combo: QComboBox) -> None:
+        win = self.parentWidget()
+        if win is None or win.height() < 200 or win is not combo.window():
+            return                  # never inside a pop-up or a strip of a window
         if combo is not self.combo:
             self.combo = combo
             label = field_label(combo)
@@ -248,6 +257,14 @@ class FloatingList(QFrame):
         if x < 0:
             x = max(win.width() - self.WIDTH - 4, 0)
         y = min(max(at.y(), 4), max(win.height() - h - 4, 0))
+        from PySide6.QtCore import QRect
+        box = QRect(at, combo.size())
+        if QRect(x, y, self.WIDTH, h).intersects(box):
+            # Never over the box being typed in (25 Nov: the Supplier box was
+            # covered and nothing could be typed): under it instead.
+            x = min(max(at.x(), 0), max(win.width() - self.WIDTH - 4, 0))
+            y = at.y() + combo.height() + 4
+            h = max(min(h, win.height() - y - 4), 80)
         self.setGeometry(x, y, self.WIDTH, h)
 
     def _fill(self, typed: str) -> None:
