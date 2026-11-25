@@ -476,7 +476,8 @@ _LINE_FIELDS = ("location_id", "job_id", "product_sku_id", "c_ref", "metal_id", 
                 "metal_rate", "metal_amount", "st_wt", "stone_amount", "setting_amount",
                 "labour_rate", "labour_per", "labour", "other_amount", "total",
                 "margin_pct", "margin_amount", "total_value", "tag_pct", "tag_price",
-                "order_line_id", "source_line_id", "remark")
+                "order_line_id", "source_line_id", "remark", "st_handling",
+                "finding_labour", "stamp")
 
 
 def _accounts(session: Session, v: ReadyVoucher) -> None:
@@ -524,6 +525,7 @@ def _add_line(session: Session, v: ReadyVoucher, ln: dict[str, Any], sno: int,
     vr_type, t = v.vr_type, READY_TYPES[v.vr_type]
     row = ReadyVoucherLine(voucher_id=v.id, sno=sno,
                            stones_json=json.dumps(ln.get("stones") or [], default=str),
+                           breakup_json=json.dumps(ln.get("breakup") or {}, default=str),
                            **{k: ln[k] for k in _LINE_FIELDS if k in ln
                               and ln[k] is not None})
     if vr_type in NEW_PIECES:
@@ -764,7 +766,7 @@ def update_ready(session: Session, v: ReadyVoucher, head: dict[str, Any],
         for k in ("metal_rate", "metal_amount", "fine_wt", "st_wt", "stone_amount",
                   "setting_amount", "labour_rate", "labour_per", "labour", "other_amount",
                   "total", "old_wt", "remark", "margin_pct", "margin_amount", "total_value",
-                  "tag_pct", "tag_price"):
+                  "tag_pct", "tag_price", "st_handling", "finding_labour", "stamp"):
             if k in ch:
                 setattr(line, k, ch[k])
         if v.vr_type in NEW_PIECES and line.stock_item_id and ch:
@@ -778,6 +780,8 @@ def update_ready(session: Session, v: ReadyVoucher, head: dict[str, Any],
                     item.tag_text = f"{_dec(line.tag_price).normalize():f}"
         if "stones" in ch:
             line.stones_json = json.dumps(ch["stones"], default=str)
+        if "breakup" in ch:
+            line.breakup_json = json.dumps(ch["breakup"] or {}, default=str)
         total += _dec((line.total_value if v.vr_type in NEW_PIECES else None) or line.total)
     v.total = _money(total)
     INV.remove_entries(session, v.vr_type, v.vr_no)

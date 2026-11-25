@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -520,26 +521,281 @@ LINE_COLS: list[tuple[str, str, bool]] = [
 # Purchase (19 Nov video): metal, stones, labour, Total Amount, then Margin %,
 # Margin Amount, Price Per, Total Value, Tag %, Tag Price.
 PURCHASE_COLS: list[tuple[str, str, bool]] = [
-    ("location", "Location", False), ("job_no", "Job No", False), ("sku", "SKU", False),
-    ("c_ref", "C Ref", False), ("metal", "Metal", False), ("title", "Title", False),
-    ("loss_pct", "Loss%", False), ("colour", "Color", False), ("size", "Size", False),
-    ("pcs", "Pcs", False), ("gross_wt", "Gross Wt", True), ("net_wt", "Net Wt", True),
+    ("sno", "Sno", False),
+    ("location", "Location", True), ("job_no", "Job No", False), ("sku", "SKU", True),
+    ("c_ref", "C Ref", True), ("metal", "Metal", True), ("title", "Title", False),
+    ("loss_pct", "Loss%", True), ("colour", "Color", True), ("size", "Size", True),
+    ("pcs", "Pcs", True), ("gross_wt", "Gross Wt", True), ("net_wt", "Net Wt", True),
     ("st_wt", "St Wt", False), ("fine_wt", "FineWt", False),
     ("fine_loss", "Fine With\nLoss", False), ("metal_rate", "Metal\nRate", True),
     ("metal_amount", "Metal\nAmount", False), ("stone_amount", "Stone\nAmount", False),
-    ("setting_amount", "Setting\nAmount", True), ("other_amount", "Ex Metal /\nOther", True),
-    ("labour_rate", "Labour\nPrice", True), ("labour_per", "Unit", False),
+    ("setting_amount", "Setting\nAmount", True), ("other_amount", "Ex Metal\nAmt", True),
+    ("st_handling", "St.Handling\nTotal", True), ("finding_labour", "Finding\nLabour", False),
+    ("labour_rate", "Labour\nPrice", True), ("labour_per", "Unit", True),
     ("labour", "Labour", False), ("total", "Total\nAmount", False),
     ("margin_pct", "Margin %", True), ("margin_amount", "Margin\nAmount", False),
     ("price_per", "Price Per", False), ("total_value", "Total\nValue", False),
     ("tag_pct", "Tag %", True), ("tag_price", "Tag Price", True),
+    ("stamp", "Stamp", True), ("snap", "Snap", False),
 ]
+# Typed as text on the purchase grid (24 Nov: the line is typed in the grid as
+# the legacy one - Location / SKU / Metal / Unit from their lists).
+_TEXT_KEYS = {"location", "sku", "c_ref", "metal", "colour", "size", "labour_per", "stamp"}
+_UNIT_SHOW = {"gm": "NetWt", "gw": "GrossWt", "pcs": "Pcs"}
 _DECIMALS = {"title": 0, "loss_pct": 2, "old_wt": 3, "gross_wt": 3, "net_wt": 3, "fine_wt": 3,
              "fine_loss": 3,
              "st_wt": 3, "metal_rate": 2, "metal_amount": 2, "stone_amount": 2,
              "setting_amount": 2, "labour_rate": 2, "labour": 2, "other_amount": 2, "total": 2,
              "margin_pct": 2, "margin_amount": 2, "price_per": 2, "total_value": 2,
-             "tag_pct": 2, "tag_price": 0}
+             "tag_pct": 2, "tag_price": 0, "st_handling": 2, "finding_labour": 2}
+
+
+def _unit_code(text: str) -> str:
+    t = (text or "").strip().lower()
+    if t.startswith("p"):
+        return "pcs"
+    if t.startswith("g") and t not in ("gm", "g"):
+        return "gw"
+    return "gm"
+
+
+class _ListDelegate(QStyledItemDelegate):
+    """A grid cell typed from a list (Location, SKU, Metal, Unit): an editable
+    drop-down that finds what is typed anywhere in the names."""
+
+    def __init__(self, items, parent=None):
+        super().__init__(parent)
+        self._items = items             # a list, or a function giving one
+
+    def createEditor(self, parent, option, index):  # noqa: N802 - Qt name
+        from PySide6.QtWidgets import QCompleter
+        cb = QComboBox(parent)
+        cb.setEditable(True)
+        cb.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        items = self._items() if callable(self._items) else self._items
+        cb.addItems(list(items))
+        comp = QCompleter(list(items), cb)
+        comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        comp.setFilterMode(Qt.MatchFlag.MatchContains)
+        comp.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        cb.setCompleter(comp)
+        return cb
+
+    def setEditorData(self, editor, index):  # noqa: N802
+        editor.setCurrentText(str(index.data() or ""))
+        editor.lineEdit().selectAll()
+
+    def setModelData(self, editor, model, index):  # noqa: N802
+        model.setData(index, editor.currentText().strip())
+
+
+class PurchaseBreakupDialog(QDialog):
+    """The legacy breakup pop-up of a purchased piece (24 Nov video): headed
+    "SKU : ER-1730" - Stone (Location, SSKU from the List of Stone SKU, Size,
+    Pcs, Weight, Price Per, Amount), Finding (Finding, Metal, Fineness,
+    Color, Pcs, Weight, Lab Price Per, Lab Value), Labour (Labour Type,
+    Price On, rate, Total) and Metal (Metal, Col, Purity, Weight, Price,
+    Amount). OK carries the stones, Finding Labour, Labour and Ex Metal Amt
+    back to the line."""
+
+    FIND_COLS = ("Finding", "Metal", "Fineness", "Color", "Pcs", "Weight", "Lab Price Per",
+                 "Lab Value")
+    METAL_COLS = ("Metal", "Col", "Purity", "Weight", "Price", "Amount")
+
+    def __init__(self, ln: dict, parent=None):
+        super().__init__(parent)
+        self.ln = ln
+        self.setWindowTitle(f"SKU : {ln.get('sku') or ''}")
+        self.setMinimumSize(980, 680)
+        bk = dict(ln.get("breakup") or {})
+        with SessionLocal() as s:
+            from diagold.services import mfg_pricing, production
+            self._metals = {m.name.upper(): (m.name, float(mfg_pricing.title_of(m)),
+                                             m.colour or "",
+                                             float(production.metal_price(s, m.id) or 0))
+                            for m in s.scalars(select(Metal).order_by(Metal.name))}
+        lay = QVBoxLayout(self)
+        head = QLabel(f"  SKU : {ln.get('sku') or ''}")
+        head.setStyleSheet("background:#4a4a12; color:white; font-weight:700; padding:4px;")
+        lay.addWidget(head)
+
+        def cap(t: str) -> QLabel:
+            lab = QLabel(t)
+            lab.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lab.setStyleSheet("font-weight:700;")
+            return lab
+        # -- Stone: the Stone Breakup grid, its own OK / Cancel hidden --------
+        lay.addWidget(cap("Stone"))
+        self.stone = StoneBreakupDialog(ln.get("stones") or [], self, full=True)
+        self.stone.setWindowFlags(Qt.WindowType.Widget)
+        self.stone.setMinimumSize(0, 220)
+        self.stone.layout().setContentsMargins(0, 0, 0, 0)
+        for bb in self.stone.findChildren(QDialogButtonBox):
+            for b in bb.buttons():
+                if bb.buttonRole(b) in (QDialogButtonBox.ButtonRole.AcceptRole,
+                                        QDialogButtonBox.ButtonRole.RejectRole):
+                    b.hide()
+        self.stone.grid.itemChanged.connect(lambda _i: self._labour_total())
+        lay.addWidget(self.stone, 3)
+        # -- Finding and Labour side by side --------------------------------
+        mid = QHBoxLayout()
+        fbox = QVBoxLayout()
+        fbox.addWidget(cap("Finding"))
+        self.find = self._table(self.FIND_COLS, bk.get("findings") or [],
+                                ("finding", "metal", "fineness", "colour", "pcs", "weight",
+                                 "price", "value"))
+        self.find.itemChanged.connect(lambda it: self._row_calc(self.find, it, finding=True))
+        fbox.addWidget(self.find, 1)
+        fbox.addLayout(self._row_buttons(self.find))
+        mid.addLayout(fbox, 3)
+        lbox = QVBoxLayout()
+        lbox.addWidget(cap("Labour"))
+        lform = QFormLayout()
+        self.lab_type = QLineEdit(bk.get("labour_type") or "STD")
+        self.lab_rate = QDoubleSpinBox()
+        self.lab_rate.setDecimals(2)
+        self.lab_rate.setRange(0, 1e9)
+        self.lab_rate.setValue(float(ln.get("labour_rate") or 0))
+        self.lab_on = QComboBox()
+        self.lab_on.addItems(["NetWt", "GrossWt", "Pcs"])
+        self.lab_on.setCurrentText(_UNIT_SHOW.get(ln.get("labour_per") or "gm", "NetWt"))
+        self.lab_total = QLabel()
+        self.lab_total.setStyleSheet("font-weight:700;")
+        for label, w in (("Labour Type", self.lab_type), ("Price", self.lab_rate),
+                         ("Price On", self.lab_on), ("Total", self.lab_total)):
+            lform.addRow(label, w)
+        self.lab_rate.valueChanged.connect(lambda _v: self._labour_total())
+        self.lab_on.currentIndexChanged.connect(lambda _i: self._labour_total())
+        lbox.addLayout(lform)
+        lbox.addStretch(1)
+        mid.addLayout(lbox, 2)
+        lay.addLayout(mid, 2)
+        # -- Metal ------------------------------------------------------------
+        lay.addWidget(cap("Metal"))
+        self.metal = self._table(self.METAL_COLS, bk.get("metals") or [],
+                                 ("metal", "colour", "purity", "weight", "price", "amount"))
+        self.metal.itemChanged.connect(lambda it: self._row_calc(self.metal, it, finding=False))
+        lay.addWidget(self.metal, 2)
+        lay.addLayout(self._row_buttons(self.metal))
+        self.sums = QLabel()
+        self.sums.setStyleSheet("font-weight:700;")
+        lay.addWidget(self.sums)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        for t in (self.find, self.metal):
+            if t.rowCount() == 0:
+                self._add_row(t)
+        self._labour_total()
+
+    # -- small grids --------------------------------------------------------
+    def _table(self, heads, rows, keys) -> QTableWidget:
+        t = QTableWidget(0, len(heads))
+        t.setHorizontalHeaderLabels(list(heads))
+        t.verticalHeader().setVisible(False)
+        t.setProperty("_keys", keys)
+        auto_fit(t)
+        for row in rows:
+            self._add_row(t, [row.get(k, "") for k in keys])
+        return t
+
+    def _row_buttons(self, t: QTableWidget) -> QHBoxLayout:
+        h = QHBoxLayout()
+        for label, fn in (("Add Row", lambda: self._add_row(t)),
+                          ("Remove Row", lambda: self._drop_row(t))):
+            b = QPushButton(label)
+            b.setAutoDefault(False)
+            b.clicked.connect(fn)
+            h.addWidget(b)
+        h.addStretch(1)
+        return h
+
+    def _add_row(self, t: QTableWidget, values=None) -> None:
+        t.blockSignals(True)
+        r = t.rowCount()
+        t.insertRow(r)
+        for c in range(t.columnCount()):
+            v = (values or [""] * t.columnCount())[c]
+            it = QTableWidgetItem("" if v in (None, 0, "0") else str(v))
+            if c == t.columnCount() - 1:          # the amount is worked out
+                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            else:
+                it.setBackground(TINT_RECEIVE)
+            t.setItem(r, c, it)
+        t.blockSignals(False)
+
+    def _drop_row(self, t: QTableWidget) -> None:
+        if t.currentRow() >= 0:
+            t.removeRow(t.currentRow())
+            self._labour_total()
+
+    def _row_calc(self, t: QTableWidget, it: QTableWidgetItem, *, finding: bool) -> None:
+        r = it.row()
+        t.blockSignals(True)
+        if it.column() == 1 and finding or it.column() == 0 and not finding:
+            # A metal typed: its purity, colour and the day's rate fill in.
+            hit = self._metals.get(it.text().strip().upper())
+            if hit is not None:
+                name, purity, col, rate = hit
+                it.setText(name)
+                if finding:
+                    t.item(r, 2).setText(t.item(r, 2).text() or f"{purity:g}")
+                    t.item(r, 3).setText(t.item(r, 3).text() or col)
+                else:
+                    t.item(r, 1).setText(t.item(r, 1).text() or col)
+                    t.item(r, 2).setText(t.item(r, 2).text() or f"{purity:g}")
+                    t.item(r, 4).setText(t.item(r, 4).text() or f"{rate:.2f}")
+        if finding:     # Lab Value = Weight x Lab Price Per (Pcs x it with no weight)
+            wt, pcs, price = (_num(t.item(r, c).text()) or D(0) for c in (5, 4, 6))
+            val = (wt or pcs) * price
+        else:           # Amount = Weight x Price
+            wt, price = (_num(t.item(r, c).text()) or D(0) for c in (3, 4))
+            val = wt * price
+        t.item(r, t.columnCount() - 1).setText(f"{val:.2f}" if val else "")
+        t.blockSignals(False)
+        self._labour_total()
+
+    @staticmethod
+    def _rows(t: QTableWidget) -> list[dict]:
+        keys = t.property("_keys")
+        out = []
+        for r in range(t.rowCount()):
+            row = {k: (t.item(r, c).text().strip() if t.item(r, c) else "")
+                   for c, k in enumerate(keys)}
+            if any(row.values()):
+                out.append(row)
+        return out
+
+    def _sum(self, t: QTableWidget) -> Decimal:
+        return sum((_num(t.item(r, t.columnCount() - 1).text()) or D(0)
+                    for r in range(t.rowCount())), D(0)).quantize(D("0.01"))
+
+    def _net(self) -> Decimal:
+        return S.net_from_gross(self.ln.get("gross_wt"), self.stone.stones())
+
+    def _labour_total(self) -> None:
+        per = _unit_code(self.lab_on.currentText())
+        base = D(str(self.ln.get("gross_wt") or 0)) if per == "gw" else self._net()
+        self._labour = S.labour_amount(self.lab_rate.value(), per, base, self.ln.get("pcs"))
+        self.lab_total.setText(f"{self._labour:,.2f}")
+        st = sum((S.stone_amount(x) for x in self.stone.stones()), D(0))
+        self.sums.setText(f"Stone {st:,.2f}  ·  Finding Labour {self._sum(self.find):,.2f}  ·  "
+                          f"Labour {self._labour:,.2f}  ·  Metal {self._sum(self.metal):,.2f}  ·  "
+                          f"Net Wt {self._net():.3f}")
+
+    def apply(self, ln: dict) -> None:
+        """Carry the pop-up back to the purchase line."""
+        ln["stones"] = self.stone.stones()
+        ln["st_wt"] = sum((D(x["weight"]) for x in ln["stones"]), D(0))
+        ln["net_wt"] = self._net()
+        ln["finding_labour"] = self._sum(self.find)
+        ln["other_amount"] = self._sum(self.metal)
+        ln["labour_rate"] = D(str(round(self.lab_rate.value(), 2)))
+        ln["labour_per"] = _unit_code(self.lab_on.currentText())
+        ln["breakup"] = {"findings": self._rows(self.find), "metals": self._rows(self.metal),
+                         "labour_type": self.lab_type.text().strip()}
 
 
 class ReadyVoucherWidget(_Screen):
@@ -740,6 +996,8 @@ class ReadyVoucherWidget(_Screen):
                                             if self.cols[c][0] in ("st_wt", "stone_amount")
                                             else None)
         auto_fit(self.grid)
+        if new:
+            self._inline_lists()
         self.outer.addWidget(self.grid, 1)
         self.narration = QLineEdit()
         self.narration.setPlaceholderText("Narration")
@@ -848,7 +1106,11 @@ class ReadyVoucherWidget(_Screen):
         self.outer.insertLayout(idx + 2, bill)
         # -- the buttons, at the foot, in the legacy order -------------------
         foot = FlowLayout(spacing=6)
-        order = ["Add", "Edit", "Save", "Delete", "Add Piece", "Stone Breakup", "Remove Line",
+        # The line is typed in the grid (24 Nov), so no Add Piece form.
+        ap = buttons.pop("Add Piece", None)
+        if ap is not None:
+            ap.hide()
+        order = ["Add", "Edit", "Save", "Delete", "Stone Breakup", "Remove Line",
                  "BreakUp Sheet", "Tag Print", "Print", "Packing List", "Picture Invoice",
                  "SKU Search", "St. Summ.", "Attach Doc"]
         names = {"Picture Invoice": "Catalog / Picture Invoice"}
@@ -1145,7 +1407,10 @@ class ReadyVoucherWidget(_Screen):
         self.grid.blockSignals(True)
         self.grid.setRowCount(0)
         total = D(0)
-        for ln in self.lines:
+        inline = self.vr_type in S.NEW_PIECES
+        rows = self.lines + ([{"location": self._default_loc()[1], "_blank": True}]
+                             if inline else [])
+        for i, ln in enumerate(rows):
             r = self.grid.rowCount()
             self.grid.insertRow(r)
             # Fine With Loss = FineWt grossed up by the Loss % (as on the MFG transfer).
@@ -1154,6 +1419,10 @@ class ReadyVoucherWidget(_Screen):
                                if fine not in (None, "") else None)
             for c, (k, _h, editable) in enumerate(self.cols):
                 v = ln.get(k)
+                if k == "sno":
+                    v = "" if ln.get("_blank") else i + 1
+                elif k == "labour_per" and inline and not ln.get("_blank"):
+                    v = _UNIT_SHOW.get(v or "gm", v)
                 if k in _DECIMALS and v not in (None, ""):
                     v = f"{D(str(v)):,.{_DECIMALS[k]}f}"
                 it = _item(v if v is not None else "", TINT_RECEIVE if editable else None,
@@ -1163,6 +1432,8 @@ class ReadyVoucherWidget(_Screen):
                     flags |= Qt.ItemFlag.ItemIsEditable
                 it.setFlags(flags)
                 self.grid.setItem(r, c, it)
+            if ln.get("_blank"):
+                continue
             # A purchase is booked at its Total Value (Total Amount + Margin).
             total += D(str((ln.get("total_value") if self.vr_type in S.NEW_PIECES else None)
                            or ln.get("total") or 0))
@@ -1205,6 +1476,9 @@ class ReadyVoucherWidget(_Screen):
     def _edited(self, it: QTableWidgetItem) -> None:
         r, c = it.row(), it.column()
         k = self.cols[c][0]
+        if self.vr_type in S.NEW_PIECES:
+            self._edited_inline(r, c, k, it.text().strip())
+            return
         ln = self.lines[r]
         val = _num(it.text())
         ln[k] = val if val is not None else D(0)
@@ -1220,6 +1494,106 @@ class ReadyVoucherWidget(_Screen):
         self._render()
         self.grid.selectRow(r)
 
+    # -- the purchase line typed in the grid (24 Nov video) -------------------
+    def _inline_lists(self) -> None:
+        with SessionLocal() as s:
+            self._locs = {l.name: l.id for l in s.scalars(select(Location).order_by(Location.name))}
+            self._metal_ids = {m.name: m.id for m in s.scalars(select(Metal).order_by(Metal.name))}
+            self._sku_codes = list(s.scalars(select(ProductSku.sku_code)
+                                             .order_by(ProductSku.sku_code)))
+        for key, items in (("location", list(self._locs)), ("sku", self._sku_codes),
+                           ("metal", list(self._metal_ids)),
+                           ("labour_per", ["NetWt", "GrossWt", "Pcs"])):
+            c = next(i for i, x in enumerate(self.cols) if x[0] == key)
+            self.grid.setItemDelegateForColumn(c, _ListDelegate(items, self.grid))
+
+    def _default_loc(self) -> tuple[int | None, str]:
+        locs = getattr(self, "_locs", {})
+        if self.lines:
+            return self.lines[-1].get("location_id"), self.lines[-1].get("location") or ""
+        if "Primary" in locs:
+            return locs["Primary"], "Primary"
+        return next(((i, n) for n, i in locs.items()), (None, ""))
+
+    def _blank_line(self) -> dict:
+        lid, lname = self._default_loc()
+        ln = {"location_id": lid, "location": lname, "pcs": 1, "stock_no": "new",
+              "stones": [], "labour_per": "gm", "colour": ""}
+        if self.lines:          # the Margin % / Tag % of the line above carry on
+            for k in ("margin_pct", "tag_pct"):
+                ln[k] = self.lines[-1].get(k)
+        return ln
+
+    def _set_metal(self, s, ln: dict, metal_id: int | None) -> None:
+        from diagold.services import mfg_pricing, production
+        m = s.get(Metal, metal_id) if metal_id else None
+        ln["metal_id"], ln["metal"] = (m.id, m.name) if m else (None, "")
+        if m is not None:
+            ln["title"] = mfg_pricing.title_of(m)
+            ln["metal_rate"] = production.metal_price(s, m.id, _pydate(self.date))
+            ln["colour"] = ln.get("colour") or m.colour or ""
+
+    def _edited_inline(self, r: int, c: int, k: str, text: str) -> None:
+        if r >= len(self.lines):
+            if not text:
+                return
+            self.lines.append(self._blank_line())
+        ln = self.lines[r]
+        bad = ""
+        if k == "location":
+            if text in self._locs:
+                ln["location_id"], ln["location"] = self._locs[text], text
+            else:
+                bad = f"No location '{text}'."
+        elif k == "sku":
+            with SessionLocal() as s:
+                p = s.scalar(select(ProductSku).where(ProductSku.sku_code == text))
+                if p is None:
+                    bad = f"No SKU '{text}' in the SKU master."
+                else:
+                    ln.update({"product_sku_id": p.id, "sku": p.sku_code,
+                               "photo": p.photo or "", "snap": p.snap or "",
+                               "size": ln.get("size") or p.jewelry_size or ""})
+                    self._set_metal(s, ln, p.metal_id or ln.get("metal_id"))
+        elif k == "metal":
+            if text in self._metal_ids:
+                with SessionLocal() as s:
+                    self._set_metal(s, ln, self._metal_ids[text])
+            else:
+                bad = f"No metal '{text}'."
+        elif k == "labour_per":
+            ln[k] = _unit_code(text)
+        elif k in _TEXT_KEYS:
+            ln[k] = text
+        else:
+            val = _num(text)
+            ln[k] = (int(val) if k == "pcs" and val is not None else val) \
+                if val is not None else (1 if k == "pcs" else D(0))
+            if k == "gross_wt":
+                ln["net_wt"] = S.net_from_gross(ln[k], ln.get("stones") or [])
+            elif k == "tag_price":
+                ln["_tag_typed"] = bool(ln[k])
+        self._refine(ln)
+        self._recalc_line(ln)
+        self._render()
+        if bad:
+            _warn(self, self.t.title, bad)
+            self.grid.setCurrentCell(r, c)
+            return
+        if k == "gross_wt" and not ln.get("stones") and not ln.get("_breakup_asked"):
+            # As the legacy screen: the gross typed, the breakup pop-up opens.
+            ln["_breakup_asked"] = True
+            QTimer.singleShot(0, lambda row=r: self._breakup_row(row))
+        self._next_cell(r, c)
+
+    def _next_cell(self, r: int, c: int) -> None:
+        """Enter moves on to the next box to type, then the next line."""
+        nxt = next((i for i in range(c + 1, len(self.cols)) if self.cols[i][2]), None)
+        if nxt is None:
+            r, nxt = r + 1, next(i for i, x in enumerate(self.cols) if x[0] == "sku")
+        if r < self.grid.rowCount():
+            self.grid.setCurrentCell(r, nxt)
+
     @staticmethod
     def _refine(ln: dict) -> None:
         """FineWt follows a new N-Wt: net x title / 1000."""
@@ -1232,11 +1606,14 @@ class ReadyVoucherWidget(_Screen):
         net = D(str(ln.get("net_wt") or 0))
         ln["metal_amount"] = (net * D(str(ln.get("metal_rate") or 0))).quantize(D("0.01"))
         ln["stone_amount"] = sum((S.stone_amount(s) for s in ln.get("stones") or []), D(0))
-        ln["labour"] = S.labour_amount(ln.get("labour_rate"), ln.get("labour_per") or "gm",
-                                       net, ln.get("pcs"))
+        per = ln.get("labour_per") or "gm"
+        base = D(str(ln.get("gross_wt") or 0)) if per == "gw" else net
+        ln["labour"] = S.labour_amount(ln.get("labour_rate"), per, base, ln.get("pcs"))
         ln["total"] = (ln["metal_amount"] + ln["stone_amount"]
                        + D(str(ln.get("setting_amount") or 0)) + ln["labour"]
-                       + D(str(ln.get("other_amount") or 0))).quantize(D("0.01"))
+                       + D(str(ln.get("other_amount") or 0))
+                       + D(str(ln.get("st_handling") or 0))
+                       + D(str(ln.get("finding_labour") or 0))).quantize(D("0.01"))
         self._margin(ln)
 
     @staticmethod
@@ -1272,7 +1649,7 @@ class ReadyVoucherWidget(_Screen):
 
     def _selected(self) -> int | None:
         rows = self.grid.selectionModel().selectedRows()
-        if not rows or not self.lines:
+        if not rows or not self.lines or rows[0].row() >= len(self.lines):
             _info(self, self.t.title, "Select a line first.")
             return None
         return rows[0].row()
@@ -1307,11 +1684,25 @@ class ReadyVoucherWidget(_Screen):
             self.lines.pop(r)
             self._render()
 
-    def stone_breakup(self) -> None:
-        r = self._selected()
+    def _breakup_row(self, r: int) -> None:
+        if 0 <= r < len(self.lines):
+            self.grid.selectRow(r)
+            self.stone_breakup(r)
+
+    def stone_breakup(self, row: int | None = None) -> None:
+        r = row if row is not None else self._selected()
         if r is None:
             return
         ln = self.lines[r]
+        if self.vr_type in S.NEW_PIECES and not ln.get("_line_id"):
+            dlg = PurchaseBreakupDialog(ln, self)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                dlg.apply(ln)
+                self._refine(ln)
+                self._recalc_line(ln)
+                self._render()
+                self.grid.selectRow(r)
+            return
         dlg = StoneBreakupDialog(ln.get("stones") or [], self,
                                  full=self.vr_type in S.NEW_PIECES and not ln.get("_line_id"))
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -1405,7 +1796,8 @@ class ReadyVoucherWidget(_Screen):
                                    **{k: getattr(l, k) for k, _h, _e in self.cols
                                       if hasattr(l, k)},
                                    "stock_no": item.stock_no if item else "",
-                                   "stones": json.loads(l.stones_json or "[]")})
+                                   "stones": json.loads(l.stones_json or "[]"),
+                                   "breakup": json.loads(l.breakup_json or "{}")})
                 if self.vr_type in S.NEW_PIECES:
                     ln = self.lines[-1]
                     ln["_tag_typed"] = bool(l.tag_price)
@@ -1468,6 +1860,9 @@ class ReadyVoucherWidget(_Screen):
         extra = (f" New Stock No {', '.join(map(str, nos))}." if self.vr_type in S.NEW_PIECES
                  else "")
         self.totals.setText(f"Saved {self.t.title} Vr {vr}.{extra} Print prints it.")
+        if self.vr_type in S.NEW_PIECES and nos:
+            # As the legacy screen: the Bar-Code Tag List opens on Save.
+            QTimer.singleShot(0, self.tag_print)
 
     def delete_voucher(self) -> None:
         vid = self._edit_id or self._pick_voucher(f"Delete — pick the {self.t.title}")

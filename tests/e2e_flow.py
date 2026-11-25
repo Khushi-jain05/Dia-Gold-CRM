@@ -357,6 +357,21 @@ with SessionLocal() as s:
     check("bought piece in stock with barcode", (bought.status, bought.source), ("in_stock", "purchase"))
     refused("Delete History & Purchase on a bought piece", lambda: MF.delete_stock_item(s, bought))
     s.rollback()
+    # The legacy breakup pop-up (24 Nov): St.Handling, Finding Labour, Ex Metal
+    # Amt, Stamp and the Finding / Metal rows are kept on the line.
+    import json as _j
+    rp2 = S.post_ready(s, "rp_purchase", {"vr_date": T, "account_id": sup.id},
+                       [{"product_sku_id": sku.id, "location_id": prim.id, "metal_id": m590.id, "pcs": 1,
+                         "gross_wt": "40", "net_wt": "38.908", "total": "420257.63", "margin_pct": "50",
+                         "margin_amount": "210128.82", "total_value": "630386.45", "tag_price": "630",
+                         "other_amount": "100", "st_handling": "25", "finding_labour": "150", "stamp": "916",
+                         "breakup": {"findings": [{"finding": "HOOK", "value": "150"}], "metals": [], "labour_type": "STD"},
+                         "stones": []}])
+    l2 = rp2.lines[0]
+    check("purchase keeps St.Handling / Finding Labour / Stamp / breakup rows",
+          (D(str(l2.st_handling)), D(str(l2.finding_labour)), l2.stamp, _j.loads(l2.breakup_json)["findings"][0]["finding"],
+           D(str(rp2.total))), (D("25"), D("150"), "916", "HOOK", D("630386.45")))
+    s.rollback()
     S.post_ready(s, "rp_return", {"vr_date": T, "account_id": sup.id}, [line(bought)]); s.commit()
     check("returned to supplier", bought.status, "returned")
     refused("opening piece with TAG 0 (9 Oct #12)", lambda: S.post_ready(s, "rp_opening", {"vr_date": T}, [{"product_sku_id": sku.id, "location_id": prim.id, "pcs": 1, "gross_wt": "5", "net_wt": "4", "total": "0"}]))

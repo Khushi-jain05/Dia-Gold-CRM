@@ -114,6 +114,14 @@ class ReadyVoucherLine(Base, PKMixin):
     tag_price: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     # Stone breakup as valued: [{label, s_type, size, pcs, weight, unit, price}].
     stones_json: Mapped[str] = mapped_column(Text, default="[]")
+    # The rest of the legacy breakup pop-up (24 Nov): St.Handling Total,
+    # Finding Labour (its Finding rows) and Stamp; the Finding / Labour /
+    # Metal rows themselves as {"findings": [...], "metals": [...],
+    # "labour_type": "STD"}. Ex Metal Amt is other_amount.
+    st_handling: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    finding_labour: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    stamp: Mapped[str] = mapped_column(String(24), default="")
+    breakup_json: Mapped[str] = mapped_column(Text, default="{}")
     # Sold against an order line (From Order): updates its Shipped / Bal.
     order_line_id: Mapped[int | None] = mapped_column(ForeignKey("order_lines.id"),
                                                       nullable=True)
