@@ -998,6 +998,12 @@ class ReadyVoucherWidget(_Screen):
         auto_fit(self.grid)
         if new:
             self._inline_lists()
+            # A click on a box opens it with its List of ... at once, and Enter
+            # moving on opens the next one - as the legacy grid (25 Nov: "list
+            # nhi dikh rhi" - a single click opened nothing).
+            self.grid.setEditTriggers(self.grid.editTriggers()
+                                      | QAbstractItemView.EditTrigger.CurrentChanged
+                                      | QAbstractItemView.EditTrigger.SelectedClicked)
         self.outer.addWidget(self.grid, 1)
         self.narration = QLineEdit()
         self.narration.setPlaceholderText("Narration")
