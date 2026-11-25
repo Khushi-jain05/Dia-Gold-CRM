@@ -295,6 +295,11 @@ def _pick_box(w: QWidget | None) -> QComboBox | None:
     from diagold.ui.manual_input import MANUAL
     if combo is None or not combo.property(MANUAL) or not combo.isEnabled():
         return None
+    if w is not combo and w is not combo.lineEdit():
+        # Only the box and its text field - never the box's own drop-down
+        # pop-up: on the Mac it opens over the box and the list was built
+        # inside it, a strip reading "List" that took the typing (25 Nov).
+        return None
     if owner_side_list(combo) is not None:
         return None                         # the screen has its own panel
     return combo

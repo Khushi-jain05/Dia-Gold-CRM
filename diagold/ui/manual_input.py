@@ -248,6 +248,12 @@ class _Filter(QObject):
             obj.parent() if isinstance(obj.parent(), QComboBox) else None)
         if combo is None or not combo.property(MANUAL):
             return False
+        if et == QEvent.Type.Show and obj is not combo and obj.isWindow():
+            # The box's own drop-down never opens (the Mac opened it over the
+            # box on a click and typing stopped, 25 Nov): back to typing, with
+            # the List of ... beside the box instead.
+            QTimer.singleShot(0, lambda c=combo: _back_to_typing(c))
+            return False
         if et == QEvent.Type.Wheel:
             ev.ignore()
             return True
@@ -272,6 +278,15 @@ class _Filter(QObject):
             combo.lineEdit().setFocus()
             return True
         return False
+
+
+def _back_to_typing(combo: QComboBox) -> None:
+    try:
+        combo.hidePopup()
+        if combo.lineEdit() is not None and combo.isVisible():
+            combo.lineEdit().setFocus()
+    except RuntimeError:          # the box is gone
+        pass
 
 
 _installed: _Filter | None = None
