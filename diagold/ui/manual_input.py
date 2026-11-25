@@ -272,6 +272,13 @@ class _Filter(QObject):
                 ev.key() == Qt.Key.Key_Down
                 and ev.modifiers() & Qt.KeyboardModifier.AltModifier)):
             return True
+        if et in (QEvent.Type.MouseButtonRelease, QEvent.Type.KeyPress) \
+                and obj is combo.lineEdit():
+            # A click or a key in the box: its List of ... beside it, whatever
+            # the focus did (25 Nov, the Mac: "list hi side m show nhi ho rhi").
+            from diagold.ui.side_list import owner_side_list, show_list
+            if owner_side_list(combo) is None:
+                QTimer.singleShot(0, lambda c=combo: show_list(c))
         if et in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonDblClick) \
                 and obj is combo:
             # The arrow area (zero wide now) would open the list.

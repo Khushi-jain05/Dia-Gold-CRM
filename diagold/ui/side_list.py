@@ -222,9 +222,10 @@ class FloatingList(QFrame):
 
     def show_for(self, combo: QComboBox) -> None:
         win = self.parentWidget()
-        if win is None or win.height() < 200 or win is not combo.window():
-            return                  # never inside a pop-up or a strip of a window
-        if combo is not self.combo:
+        if win is None or win is not combo.window():
+            return                  # never inside a pop-up
+        same = combo is self.combo
+        if not same:
             self.combo = combo
             label = field_label(combo)
             self.title.setText(f"List of {label}" if label else "List")
@@ -232,7 +233,11 @@ class FloatingList(QFrame):
                 combo.setProperty(_WIRED, True)
                 combo.lineEdit().textEdited.connect(
                     lambda text, c=combo: self._typed(text) if c is self.combo else None)
-        self._fill("")
+        if same and self.isVisible():
+            return                      # already up, narrowed to what is typed
+        le = combo.lineEdit()
+        typed = le.text() if le is not None and le.isModified() else ""
+        self._fill(typed)
         self._place(combo)
         self.show()
         self.raise_()
@@ -343,8 +348,48 @@ def floating_for(win: QWidget, make: bool = True) -> FloatingList | None:
     return fl
 
 
+def _popup_owner(w: QWidget | None) -> QComboBox | None:
+    """The pick box whose own drop-down ``w`` sits in, if any."""
+    from diagold.ui.manual_input import MANUAL
+    p = w
+    while p is not None:
+        if p.isWindow():
+            owner = p.parent()
+            if isinstance(owner, QComboBox) and owner.property(MANUAL):
+                return owner
+            return None
+        p = p.parentWidget()
+    return None
+
+
+def show_list(combo: QComboBox) -> None:
+    """The List of ... beside ``combo`` now (a click or a key in the box)."""
+    try:
+        if _pick_box(combo.lineEdit() or combo) is None or combo.count() <= 1:
+            return
+        floating_for(combo.window()).show_for(combo)
+    except RuntimeError:
+        pass
+
+
 def _focus_changed(old: QWidget | None, new: QWidget | None) -> None:
     try:
+        owner = _popup_owner(new)
+        if owner is not None:
+            # The Mac opened the box's own drop-down and gave it the keys
+            # (25 Nov): shut it, typing goes back to the box, the list beside.
+            from PySide6.QtCore import QTimer
+
+            def back(c=owner) -> None:
+                try:
+                    c.hidePopup()
+                    if c.lineEdit() is not None:
+                        c.lineEdit().setFocus()
+                    show_list(c)
+                except RuntimeError:
+                    pass
+            QTimer.singleShot(0, back)
+            return
         combo = _pick_box(new)
         if old is not None:
             prev = floating_for(old.window(), make=False)
