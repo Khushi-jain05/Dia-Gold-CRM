@@ -1069,13 +1069,17 @@ class ReadyVoucherWidget(_Screen):
         self.cl_bal.setMinimumWidth(160)
         for r, c, w in grid_items:
             head.addWidget(w, r, c)
-            w.show()
         head.setColumnMinimumWidth(2, 30)
         head.setColumnMinimumWidth(6, 30)
         head.setColumnStretch(10, 1)
         head.addWidget(self.photo, 0, 11, 3, 1)
-        self.photo.show()
         self.outer.insertLayout(1, head)
+        # Shown only once they sit in the screen (25 Nov: a box shown with no
+        # parent became a window of its own for a moment, the List of
+        # Supplier was built inside it and covered the box).
+        for _r, _c, w in grid_items:
+            w.show()
+        self.photo.show()
         # -- ACCOUNT INFORMATION (Dr Purchase A/c / Cr the supplier) --------
         self.outer.removeWidget(self.accounts)
         self.accounts.hide()
@@ -1105,11 +1109,13 @@ class ReadyVoucherWidget(_Screen):
                                    self.bill_no, cap("Bill Account"), self.bill_acct,
                                    cap("Bill Amt"), self.bill_amt)):
                 bill.addWidget(w, 0, c)
-                w.show()
         bill.addWidget(cap("Remark"), 1, 0)
         bill.addWidget(self.narration, 1, 1, 1, 5)
         bill.setColumnStretch(8, 1)
         self.outer.insertLayout(idx + 2, bill)
+        for i in range(bill.count()):          # shown once in the screen (25 Nov)
+            if bill.itemAt(i).widget() is not None:
+                bill.itemAt(i).widget().show()
         # -- the buttons, at the foot, in the legacy order -------------------
         foot = FlowLayout(spacing=6)
         # The line is typed in the grid (24 Nov), so no Add Piece form.

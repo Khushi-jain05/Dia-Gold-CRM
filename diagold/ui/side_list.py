@@ -317,6 +317,8 @@ def _pick_box(w: QWidget | None) -> QComboBox | None:
     from diagold.ui.manual_input import MANUAL
     if combo is None or not combo.property(MANUAL) or not combo.isEnabled():
         return None
+    if combo.isWindow() or combo.window() is combo:
+        return None                         # a box not yet in its screen
     if w is not combo and w is not combo.lineEdit():
         # Only the box and its text field - never the box's own drop-down
         # pop-up: on the Mac it opens over the box and the list was built
@@ -340,7 +342,9 @@ def owner_side_list(w: QWidget) -> "SideList | None":
 
 
 def floating_for(win: QWidget, make: bool = True) -> FloatingList | None:
-    fl = win.findChild(FloatingList, _LIST)
+    # The window's own panel only - never one left inside a box that was a
+    # window for a moment and then went into a screen (25 Nov, Supplier).
+    fl = win.findChild(FloatingList, _LIST, Qt.FindChildOption.FindDirectChildrenOnly)
     if fl is None and make:
         fl = FloatingList(win)
         fl.setObjectName(_LIST)
