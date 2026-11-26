@@ -40,6 +40,12 @@ from diagold.db.models.sku import Item, ProductSku, ProductSkuStone, StoneMaster
 
 ZERO = Decimal("0")
 
+# The legacy year the go-live import was linked to (12 Nov). Its IDs are kept
+# as they are; another year's database (DiaGold25, DG_24 ...) numbers its rows
+# on its own, so the same ID there can be a different party or SKU - its links
+# carry the database name and its rows are matched by name / code instead.
+MAIN_DB = "Diagold26"
+
 
 # --------------------------------------------------------------------------
 # Reading the legacy database
@@ -172,23 +178,25 @@ class Importer:
             (k, lid): t for k, lid, t in session.execute(
                 select(LegacyLink.kind, LegacyLink.legacy_id, LegacyLink.target_id))}
         self.ids: dict[str, dict[Any, Any]] = {}   # kind -> legacy id -> our row
+        self.tag = "" if key(legacy.database) == key(MAIN_DB) else f"{legacy.database}:"
         self._indexes: dict[tuple[Any, str], dict[str, Any]] = {}
 
     # -- links ---------------------------------------------------------------
     def link(self, kind: str, lid: Any, row) -> None:
-        k = (kind, str(lid))
+        lid = f"{self.tag}{lid}"
+        k = (kind, lid)
         if self._links.get(k) == row.id:
             return
         if k in self._links:
             ln = self.s.scalar(select(LegacyLink).where(LegacyLink.kind == kind,
-                                                        LegacyLink.legacy_id == str(lid)))
+                                                        LegacyLink.legacy_id == lid))
             ln.target_id = row.id
         else:
-            self.s.add(LegacyLink(kind=kind, legacy_id=str(lid), target_id=row.id))
+            self.s.add(LegacyLink(kind=kind, legacy_id=lid, target_id=row.id))
         self._links[k] = row.id
 
     def linked(self, model, kind: str, lid: Any):
-        t = self._links.get((kind, str(lid)))
+        t = self._links.get((kind, f"{self.tag}{lid}"))
         return self.s.get(model, t) if t else None
 
     def _index(self, model, attr: str) -> dict[str, Any]:
@@ -276,6 +284,9 @@ class Importer:
         return self.report
 
     def run_all(self, openings_as_of=None) -> Report:
+        if openings_as_of is not None and self.tag:
+            raise ValueError(f"The opening stock is loaded only from {MAIN_DB}, the current "
+                             f"year - not from {self.L.database}.")
         self.run_masters()
         self.product_skus()
         self.s.flush()
